@@ -3,15 +3,19 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing draft tag, e.g. standard-v0.1.0"
+        description: "Existing draft tag, e.g. standard-v0.1.1"
         type: string
         required: true
       acceptance_json:
-        description: "Completed acceptance receipt for this exact commit/game digest (see template)"
+        description: "Exact review receipt: true only for completed checks (see template)"
         type: string
         required: true
+      prerelease:
+        description: "Publish all installers for testing, disclose unfinished checks, and DO NOT advance the stable channel"
+        type: boolean
+        default: false
       first_release:
-        description: "First publication only: permit creating a previously missing update channel"
+        description: "Stable publication only: permit creating a previously missing update channel"
         type: boolean
         default: false
 permissions:
@@ -21,6 +25,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   publish:
+    if: github.repository == 'Nicartjay/pokebonk-offline-standard' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     environment: release-publication
     permissions:
@@ -40,10 +45,11 @@ jobs:
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           GH_TOKEN: ${{ github.token }}
-      - name: Record the explicit human acceptance receipt
+      - name: Record the explicit human review without inventing test outcomes
         run: node --input-type=module -e 'import {writeFile} from "node:fs/promises"; const r=JSON.parse(process.env.ACCEPTANCE_JSON); await writeFile("standard/release/acceptance.json",JSON.stringify(r),{mode:0o600});'
         env: {ACCEPTANCE_JSON: "${{ inputs.acceptance_json }}"}
-      - name: Publish only after device, save-compatibility and licensing approval
+      - name: Publish stable only after device, save-compatibility and licensing approval
+        if: ${{ !inputs.prerelease }}
         shell: bash
         run: |
           args=(--approve-publication)
@@ -52,3 +58,98 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FIRST_RELEASE: ${{ inputs.first_release }}
+      - name: Publish an explicitly approved prerelease without changing the stable channel
+        if: ${{ inputs.prerelease }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFile, writeFile, appendFile, stat} from "node:fs/promises";
+          import {execFileSync} from "node:child_process";
+          import {isDeepStrictEqual} from "node:util";
+          import path from "node:path";
+          import {verifyManifest} from "./standard/common/manifest.mjs";
+          import {releaseFiles} from "./standard/scripts/assemble-release.mjs";
+          import {verifyReleaseFiles} from "./standard/scripts/publish.mjs";
+
+          const capture = (cmd, args) => execFileSync(cmd, args, {encoding: "utf8", stdio: ["ignore", "pipe", "pipe"]}).trim();
+          const config = JSON.parse(await readFile("standard/config.json", "utf8"));
+          const directory = "standard/release", tag = process.env.RELEASE_TAG;
+          const manifest = verifyManifest(await readFile(path.join(directory, "standard-update.json")), config);
+          const review = JSON.parse(await readFile(path.join(directory, "acceptance.json"), "utf8"));
+          const template = JSON.parse(await readFile("standard/acceptance.template.json", "utf8"));
+          const checks = Object.keys(template).filter(key => typeof template[key] === "boolean");
+          if (config.repository !== "Nicartjay/pokebonk-offline-standard" ||
+              process.env.GITHUB_REPOSITORY !== config.repository ||
+              tag !== `standard-v${config.version}` || manifest.version !== config.version ||
+              capture("git", ["status", "--porcelain"]) ||
+              capture("git", ["rev-parse", "HEAD"]) !== manifest.source.commit ||
+              capture("git", ["rev-parse", `refs/tags/${tag}^{commit}`]) !== manifest.source.commit) {
+            throw new Error("Prerelease must use the exact clean tagged, signed source in the configured repository.");
+          }
+          if (review.version !== manifest.version || review.sourceCommit !== manifest.source.commit ||
+              review.gameDigest !== manifest.source.gameDigest || review.approvedBy !== process.env.GITHUB_ACTOR ||
+              !Number.isFinite(Date.parse(review.approvedAt)) ||
+              checks.some(key => typeof review[key] !== "boolean") || review.automatedTests !== true) {
+            throw new Error("A truthful exact-release review and passing automated tests are required even for a prerelease.");
+          }
+          const artifacts = await verifyReleaseFiles(directory, config, manifest);
+          const expected = [...releaseFiles(config, artifacts), "SHA256SUMS.txt"].sort();
+          if (Object.keys(artifacts).length !== 10 || expected.length !== 19) throw new Error("All ten signed distributions are required.");
+          // The CLI resolves authenticated drafts as well as published releases.
+          const view = ["release", "view", tag, "--repo", config.repository,
+            "--json", "id,tagName,isDraft,isPrerelease,assets,url"];
+          const release = JSON.parse(capture("gh", view));
+          if (release.isDraft !== true || release.tagName !== tag ||
+              !isDeepStrictEqual(release.assets.map(asset => asset.name).sort(), expected)) {
+            throw new Error("Only an unpublished draft containing the complete verified release can be published.");
+          }
+          for (const asset of release.assets) {
+            if (asset.state !== "uploaded" || asset.size !== (await stat(path.join(directory, asset.name))).size) {
+              throw new Error("Remote release upload is incomplete or its size differs.");
+            }
+          }
+          const unfinished = checks.filter(key => !review[key]);
+          const labels = {
+            automatedTests: "Automated regression tests",
+            macArm64Gameplay: "Apple Silicon Mac gameplay",
+            macIntelGameplay: "Intel Mac gameplay",
+            windowsGameplay: "Windows gameplay",
+            linuxGameplay: "Linux gameplay",
+            physicalAndroidGameplay: "Physical Android gameplay",
+            offlineGameplay: "Offline/airplane-mode gameplay",
+            fullscreenInputAudioTouch: "Fullscreen, input capture, audio and touch controls",
+            saveExportImportRestart: "Save export/import and process restart",
+            backgroundProcessDeath: "Android background/process termination",
+            upgradePreservesIdentityAndProgress: "Upgrade installation preserving identity and progress",
+            corruptUpdatesRejected: "Corrupt and incompatible updates rejected",
+            licensingReviewed: "Upstream game and asset redistribution-permission/licensing review",
+          };
+          const notes = [
+            "## Initial prerelease — all platforms",
+            "",
+            "Published for testing with the maintainer's explicit approval. This is not a fully device-validated stable release.",
+            "All ten distributions, the Android signing identity, signed update metadata, and checksums were verified.",
+            "The stable automatic-update channel is unchanged.",
+            "",
+            "### Review status",
+            `Approved by ${review.approvedBy} at ${review.approvedAt}.`,
+            ...(unfinished.length ? ["", "The following acceptance items are NOT recorded as complete:",
+              ...unfinished.map(key => `- ${labels[key] ?? key}`)] : ["All review items were recorded as complete; publication is still a prerelease."]),
+            "",
+            "---",
+            "",
+            manifest.notes,
+          ].join("\n");
+          const notesFile = path.join(process.env.RUNNER_TEMP, "prerelease-notes.md");
+          await writeFile(notesFile, notes);
+          execFileSync("gh", ["release", "edit", tag, "--repo", config.repository, "--verify-tag",
+            "--draft=false", "--prerelease", "--latest=false", "--notes-file", notesFile], {stdio: "inherit"});
+          const published = JSON.parse(capture("gh", view));
+          if (published.isDraft || !published.isPrerelease || published.id !== release.id) throw new Error("Prerelease publication was not confirmed.");
+          await appendFile(process.env.GITHUB_STEP_SUMMARY,
+            `Published all ten installers as a prerelease: ${published.url}\n\nStable update discovery was not changed.\n`);
+          console.log(`Published verified prerelease: ${published.url}`);
+          NODE

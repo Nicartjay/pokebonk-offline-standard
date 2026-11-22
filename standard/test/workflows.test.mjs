@@ -64,12 +64,39 @@ test("all installer jobs reuse one prepared payload and cannot publish publicly"
   assert.equal(cleanup.permissions.contents, "read");
   assert.ok(cleanup.steps.some(s => s.run === "node standard/scripts/prune-artifacts.mjs --apply"));
 });
-test("public publication requires manual dispatch, acceptance and a separate protected environment", async () => {
+test("stable publication requires manual dispatch, full acceptance and a separate protected environment", async () => {
   const w = await document(".github/workflows/publish-release.yml");
   assert.deepEqual(Object.keys(w.on), ["workflow_dispatch"]);
   assert.equal(w.on.workflow_dispatch.inputs.acceptance_json.required, true);
   assert.equal(w.jobs.publish.environment, "release-publication");
-  assert.ok(w.jobs.publish.steps.some(s => s.run?.includes("--approve-publication")));
+  const stable = w.jobs.publish.steps.find(s => s.run?.includes("--approve-publication"));
+  assert.equal(stable.if, "${{ !inputs.prerelease }}");
   const checks = await document(".github/workflows/checks.yml");
   assert.doesNotMatch(JSON.stringify(checks), /secrets\.|release-signing|contents":"write"/);
+});
+test("explicit all-platform prereleases disclose incomplete checks and cannot advance the stable channel", async () => {
+  const w = await document(".github/workflows/publish-release.yml");
+  assert.equal(w.on.workflow_dispatch.inputs.prerelease.type, "boolean");
+  assert.equal(w.on.workflow_dispatch.inputs.prerelease.default, false);
+  assert.match(w.jobs.publish.if, /github\.repository == 'Nicartjay\/pokebonk-offline-standard'/);
+  assert.match(w.jobs.publish.if, /github\.ref == 'refs\/heads\/main'/);
+  assert.equal(w.jobs.publish.environment, "release-publication");
+  const prerelease = w.jobs.publish.steps.find(s => s.if === "${{ inputs.prerelease }}");
+  assert.ok(prerelease);
+  assert.match(prerelease.run, /verifyManifest/);
+  assert.match(prerelease.run, /await verifyReleaseFiles\(directory, config, manifest\)/);
+  assert.match(prerelease.run, /review\.sourceCommit !== manifest\.source\.commit/);
+  assert.match(prerelease.run, /review\.gameDigest !== manifest\.source\.gameDigest/);
+  assert.match(prerelease.run, /review\.approvedBy !== process\.env\.GITHUB_ACTOR/);
+  assert.match(prerelease.run, /review\.automatedTests !== true/);
+  assert.match(prerelease.run, /checks\.some\(key => typeof review\[key\] !== "boolean"\)/);
+  assert.match(prerelease.run, /Object\.keys\(artifacts\)\.length !== 10 \|\| expected\.length !== 19/);
+  assert.match(prerelease.run, /release\.isDraft !== true/);
+  assert.match(prerelease.run, /asset\.state !== "uploaded"/);
+  assert.match(prerelease.run, /unfinished\.map/);
+  assert.match(prerelease.run, /licensingReviewed:/);
+  assert.match(prerelease.run, /"--draft=false", "--prerelease", "--latest=false"/);
+  assert.match(prerelease.run, /published\.id !== release\.id/);
+  assert.doesNotMatch(prerelease.run, /--approve-publication|--clobber|standard-channel|assemble\(\)/);
+  assert.doesNotMatch(prerelease.run, /"release", "upload"|"release", "create"|PRIVATE_KEY|credentials\.json/);
 });

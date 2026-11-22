@@ -184,6 +184,29 @@ release and advances only signed `standard-channel/standard-update.json`.
 Published versioned assets are never overwritten; previous releases stay available.
 If publication is interrupted, inspect the release/channel before retrying.
 
+### Optional initial prerelease, without asserting full acceptance
+
+If the maintainer explicitly chooses to share every platform before the full
+device checklist is complete, run the same **Publish approved release** workflow
+**from main**, using the exact existing draft tag and enabling **prerelease**.
+Supply a truthful review receipt: passing `automatedTests` is mandatory, and
+unconfirmed checklist items must remain `false`. `approvedBy` must match the
+dispatching GitHub account. The protected **release-publication** owner approval
+is still required, as are the original Android and update-signing identities.
+Private signing keys remain on the build Mac.
+
+This path independently re-verifies the signature, exact tagged source, all ten
+installers, 19 remote assets, receipts and checksums. It publishes only the
+already-verified draft as a **prerelease**, lists unfinished acceptance items in
+its public notes, and never creates or advances `standard-channel` or marks the
+release Latest. `first_release` has no effect in this mode. Prerelease status does
+not grant third-party asset redistribution rights or establish licensing review.
+
+The stable path still requires every original device/save/licensing check to be
+true. Published prerelease files are immutable too: use a new app version and
+Android versionCode for a subsequent stable release rather than replacing these
+downloads. Installed apps will not discover an initial prerelease automatically.
+
 ## Installed-app updates
 
 Apps check the **public GitHub channel**, not the website, on launch/foregrounding
