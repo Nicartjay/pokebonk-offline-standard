@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {EventEmitter} from "node:events";
-import {installAndroidSafeArea, projectAndroidInsets} from "../runtime/android-ui.js";
+import {readFile} from "node:fs/promises";
+import {ANDROID_UI_SCALE, androidPresentationSettings, installAndroidSafeArea, projectAndroidInsets} from "../runtime/android-ui.js";
 
 const geometry = {width: 2400, height: 1080, left: 120, top: 48, right: 48, bottom: 66};
 test("Android inset projection respects physical density and rounds toward safety", () => {
@@ -35,7 +36,7 @@ test("one-way safe insets reapply on viewport changes without expanding the stor
   const doc = {documentElement: {dataset: {}, style: {setProperty: (key, value) => styles.set(key, value)}}};
   const dispose = installAndroidSafeArea({window: win, document: doc});
   assert.equal(doc.documentElement.dataset.standardPlatform, "android");
-  assert.equal(styles.size, 0); // CSS supplies the pre-measurement fallback.
+  assert.equal(styles.get("--standard-android-ui-scale"), "0.9");
   const detail = {...geometry};
   events.emit("standard:android-insets", {detail});
   assert.equal(styles.get("--standard-android-safe-left"), "40px");
@@ -49,4 +50,22 @@ test("one-way safe insets reapply on viewport changes without expanding the stor
   dispose();
   assert.equal(events.listenerCount("resize"), 0);
   assert.equal(events.listenerCount("standard:android-insets"), 0);
+});
+
+test("Android HUD/touch scaling is ten percent smaller without changing saved preferences or desktop", () => {
+  const native = {PokeBonkStandardAndroid: {}}, settings = {hudScale: 1, touchScale: 1.2, music: .7};
+  assert.equal(ANDROID_UI_SCALE, .9);
+  assert.deepEqual(androidPresentationSettings(settings, native), {hudScale: .9, touchScale: 1.08, music: .7});
+  assert.deepEqual(settings, {hudScale: 1, touchScale: 1.2, music: .7});
+  assert.deepEqual(androidPresentationSettings({}, native), {hudScale: .9, touchScale: .9});
+  for (const win of [{}, {PokeBonkStandard: {}}, {...native, PokeBonkStandard: {}}]) {
+    assert.equal(androidPresentationSettings(settings, win), settings);
+  }
+});
+
+test("Android no longer maps measured corners into game margins or adds HUD/screen insets", async () => {
+  const css = await readFile("standard/runtime/offline.css", "utf8");
+  const android = css.slice(css.indexOf("/* ANDROID ONLY."));
+  assert.doesNotMatch(android, /--s[lrbt]\s*:|--standard-android-inset-|#hud|#ui \.screen|scroll-padding/);
+  assert.match(android, /\.tc \.tc-sm/);
 });

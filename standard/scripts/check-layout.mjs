@@ -129,8 +129,9 @@ try {
     });
     // Upstream deliberately scales the mobile layout viewport to fit short
     // phones. DOM geometry is in layout CSS pixels, not screen/device pixels.
-    const safe = Object.fromEntries(Object.entries(androidInsets).map(([side, value]) =>
-      [side, Math.ceil(value * (["left", "right"].includes(side) ? geometry.viewport.width / size[0] : geometry.viewport.height / size[1]))]));
+    // Native geometry now locates only the app's ⋮ button. It must not add a
+    // rounded-corner border or shift the game's normal content inward.
+    const safe = {left: 0, top: 0, right: 0, bottom: 0};
     assert.ok(geometry.scrollWidth <= geometry.clientWidth + 2, `${screen} has horizontal overflow at ${size}`);
     for (const sprite of geometry.sprites) assert.ok(sprite.alphaBounds.hiddenFraction <= .05,
       `Character pixels are clipped/covered at ${size}: ${JSON.stringify(sprite)}`);
@@ -331,10 +332,13 @@ try {
       const wasTouch = document.documentElement.classList.contains("touch");
       for (const touch of [false, true]) for (const scale of [.65, 1, 1.3]) {
         document.documentElement.classList.toggle("touch", touch);
-        fixture.style.setProperty("--tcs", String(scale));
+        const effective = window.PokeBonkOfflineUI.presentationSettings({hudScale: 1, touchScale: scale});
+        fixture.style.setProperty("--tcs", String(effective.touchScale));
+        fixture.querySelector("#hud").style.setProperty("--hs", String(effective.hudScale));
         for (const node of fixture.querySelectorAll(".tc-pause,.tc-jump,.tc-stick,.hud-tl,.hud-top,.hud-tr,.hud-bl,.hud-br")) {
           const r = node.getBoundingClientRect();
-          if (r.width && r.height) results.push({touch, scale, control: node.className, left: r.left, top: r.top, right: r.right, bottom: r.bottom});
+          if (r.width && r.height) results.push({touch, scale, effective, control: node.className,
+            left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height});
         }
       }
       document.documentElement.classList.toggle("touch", wasTouch);
@@ -344,17 +348,22 @@ try {
         canvas: {left: canvas.left, top: canvas.top, width: canvas.width, height: canvas.height}};
     }, androidInsets);
     for (const box of controls.results) {
-      assert.ok(box.left >= androidInsets.left * controls.viewport.width / 800 - 1 &&
-        box.right <= controls.viewport.width * (1 - androidInsets.right / 800) + 1 &&
-        box.top >= androidInsets.top * controls.viewport.height / 360 - 1 &&
-        box.bottom <= controls.viewport.height * (1 - androidInsets.bottom / 360) + 1,
-      `Android control crosses safe edge: ${JSON.stringify(box)}`);
+      assert.ok(box.left >= -1 && box.right <= controls.viewport.width + 1 &&
+        box.top >= -1 && box.bottom <= controls.viewport.height + 1,
+      `Android control leaves the normal viewport: ${JSON.stringify(box)}`);
+      assert.equal(box.effective.hudScale, .9);
+      assert.ok(Math.abs(box.effective.touchScale - box.scale * .9) < 1e-9);
+      if (box.control.includes("tc-pause")) {
+        assert.ok(Math.abs(box.width - 45) <= 1 && Math.abs(box.height - 45) <= 1, "Android toolbar is not 10% smaller.");
+        assert.ok(box.top < 16, "The removed corner margin still pushes Android controls inward.");
+      }
+      if (box.control === "hud-tl") assert.ok(box.left <= 15 && box.top <= 13, "Android HUD retains an extra corner inset.");
     }
     assert.equal(controls.canvas.left, 0);
     assert.equal(controls.canvas.top, 0);
     assert.ok(Math.abs(controls.canvas.width - controls.viewport.width) <= 1 &&
       Math.abs(controls.canvas.height - controls.viewport.height) <= 1, "Android game background is no longer full-bleed.");
-    results.push({phase: "android-corner-controls", controls});
+    results.push({phase: "android-normal-edge-controls", controls});
   }
   assert.deepEqual(errors, []);
   assert.deepEqual(requests, []);

@@ -1,11 +1,12 @@
 import {build, Platform, Arch} from "electron-builder";
-import {cp, mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import {cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {execFileSync} from "node:child_process";
 import {createRequire} from "node:module";
 import path from "node:path";
 import os from "node:os";
 import {DISTRIBUTIONS, artifactName} from "../common/manifest.mjs";
 import {desktopConfiguration} from "../packaging/desktop-config.mjs";
+import {MAC_HELPER_SUFFIXES, validateMacBundleNames} from "../packaging/macos-bundle.mjs";
 import {describeArtifact, writeReceipt} from "./release-files.mjs";
 import {verifyPayload} from "./verify.mjs";
 
@@ -49,6 +50,15 @@ try {
       CFBundleIdentifier: config.applicationId, CFBundleShortVersionString: config.version})) {
       if (execFileSync("plutil", ["-extract", key, "raw", plist], {encoding: "utf8"}).trim().normalize("NFC") !== value.normalize("NFC")) throw new Error(`Wrong packaged macOS ${key}.`);
     }
+    const value = (file, key) => execFileSync("plutil", ["-extract", key, "raw", file], {encoding: "utf8"}).trim();
+    const framework = path.join(bundle, "Contents/Frameworks"), names = await readdir(framework), helpers = {};
+    for (const suffix of MAC_HELPER_SUFFIXES) {
+      const name = `${config.productName.normalize("NFD")}${suffix}.app`;
+      helpers[suffix] = {bundle: names.find(file => file === name),
+        executable: value(path.join(framework, name, "Contents/Info.plist"), "CFBundleExecutable")};
+    }
+    validateMacBundleNames(config.productName, {name: value(plist, "CFBundleName"),
+      displayName: value(plist, "CFBundleDisplayName"), executable: value(plist, "CFBundleExecutable"), helpers});
     execFileSync("codesign", ["--verify", "--deep", "--strict", bundle], {stdio: "inherit"});
   } else if (platform === "win32") {
     const exe = path.join(output, "win-unpacked", `${config.productName}.exe`);

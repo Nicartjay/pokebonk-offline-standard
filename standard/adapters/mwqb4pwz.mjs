@@ -37,6 +37,13 @@ const factory=one(nodesOf(mainTree,"FunctionDeclaration",n=>sourceMain.slice(n.s
 const backendClass=one(nodesOf(factory,"NewExpression"),"backend construction").callee.name;
 const appClass=one(nodesOf(mainTree,"ExportSpecifier",n=>maybeName(n.exported)==="App"),"App export").local.name;
 const resultClass=one(nodesOf(mainTree,"VariableDeclarator",n=>n.init?.type==="ClassExpression"&&n.init.body.body.some(m=>maybeName(m.key)==="recordBlock")),"results class").id.name;
+const hudLook=one(nodesOf(mainTree,"MethodDefinition",n=>maybeName(n.key)==="look"&&
+  sourceMain.slice(n.start,n.end).includes("`--hs`")&&sourceMain.slice(n.start,n.end).includes("touchScale")),"HUD presentation settings");
+const hudSettings=maybeName(hudLook.value.params[0]);
+if(!hudSettings)throw new Error("Unsupported HUD settings parameter.");
+add(main,hudLook,sourceMain.slice(hudLook.start,hudLook.value.body.start+1)+
+  `${hudSettings}=globalThis.PokeBonkOfflineUI.presentationSettings(${hudSettings});`+
+  sourceMain.slice(hudLook.value.body.start+1,hudLook.end));
 
 for (const node of parse(sourceMain).body) {
   if (node.type === "FunctionDeclaration" && node.id.name === factory.id.name) {

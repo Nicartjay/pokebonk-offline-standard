@@ -75,8 +75,8 @@ Use **Actions → Build all installers** on `main`, leaving the tag empty, for t
 candidates. For an intended release, create/push the exact configured version tag:
 
 ```sh
-git tag standard-v0.1.0   # replace with the configured release version
-git push origin standard-v0.1.0
+git tag standard-v0.1.1   # replace with the configured release version
+git push origin standard-v0.1.1
 ```
 
 The tag trigger (or a manual run with an existing tag) builds:
@@ -94,6 +94,11 @@ those internal IDs. Rebuild after changing the filename contract: every native
 updater embeds the full expected distribution set, so renaming installers alone
 would leave installed validators out of sync with release metadata.
 
+Keep macOS `CFBundleName` in exactly the same NFD Unicode spelling as the
+helper executables. `CFBundleDisplayName` retains the visible **PokéBonk Offline**
+name. Electron's child-path guard compares bytes, not just visually identical
+characters; the packager validates these names without Unicode normalization.
+
 The shared job prepares/verifies the game **once**. All native jobs consume that
 exact archive and verify it against the source commit. Desktop bundles are checked
 after packaging. The Android ZIP is streamed without extraction to verify every
@@ -102,6 +107,11 @@ game digest. The final candidate-audit job rehashes all formats together.
 
 Artifacts have **3-day retention**; download/finalize promptly. There are no private
 keys, signing environments or public-release write permissions in this workflow.
+After the complete candidate audit succeeds, an Actions-only cleanup job keeps
+the newest full installer set and removes superseded completed builds' artifacts.
+Incomplete/failed builds cannot replace the retained set. Active/newer runs and
+GitHub Releases are protected; pristine source snapshots and signing keys are
+never part of artifact cleanup.
 `desktop_only` is available for a smaller smoke test, but skips Android and the
 complete audit and therefore cannot be finalized as a release.
 

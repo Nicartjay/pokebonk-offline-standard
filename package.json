@@ -1,7 +1,7 @@
 {
   "name": "pokebonk-offline",
   "productName": "PokéBonk Offline",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "Unofficial offline PokéBonk with normal progression.",

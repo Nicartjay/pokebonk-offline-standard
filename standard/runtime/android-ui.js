@@ -1,4 +1,13 @@
 const sides = ["left", "top", "right", "bottom"];
+export const ANDROID_UI_SCALE = 0.9;
+
+export function androidPresentationSettings(settings, win = globalThis.window) {
+  if (!win?.PokeBonkStandardAndroid || win.PokeBonkStandard || !settings || typeof settings !== "object") return settings;
+  const scaled = value => (Number.isFinite(value) ? value : 1) * ANDROID_UI_SCALE;
+  // Pass a copy through the game's own scale handling so layout, joystick
+  // geometry and touch hit targets agree. Never rewrite the saved preferences.
+  return {...settings, hudScale: scaled(settings.hudScale), touchScale: scaled(settings.touchScale)};
+}
 
 // Native insets arrive in physical pixels. Project into the current CSS
 // viewport instead of assuming every WebView has the same density/scale.
@@ -24,6 +33,7 @@ export function installAndroidSafeArea({window: win = globalThis.window, documen
   if (!win.PokeBonkStandardAndroid || win.PokeBonkStandard) return null;
   const root = doc.documentElement;
   root.dataset.standardPlatform = "android";
+  root.style.setProperty("--standard-android-ui-scale", String(ANDROID_UI_SCALE));
   let geometry;
   const apply = () => {
     const insets = projectAndroidInsets(geometry, win.innerWidth, win.innerHeight);

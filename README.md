@@ -21,10 +21,14 @@ not a claim that it is the newest online game.
 | Android 8+, compatible WebView/WebGL | Signed universal `.apk` | Confirm installation in Android's installer |
 
 macOS downloads use **`macos`** in their filenames, for example
-`pokebonk-offline-0.1.0-macos-arm64.dmg` (Apple Silicon) and
-`pokebonk-offline-0.1.0-macos-x64.dmg` (Intel). Their app ZIPs, checksum entries,
+`pokebonk-offline-0.1.1-macos-arm64.dmg` (Apple Silicon) and
+`pokebonk-offline-0.1.1-macos-x64.dmg` (Intel). Their app ZIPs, checksum entries,
 update URLs and receipt files use the same naming. `darwin` remains an internal
 Electron platform ID, not a download filename.
+
+Android keeps the normal edge-to-edge game layout, with HUD and touch controls
+scaled 10% smaller without modifying saved size preferences. Only the native
+app-menu button reserves its own space; no extra rounded-corner border is added.
 
 All platforms display **PokéBonk Offline** and use the bundled PokéBonk icon.
 The internal edition remains `standard`, and the application ID remains
@@ -46,6 +50,9 @@ Developer ID or Windows publisher certification.
 3. **Build**: one accepted game payload feeds every platform. CI builds nine
    desktop packages and a clearly marked **unsigned Android candidate**, with
    hashes and an audit. CI never receives your private signing keys.
+   After a complete build passes its candidate audit, older completed installer
+   runs' Actions artifacts are removed. The newest complete set is retained;
+   active/newer builds, source snapshots and GitHub Releases are not deleted.
 4. **Finalize and approve**: one local command verifies the completed CI run,
    signs the APK and update metadata with the original keys on your Mac, and can
    prepare an **unpublished draft**. After real-device/licensing acceptance, approve

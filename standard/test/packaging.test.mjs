@@ -7,6 +7,7 @@ import os from "node:os";
 import {DISTRIBUTIONS, PLATFORMS, artifactName, artifactURL, releasePlatform} from "../common/manifest.mjs";
 import {updateDistribution, installationInstructions} from "../desktop/distribution.mjs";
 import {desktopConfiguration} from "../packaging/desktop-config.mjs";
+import {MAC_HELPER_SUFFIXES, validateMacBundleNames} from "../packaging/macos-bundle.mjs";
 import {collectArtifacts, releaseFiles} from "../scripts/assemble-release.mjs";
 import {fileHash, writeReceipt, receiptName} from "../scripts/release-files.mjs";
 import {verifyReleaseFiles} from "../scripts/publish.mjs";
@@ -36,6 +37,7 @@ test("every platform uses the approved PokéBonk name and artwork without changi
   assert.deepEqual(c.linux.target, ["AppImage", "deb"]);
   for (const os of ["mac", "win", "linux"]) assert.ok(c[os].icon.endsWith("icon.png"));
   assert.equal(c.mac.extendInfo.CFBundleDisplayName, production.productName);
+  assert.equal(c.mac.extendInfo.CFBundleName, production.productName.normalize("NFD"));
   assert.equal(c.nsis.shortcutName, production.productName);
   assert.equal(c.linux.desktop.entry.Name, production.productName);
   assert.equal(c.linux.syncDesktopName, true);
@@ -53,6 +55,19 @@ test("every platform uses the approved PokéBonk name and artwork without changi
   const stage = await readFile("standard/scripts/stage-android.mjs", "utf8");
   assert.match(stage, /updateDistributions: DISTRIBUTIONS/);
   assert.match(stage, /standard\/resources\/icon\.png/);
+});
+
+test("macOS rejects visually identical bundle/helper names with different Unicode bytes", () => {
+  const productName = "PokéBonk Offline", internal = productName.normalize("NFD");
+  const helpers = Object.fromEntries(MAC_HELPER_SUFFIXES.map(suffix =>
+    [suffix, {bundle: `${internal}${suffix}.app`, executable: internal + suffix}]));
+  const identity = {name: internal, displayName: productName, executable: internal, helpers};
+  validateMacBundleNames(productName, identity);
+  assert.throws(() => validateMacBundleNames(productName, {...identity, name: productName}), /Unicode/);
+  assert.throws(() => validateMacBundleNames(productName, {...identity, executable: productName}), /Unicode/);
+  assert.throws(() => validateMacBundleNames(productName, {...identity,
+    helpers: {...helpers, " Helper (GPU)": {bundle: `${productName} Helper (GPU).app`, executable: productName + " Helper (GPU)"}}}), /helper/);
+  assert.throws(() => validateMacBundleNames(productName, {...identity, helpers: {}}), /helper/);
 });
 
 test("installer, portable, ZIP, AppImage and DEB updates select the matching distribution", () => {

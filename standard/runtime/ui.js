@@ -1,3 +1,5 @@
+import {androidPresentationSettings} from "./android-ui.js";
+
 const el = (tag, text, className) => {
   const node = document.createElement(tag);
   if (text != null) node.textContent = text;
@@ -104,6 +106,7 @@ export function createFullscreenButton({document: doc = globalThis.document, onE
 
 export function installOfflineUI(config) {
   const api = {
+    presentationSettings(settings) { return androidPresentationSettings(settings); },
     fullscreenButton() {
       return createFullscreenButton({onError: error => globalThis.PokeBonkNativeApp?.notice?.(error.message)});
     },

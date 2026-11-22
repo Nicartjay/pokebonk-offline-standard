@@ -370,62 +370,15 @@
   .offline-appearance .lk-card > .row:last-child { padding-top: 6px; }
 }
 
-/* ANDROID ONLY. Keep the canvas and touch coordinate system full-bleed. Move
-   content and corner controls, not the WebView or the rendered game viewport.
-   Native cutout/rounded-corner measurements replace the conservative 16px
-   fallback after page load, rotation, resize and foreground activation. */
-:root[data-standard-platform="android"] {
-  --standard-android-inset-left: max(env(safe-area-inset-left, 0px), var(--standard-android-safe-left, 16px));
-  --standard-android-inset-top: max(env(safe-area-inset-top, 0px), var(--standard-android-safe-top, 16px));
-  --standard-android-inset-right: max(env(safe-area-inset-right, 0px), var(--standard-android-safe-right, 16px));
-  --standard-android-inset-bottom: max(env(safe-area-inset-bottom, 0px), var(--standard-android-safe-bottom, 16px));
-  --sl: var(--standard-android-inset-left);
-  --st: var(--standard-android-inset-top);
-  --sr: var(--standard-android-inset-right);
-  --sb: var(--standard-android-inset-bottom);
-}
-:root[data-standard-platform="android"] #ui .screen,
-:root[data-standard-platform="android"] #ui .modal {
-  padding: calc(12px + var(--st)) calc(16px + var(--sr)) calc(12px + var(--sb)) calc(16px + var(--sl));
-  scroll-padding: calc(12px + var(--st)) calc(16px + var(--sr)) calc(12px + var(--sb)) calc(16px + var(--sl));
-}
+/* ANDROID ONLY. Restore the game's normal edge positions: no added rounded-
+   corner buffer, whole-screen padding or HUD translation. Gameplay scale is
+   reduced through the game's own settings handler, not by zooming the canvas. */
 :root[data-standard-platform="android"] .screen.offline-menu .mm-top {
-  /* The native 48dp ⋮ button sits over the same full-bleed WebView. */
+  /* Reserve only the native ⋮ menu's own slot, not a border around the game. */
   box-sizing: border-box;
-  padding-right: calc(var(--standard-android-menu-size, 48px) + var(--standard-android-menu-gap, 8px));
+  padding-right: calc(var(--standard-android-safe-right, 0px) + var(--standard-android-menu-size, 48px) + var(--standard-android-menu-gap, 8px));
 }
-:root[data-standard-platform="android"] .offline-modal {
-  /* Keep even a tall recovery dialog clear of the native backup/menu button. */
-  padding: calc(var(--standard-android-menu-size, 48px) + var(--standard-android-menu-gap, 8px) + 8px + var(--st))
-    calc(16px + var(--sr)) calc(12px + var(--sb)) calc(16px + var(--sl));
-}
-:root[data-standard-platform="android"] .offline-card { max-height: 100%; }
-:root[data-standard-platform="android"] .season-modal.offline-appearance {
-  padding-top: calc(var(--standard-android-menu-size, 48px) + var(--standard-android-menu-gap, 8px) + 8px + var(--st));
-}
-:root[data-standard-platform="android"] #hud :is(.hud-tl, .hud-top, .hud-tr) { top: calc(12px + var(--st)); }
-:root[data-standard-platform="android"] #hud .hud-tl {
-  left: calc(14px + var(--sl));
-  max-width: calc(100vw - 28px - var(--sl) - var(--sr));
-}
-:root[data-standard-platform="android"] #hud .hud-tr { right: calc(14px + var(--sr)); }
-:root[data-standard-platform="android"].touch #hud .hud-tr { right: calc(62px * var(--tcs, 1) + 12px + var(--sr)); }
-:root[data-standard-platform="android"]:not(.touch) #hud .hud-bl { left: calc(14px + var(--sl)); bottom: calc(14px + var(--sb)); }
-:root[data-standard-platform="android"]:not(.touch) #hud .hud-br { right: calc(14px + var(--sr)); bottom: calc(14px + var(--sb)); }
-:root[data-standard-platform="android"] #hud:not(.relay) .hud-party { left: calc(22px + var(--sl)); }
-:root[data-standard-platform="android"] #hud.relay .hud-party { right: calc(14px + var(--sr)); bottom: calc(150px + var(--sb)); }
-:root[data-standard-platform="android"] .tc-btn {
-  /* Upstream zooms each button, including its positioning offsets. Do not let
-     reducing the touch-control size also reduce the physical safe margin. */
-  --sl: calc(var(--standard-android-inset-left) / var(--tcs, 1));
-  --st: calc(var(--standard-android-inset-top) / var(--tcs, 1));
-  --sr: calc(var(--standard-android-inset-right) / var(--tcs, 1));
-  --sb: calc(var(--standard-android-inset-bottom) / var(--tcs, 1));
-}
-:root[data-standard-platform="android"] .offline-save-warning {
-  left: calc(16px + var(--sl)); right: calc(16px + var(--sr)); bottom: calc(16px + var(--sb));
-}
-:root[data-standard-platform="android"] .app-notice {
-  max-width: calc(100vw - 32px - var(--sl) - var(--sr));
-  bottom: max(40px, calc(12px + var(--sb)));
+:root[data-standard-platform="android"] .tc .tc-sm {
+  /* Upstream deliberately excludes the small toolbar buttons from touchScale. */
+  zoom: var(--standard-android-ui-scale, .9);
 }

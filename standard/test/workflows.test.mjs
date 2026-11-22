@@ -58,6 +58,11 @@ test("all installer jobs reuse one prepared payload and cannot publish publicly"
   assert.ok(w.jobs.android.steps.some(s => s.run?.endsWith("--unsigned-candidate")));
   assert.ok(w.jobs["verify-candidates"].steps.some(s => s.run?.endsWith("verify-candidates.mjs")));
   assert.doesNotMatch(JSON.stringify(w), /secrets\.|--approve-publication|assemble-release\.mjs|--prepare-draft|release-signing/);
+  const cleanup = w.jobs["prune-artifacts"];
+  assert.deepEqual(cleanup.needs, ["shared", "verify-candidates"]);
+  assert.equal(cleanup.permissions.actions, "write");
+  assert.equal(cleanup.permissions.contents, "read");
+  assert.ok(cleanup.steps.some(s => s.run === "node standard/scripts/prune-artifacts.mjs --apply"));
 });
 test("public publication requires manual dispatch, acceptance and a separate protected environment", async () => {
   const w = await document(".github/workflows/publish-release.yml");
