@@ -1,0 +1,8 @@
+{
+  "snapshot": "vendor/pokebonk-standard-0.10.20",
+  "version": "0.10.20",
+  "build": "mwqb4pwz",
+  "digest": "22a345dabfc541a31e9a4c0b886db81b70caa30c6603989a205a7714ac46fa60",
+  "adapter": "mwqb4pwz",
+  "review": "Captured baseline with original client progression, local-only modes and verified supplemental assets."
+}

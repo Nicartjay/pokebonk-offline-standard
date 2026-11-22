@@ -1,0 +1,1 @@
+var e=new URL(`fr-BP77mSTl-mwqb4pwz.json`,import.meta.url).href;export{e as default};

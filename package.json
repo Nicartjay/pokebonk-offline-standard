@@ -1,0 +1,45 @@
+{
+  "name": "pokebonk-offline",
+  "productName": "PokéBonk Offline",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Unofficial offline PokéBonk with normal progression.",
+  "author": "Nicartjay",
+  "license": "AGPL-3.0-only",
+  "repository": "https://github.com/Nicartjay/pokebonk-offline-standard",
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "prepare:game": "node standard/scripts/prepare.mjs",
+    "verify": "node standard/scripts/verify.mjs",
+    "dev": "pnpm prepare:game && electron standard/desktop/main.mjs",
+    "check:layout": "node standard/scripts/check-layout.mjs",
+    "package:desktop": "pnpm prepare:game && node standard/scripts/package-desktop.mjs",
+    "package:android": "pnpm prepare:game && node standard/scripts/build-android.mjs",
+    "stage:android": "node standard/scripts/stage-android.mjs",
+    "release:assemble": "node standard/scripts/assemble-release.mjs",
+    "release:publish": "node standard/scripts/publish.mjs",
+    "check:upstream": "node standard/scripts/check-upstream.mjs",
+    "standard:prepare": "pnpm prepare:game",
+    "standard:verify": "pnpm verify",
+    "standard:test": "pnpm prepare:game && pnpm test",
+    "standard:layout": "pnpm check:layout",
+    "standard:dev": "pnpm dev",
+    "standard:stage-android": "pnpm stage:android",
+    "standard:apk": "pnpm package:android",
+    "standard:package": "pnpm package:desktop",
+    "standard:assemble": "pnpm release:assemble",
+    "standard:publish": "pnpm release:publish"
+  },
+  "devDependencies": {
+    "acorn": "8.19.0",
+    "electron": "45.0.0",
+    "electron-builder": "26.18.0",
+    "playwright-core": "1.61.1",
+    "yaml": "2.9.1"
+  },
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": "^24.12.0 || >=26"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "version": "REPLACE",
+  "sourceCommit": "REPLACE",
+  "gameDigest": "REPLACE",
+  "approvedBy": "",
+  "approvedAt": "",
+  "automatedTests": false,
+  "macArm64Gameplay": false,
+  "macIntelGameplay": false,
+  "windowsGameplay": false,
+  "linuxGameplay": false,
+  "physicalAndroidGameplay": false,
+  "offlineGameplay": false,
+  "fullscreenInputAudioTouch": false,
+  "saveExportImportRestart": false,
+  "backgroundProcessDeath": false,
+  "upgradePreservesIdentityAndProgress": false,
+  "corruptUpdatesRejected": false,
+  "licensingReviewed": false
+}

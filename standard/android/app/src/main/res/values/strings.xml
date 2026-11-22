@@ -1,0 +1,5 @@
+<resources>
+    <string name="exit_dialog_title">Exit PokéBonk Offline?</string>
+    <string name="exit_dialog_message">Use Save and quit in the game for an exact checkpoint. Your earned progress and last committed checkpoint are kept.</string>
+    <string name="exit_dialog_confirm">Exit</string>
+</resources>

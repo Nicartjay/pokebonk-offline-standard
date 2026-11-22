@@ -1,0 +1,173 @@
+name: Build all installers
+on:
+  push:
+    tags: ["standard-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing standard-vX.Y.Z tag; leave blank to build main for testing only"
+        required: false
+        type: string
+        default: ""
+permissions:
+  contents: read
+concurrency:
+  group: installers-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  shared:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      commit: ${{ steps.identity.outputs.commit }}
+      version: ${{ steps.identity.outputs.version }}
+      tag: ${{ steps.identity.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - name: Validate reviewed source and version
+        id: identity
+        run: node standard/scripts/ci-release.mjs
+        env:
+          REQUESTED_TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+      - run: pnpm prepare:game
+      - run: pnpm test
+      - run: pnpm verify
+      - name: Archive the single shared game payload
+        run: tar -cf "$RUNNER_TEMP/standard-game.tar" -C build standard-game
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: shared-game-payload
+          path: ${{ runner.temp }}/standard-game.tar
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+  desktop:
+    needs: shared
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: macos-15, platform: darwin, arch: arm64}
+          - {os: macos-15, platform: darwin, arch: x64}
+          - {os: windows-2025, platform: win32, arch: x64}
+          - {os: ubuntu-24.04, platform: linux, arch: x64}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.shared.outputs.commit }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {name: shared-game-payload, path: "${{ runner.temp }}"}
+      - run: node standard/scripts/restore-payload.mjs
+        env: {GAME_ARCHIVE: "${{ runner.temp }}/standard-game.tar"}
+      - run: node standard/scripts/package-desktop.mjs ${{ matrix.platform }} ${{ matrix.arch }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installers-${{ matrix.platform }}-${{ matrix.arch }}
+          path: standard/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+  android:
+    needs: shared
+    runs-on: ubuntu-24.04
+    environment: release-signing
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.shared.outputs.commit }}
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with: {distribution: temurin, java-version: "21"}
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {name: shared-game-payload, path: "${{ runner.temp }}"}
+      - run: node standard/scripts/restore-payload.mjs
+        env: {GAME_ARCHIVE: "${{ runner.temp }}/standard-game.tar"}
+      - name: Restore stable Android signing identity outside Git
+        run: node standard/scripts/ci-signing.mjs restore
+        env:
+          STANDARD_ANDROID_KEYSTORE: ${{ runner.temp }}/pokebonk-signing/standard-android.p12
+          STANDARD_ANDROID_KEYSTORE_BASE64: ${{ secrets.STANDARD_ANDROID_KEYSTORE_BASE64 }}
+      - name: Test, lint, build and verify signed universal APK
+        run: node standard/scripts/build-android.mjs
+        env:
+          STANDARD_ANDROID_KEYSTORE: ${{ runner.temp }}/pokebonk-signing/standard-android.p12
+          STANDARD_ANDROID_STORE_PASSWORD: ${{ secrets.STANDARD_ANDROID_STORE_PASSWORD }}
+          STANDARD_ANDROID_KEY_PASSWORD: ${{ secrets.STANDARD_ANDROID_KEY_PASSWORD }}
+          STANDARD_ANDROID_KEY_ALIAS: ${{ secrets.STANDARD_ANDROID_KEY_ALIAS }}
+      - name: Remove restored keystore
+        if: always()
+        run: node standard/scripts/ci-signing.mjs clean
+        env:
+          STANDARD_ANDROID_KEYSTORE: ${{ runner.temp }}/pokebonk-signing/standard-android.p12
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: installers-android-universal
+          path: standard/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+  metadata:
+    needs: [shared, desktop, android]
+    runs-on: ubuntu-24.04
+    environment: release-signing
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.shared.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {name: shared-game-payload, path: "${{ runner.temp }}"}
+      - run: node standard/scripts/restore-payload.mjs
+        env: {GAME_ARCHIVE: "${{ runner.temp }}/standard-game.tar"}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: installers-*
+          merge-multiple: true
+          path: standard/release/
+      - name: Verify every distribution and sign update metadata
+        run: node standard/scripts/assemble-release.mjs
+        env: {STANDARD_UPDATE_PRIVATE_KEY: "${{ secrets.STANDARD_UPDATE_PRIVATE_KEY }}"}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-bundle-${{ needs.shared.outputs.version }}
+          path: standard/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+  draft:
+    # Untagged manual builds are artifacts only. Even tagged builds stay drafts.
+    if: needs.shared.outputs.tag != ''
+    needs: [shared, metadata]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.shared.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-bundle-${{ needs.shared.outputs.version }}
+          path: standard/release/
+      - name: Upload an unpublished draft for human testing
+        run: node standard/scripts/publish.mjs --prepare-draft
+        env: {GH_TOKEN: "${{ github.token }}"}

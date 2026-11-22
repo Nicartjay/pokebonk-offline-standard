@@ -1,0 +1,12 @@
+import {mkdir, readFile} from "node:fs/promises";
+import {execFileSync} from "node:child_process";
+import {verifyPayload} from "./verify.mjs";
+const archive = process.env.GAME_ARCHIVE;
+if (!archive) throw new Error("Missing shared game archive.");
+await mkdir("build", {recursive: true});
+execFileSync("tar", ["-xf", archive, "-C", "build"], {stdio: "inherit"});
+const {metadata} = await verifyPayload();
+const head = execFileSync("git", ["rev-parse", "HEAD"], {encoding: "utf8"}).trim();
+if (metadata.sourceCommit !== head) throw new Error("Shared game payload was prepared from another commit.");
+const config = JSON.parse(await readFile("standard/config.json", "utf8"));
+if (metadata.appVersion !== config.version) throw new Error("Shared payload app version differs.");

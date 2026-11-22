@@ -1,0 +1,17 @@
+import {readFile, cp, mkdir, rm, writeFile} from "node:fs/promises";
+import path from "node:path";
+import {DISTRIBUTIONS} from "../common/manifest.mjs";
+import {verifyPayload} from "./verify.mjs";
+const config = JSON.parse(await readFile("standard/config.json", "utf8"));
+const game = "build/standard-game";
+await verifyPayload(game);
+const inventory = JSON.parse(await readFile(path.join(game, "asset-manifest.json"), "utf8"));
+if (inventory.edition !== "standard") throw new Error("Refusing to stage another edition.");
+const target = "standard/android/app/src/main/assets";
+await mkdir(target, {recursive: true});
+await rm(path.join(target, "www"), {recursive: true, force: true});
+await cp(game, path.join(target, "www"), {recursive: true});
+await writeFile(path.join(target, "standard-config.json"), JSON.stringify({...config, updateDistributions: DISTRIBUTIONS}));
+await mkdir("standard/android/app/src/main/res/drawable-nodpi", {recursive: true});
+await cp("standard/resources/icon.png", "standard/android/app/src/main/res/drawable-nodpi/pokebonk_logo.png");
+console.log(`Staged Android Standard game payload ${inventory.gameDigest}`);

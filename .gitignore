@@ -1,0 +1,27 @@
+node_modules/
+.pnpm-store/
+build/
+dist/
+release/
+upstream/
+evidence/
+.DS_Store
+standard/release/
+standard/android/.gradle/
+standard/android/**/build/
+standard/android/local.properties
+standard/android/app/src/main/assets/
+standard/android/app/src/main/res/drawable-nodpi/
+# Never commit local signing credentials, application saves, or CI key material.
+*.jks
+*.keystore
+*.p12
+*.key
+*-private.pem
+*-release-p256.pem
+credentials.json
+.release-signing/
+*-signing/
+state.json
+previous.json
+acceptance.local.json

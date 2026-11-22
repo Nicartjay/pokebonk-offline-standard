@@ -1,0 +1,1 @@
+var e=new URL(`ja-C-pMgKKi-mwqb4pwz.json`,import.meta.url).href;export{e as default};

@@ -1,0 +1,54 @@
+name: Publish approved release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing draft tag, e.g. standard-v0.1.0"
+        type: string
+        required: true
+      acceptance_json:
+        description: "Completed acceptance receipt for this exact commit/game digest (see template)"
+        type: string
+        required: true
+      first_release:
+        description: "First publication only: permit creating a previously missing update channel"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: publish-offline-channel
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment: release-publication
+    permissions:
+      contents: write
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: node standard/scripts/ci-release.mjs
+        env: {REQUESTED_TAG: "${{ inputs.tag }}"}
+      - name: Download the exact draft binaries, receipts and signed metadata
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir standard/release
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+      - name: Record the explicit human acceptance receipt
+        run: node --input-type=module -e 'import {writeFile} from "node:fs/promises"; const r=JSON.parse(process.env.ACCEPTANCE_JSON); await writeFile("standard/release/acceptance.json",JSON.stringify(r),{mode:0o600});'
+        env: {ACCEPTANCE_JSON: "${{ inputs.acceptance_json }}"}
+      - name: Publish only after device, save-compatibility and licensing approval
+        shell: bash
+        run: |
+          args=(--approve-publication)
+          if [ "$FIRST_RELEASE" = "true" ]; then args+=(--first-release); fi
+          node standard/scripts/publish.mjs "${args[@]}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIRST_RELEASE: ${{ inputs.first_release }}
