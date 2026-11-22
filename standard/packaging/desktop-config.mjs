@@ -19,7 +19,7 @@ export function desktopConfiguration(config, {app, output, game, resources, elec
     copyright: "Original game: Charcher. Shell tooling: VdustR. Offline integration: Nicartjay.",
     mac: {
       target: ["dmg", "zip"],
-      artifactName: `pokebonk-offline-${config.version}-darwin-\${arch}.\${ext}`,
+      artifactName: `pokebonk-offline-${config.version}-macos-\${arch}.\${ext}`,
       icon: path.join(resources, "icon.png"),
       category: "public.app-category.games",
       minimumSystemVersion: "13.0",

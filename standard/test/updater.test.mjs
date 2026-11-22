@@ -12,6 +12,8 @@ import {config, manifest, signed, save} from "./fixtures.mjs";
 test("valid P-256/DER signature selects exactly the native platform", () => {
   const m = verifyManifest(signed(), config);
   assert.equal(selectArtifact(m, "darwin-arm64", config).platform, "darwin-arm64");
+  assert.equal(selectArtifact(m, "darwin-arm64", config).name, "pokebonk-offline-0.2.0-macos-arm64.dmg");
+  assert.ok(selectArtifact(m, "darwin-x64", config, "darwin-x64-zip").url.endsWith("/pokebonk-offline-0.2.0-macos-x64.zip"));
   assert.equal(selectArtifact(m, "win32-x64", config).kind, "nsis");
   assert.equal(selectArtifact(m, "linux-x64", config).kind, "AppImage");
   assert.equal(selectArtifact(m, "linux-x64", config, "linux-x64-deb").kind, "deb");
@@ -46,6 +48,11 @@ test("even correctly signed wrong-edition/platform/repository/APK metadata is re
     m => { m.artifacts["darwin-arm64-zip"].sha256 = "not a hash"; },
     m => { m.artifacts["darwin-x64"].bytes = 2 ** 40; },
     m => { m.artifacts["darwin-x64"].name = "../escape.zip"; },
+    m => {
+      const a = m.artifacts["darwin-arm64"];
+      a.name = a.name.replace("-macos-", "-darwin-");
+      a.url = a.url.replace("-macos-", "-darwin-");
+    },
   ]) {
     const m = manifest(); mutate(m); assert.throws(() => verifyManifest(signed(m), config));
   }

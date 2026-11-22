@@ -87,6 +87,13 @@ The tag trigger (or a manual run with an existing tag) builds:
 - Linux x64: AppImage and Debian/Ubuntu DEB.
 - Android: optimized universal **UNSIGNED** release candidate, with unit tests/lint.
 
+Public macOS files and artifact labels use `macos-arm64` / `macos-x64`, including
+`macos-arm64.json` / `macos-x64.json` receipts. The signed platform/distribution IDs
+and Electron build arguments remain `darwin-arm64` / `darwin-x64`; do not rename
+those internal IDs. Rebuild after changing the filename contract: every native
+updater embeds the full expected distribution set, so renaming installers alone
+would leave installed validators out of sync with release metadata.
+
 The shared job prepares/verifies the game **once**. All native jobs consume that
 exact archive and verify it against the source commit. Desktop bundles are checked
 after packaging. The Android ZIP is streamed without extraction to verify every

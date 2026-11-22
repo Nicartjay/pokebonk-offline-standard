@@ -7,6 +7,8 @@ import {DESKTOP_PLATFORMS, verifyCandidates, requireCandidateRun} from "./verify
 import {collectArtifacts, assemble} from "./assemble-release.mjs";
 import {signAndroidCandidate} from "./sign-android-candidate.mjs";
 import {verifyPayload} from "./verify.mjs";
+import {releasePlatform} from "../common/manifest.mjs";
+import {receiptName} from "./release-files.mjs";
 
 const args = process.argv.slice(2).filter(a => a !== "--");
 const runId = args.find(a => /^\d+$/.test(a));
@@ -30,9 +32,9 @@ try {
   gh(["run", "download", runId, "--repo", repo, "--pattern", "installers-*", "--dir", path.join(temp, "desktop")]);
   await mkdir("standard/release", {recursive: true});
   for (const platform of DESKTOP_PLATFORMS) {
-    const directory = path.join(temp, "desktop", `installers-${platform}`);
+    const directory = path.join(temp, "desktop", `installers-${releasePlatform(platform)}`);
     const artifacts = await collectArtifacts(directory, config, verified.inventory.gameDigest, {platforms: [platform]});
-    for (const name of [...Object.values(artifacts).map(a => a.name), `${platform}.json`]) {
+    for (const name of [...Object.values(artifacts).map(a => a.name), receiptName(platform)]) {
       // Move, rather than duplicate multi-GB installer sets on the key-holding Mac.
       await rename(path.join(directory, name), path.resolve("standard/release", name));
     }

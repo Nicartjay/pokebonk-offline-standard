@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile, readdir} from "node:fs/promises";
 import {parseDocument} from "yaml";
+import {releasePlatform} from "../common/manifest.mjs";
 
 async function document(file) {
   const parsed = parseDocument(await readFile(file, "utf8"), {uniqueKeys: true});
@@ -41,6 +42,11 @@ test("all installer jobs reuse one prepared payload and cannot publish publicly"
   assert.equal(w.jobs.desktop.strategy.matrix.include.length, 4);
   assert.deepEqual(w.jobs.desktop.strategy.matrix.include.map(x => `${x.platform}-${x.arch}`),
     ["darwin-arm64", "darwin-x64", "win32-x64", "linux-x64"]);
+  for (const target of w.jobs.desktop.strategy.matrix.include) {
+    assert.equal(target.artifact, releasePlatform(`${target.platform}-${target.arch}`));
+  }
+  const upload = w.jobs.desktop.steps.find(s => s.uses?.startsWith("actions/upload-artifact@"));
+  assert.equal(upload.with.name, "installers-${{ matrix.artifact }}");
   assert.equal(w.jobs.shared.steps.filter(s => s.run === "pnpm prepare:game").length, 1);
   for (const id of ["desktop", "android", "verify-candidates"]) {
     assert.equal(w.jobs[id].steps.some(s => s.run === "pnpm prepare:game"), false);

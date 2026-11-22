@@ -4,11 +4,11 @@ import {createHash} from "node:crypto";
 import {readFile, mkdtemp, rm, writeFile} from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import {DISTRIBUTIONS, PLATFORMS, artifactName, artifactURL} from "../common/manifest.mjs";
+import {DISTRIBUTIONS, PLATFORMS, artifactName, artifactURL, releasePlatform} from "../common/manifest.mjs";
 import {updateDistribution, installationInstructions} from "../desktop/distribution.mjs";
 import {desktopConfiguration} from "../packaging/desktop-config.mjs";
 import {collectArtifacts, releaseFiles} from "../scripts/assemble-release.mjs";
-import {fileHash, writeReceipt} from "../scripts/release-files.mjs";
+import {fileHash, writeReceipt, receiptName} from "../scripts/release-files.mjs";
 import {verifyReleaseFiles} from "../scripts/publish.mjs";
 import {config, manifest} from "./fixtures.mjs";
 
@@ -28,6 +28,10 @@ test("every platform uses the approved PokéBonk name and artwork without changi
   assert.equal(c.productName, production.productName);
   assert.equal(c.appId, production.applicationId);
   assert.deepEqual(c.mac.target, ["dmg", "zip"]);
+  for (const arch of ["arm64", "x64"]) for (const ext of ["dmg", "zip"]) {
+    const id = `darwin-${arch}${ext === "zip" ? "-zip" : ""}`;
+    assert.equal(c.mac.artifactName.replace("${arch}", arch).replace("${ext}", ext), artifactName(production.version, id));
+  }
   assert.deepEqual(c.win.target, ["nsis", "portable", "zip"]);
   assert.deepEqual(c.linux.target, ["AppImage", "deb"]);
   for (const os of ["mac", "win", "linux"]) assert.ok(c[os].icon.endsWith("icon.png"));
@@ -66,6 +70,29 @@ test("installer, portable, ZIP, AppImage and DEB updates select the matching dis
   assert.ok(names.every(name => /^[A-Za-z0-9_.-]+$/.test(name)));
 });
 
+test("macOS downloads and receipt filenames are readable without changing internal platform IDs", () => {
+  const expected = {
+    "darwin-arm64": "pokebonk-offline-0.2.0-macos-arm64.dmg",
+    "darwin-arm64-zip": "pokebonk-offline-0.2.0-macos-arm64.zip",
+    "darwin-x64": "pokebonk-offline-0.2.0-macos-x64.dmg",
+    "darwin-x64-zip": "pokebonk-offline-0.2.0-macos-x64.zip",
+  };
+  for (const [id, name] of Object.entries(expected)) {
+    assert.equal(artifactName("0.2.0", id), name);
+    assert.ok(DISTRIBUTIONS[id].platform.startsWith("darwin-"));
+    assert.ok(artifactURL(config, "0.2.0", name).endsWith("/" + name));
+  }
+  for (const arch of ["arm64", "x64"]) {
+    assert.equal(releasePlatform(`darwin-${arch}`), `macos-${arch}`);
+    assert.equal(receiptName(`darwin-${arch}`), `macos-${arch}.json`);
+  }
+  for (const platform of ["win32-x64", "linux-x64", "android-universal"]) {
+    assert.equal(releasePlatform(platform), platform);
+    assert.equal(receiptName(platform), `${platform}.json`);
+  }
+  assert.throws(() => releasePlatform("../darwin-arm64"), /Unsupported/);
+});
+
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pokebonk-release-test-"));
   t.after(() => rm(directory, {recursive: true, force: true}));
@@ -97,6 +124,7 @@ test("a missing supplemental format cannot be assembled or published", async t =
 });
 test("checksums cover installers, platform receipts, signed metadata and corresponding source", async t => {
   const {directory, c, m} = await fixture(t);
+  assert.ok(releaseFiles(c, m.artifacts).every(name => !name.includes("darwin")));
   await writeFile(path.join(directory, "standard-provenance.json"), JSON.stringify(m));
   await writeFile(path.join(directory, "standard-update.json"), "signed envelope fixture");
   await writeFile(path.join(directory, `pokebonk-offline-${c.version}-source.zip`), "corresponding source fixture");
@@ -109,7 +137,7 @@ test("checksums cover installers, platform receipts, signed metadata and corresp
 });
 test("unsafe/stale artifact names are rejected before any release-file read", async t => {
   const {directory, c, m} = await fixture(t);
-  const file = path.join(directory, "darwin-arm64.json"), receipt = JSON.parse(await readFile(file));
+  const file = path.join(directory, receiptName("darwin-arm64")), receipt = JSON.parse(await readFile(file));
   receipt.artifacts["darwin-arm64"].name = "../outside.dmg";
   await writeFile(file, JSON.stringify(receipt));
   await assert.rejects(collectArtifacts(directory, c, m.source.gameDigest), /Invalid release artifact/);

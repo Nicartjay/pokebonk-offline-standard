@@ -4,16 +4,16 @@ import {execFileSync} from "node:child_process";
 import path from "node:path";
 import {PLATFORMS, DISTRIBUTIONS, artifactURL, validateArtifact, verifyManifest, validateManifest} from "../common/manifest.mjs";
 import {verifyPayload} from "./verify.mjs";
-import {fileHash} from "./release-files.mjs";
+import {fileHash, receiptName} from "./release-files.mjs";
 import {isMain} from "../../scripts/is-main.mjs";
 export function releaseFiles(config, artifacts) {
-  return [...Object.values(artifacts).map(a => a.name), ...PLATFORMS.map(p => `${p}.json`),
+  return [...Object.values(artifacts).map(a => a.name), ...PLATFORMS.map(receiptName),
     "standard-update.json", "standard-provenance.json", `pokebonk-offline-${config.version}-source.zip`];
 }
 export async function collectArtifacts(directory, config, gameDigest, {platforms = PLATFORMS} = {}) {
   const artifacts = {};
   for (const platform of platforms) {
-    const part = JSON.parse(await readFile(path.join(directory, `${platform}.json`), "utf8"));
+    const part = JSON.parse(await readFile(path.join(directory, receiptName(platform)), "utf8"));
     if (part.edition !== "standard" || part.platform !== platform || part.version !== config.version || part.gameDigest !== gameDigest) throw new Error(`Different game payload/version in ${platform}.`);
     const expected = Object.keys(DISTRIBUTIONS).filter(id => DISTRIBUTIONS[id].platform === platform);
     if (!part.artifacts || Object.keys(part.artifacts).length !== expected.length) throw new Error(`Incomplete receipt: ${platform}.`);

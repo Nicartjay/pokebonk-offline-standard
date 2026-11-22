@@ -20,6 +20,12 @@ not a claim that it is the newest online game.
 | Debian/Ubuntu x64 | `.deb` | Install/upgrade with the system package manager |
 | Android 8+, compatible WebView/WebGL | Signed universal `.apk` | Confirm installation in Android's installer |
 
+macOS downloads use **`macos`** in their filenames, for example
+`pokebonk-offline-0.1.0-macos-arm64.dmg` (Apple Silicon) and
+`pokebonk-offline-0.1.0-macos-x64.dmg` (Intel). Their app ZIPs, checksum entries,
+update URLs and receipt files use the same naming. `darwin` remains an internal
+Electron platform ID, not a download filename.
+
 All platforms display **PokéBonk Offline** and use the bundled PokéBonk icon.
 The internal edition remains `standard`, and the application ID remains
 **`dev.nicartjay.pokebonk.offline.standard`** for save/update compatibility.

@@ -3,10 +3,10 @@ import {isObject} from "./state.mjs";
 // Each distribution is signed, not just the default download for each OS.
 // The Android staging step copies this same contract into native-only config.
 export const DISTRIBUTIONS = Object.freeze(Object.fromEntries([
-  ["darwin-arm64", "darwin-arm64", "dmg", "darwin-arm64.dmg"],
-  ["darwin-arm64-zip", "darwin-arm64", "zip", "darwin-arm64.zip"],
-  ["darwin-x64", "darwin-x64", "dmg", "darwin-x64.dmg"],
-  ["darwin-x64-zip", "darwin-x64", "zip", "darwin-x64.zip"],
+  ["darwin-arm64", "darwin-arm64", "dmg", "macos-arm64.dmg"],
+  ["darwin-arm64-zip", "darwin-arm64", "zip", "macos-arm64.zip"],
+  ["darwin-x64", "darwin-x64", "dmg", "macos-x64.dmg"],
+  ["darwin-x64-zip", "darwin-x64", "zip", "macos-x64.zip"],
   ["win32-x64", "win32-x64", "nsis", "win32-x64-setup.exe"],
   ["win32-x64-zip", "win32-x64", "zip", "win32-x64.zip"],
   ["win32-x64-portable", "win32-x64", "portable", "win32-x64-portable.exe"],
@@ -19,6 +19,12 @@ export const MAX_MANIFEST_BYTES = 256 * 1024;
 const semver = /^\d+\.\d+\.\d+$/;
 const hash = /^[a-f0-9]{64}$/;
 function requireValue(value, message) { if (!value) throw new Error(message); }
+// Keep Electron's platform IDs internal; release files and CI artifact labels
+// use the OS name users recognize.
+export function releasePlatform(platform) {
+  requireValue(PLATFORMS.includes(platform), "Unsupported release platform.");
+  return platform.replace(/^darwin-/, "macos-");
+}
 export function compareVersions(a, b) {
   requireValue(semver.test(a) && semver.test(b), "Invalid application version.");
   const x = a.split(".").map(Number), y = b.split(".").map(Number);
