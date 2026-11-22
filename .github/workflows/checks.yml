@@ -33,7 +33,7 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with: {distribution: temurin, java-version: "21"}
-      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - run: node standard/scripts/setup-android-sdk.mjs
       - run: pnpm prepare:game
       - run: pnpm stage:android
       - run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon

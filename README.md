@@ -37,10 +37,13 @@ Developer ID or Windows publisher certification.
    updates one tracking issue when its build changes. It only reports.
 2. **Maintain**: capture a pristine candidate, adapt offline patches structurally,
    review assets and save compatibility, and test it.
-3. **Build**: one accepted game payload feeds every platform. Tagged builds create
-   an **unpublished draft**; untagged manual builds are Actions artifacts only.
-4. **Approve**: complete real-device/licensing acceptance and approve the separate
-   **Publish approved release** workflow. Only this advances the public channel.
+3. **Build**: one accepted game payload feeds every platform. CI builds nine
+   desktop packages and a clearly marked **unsigned Android candidate**, with
+   hashes and an audit. CI never receives your private signing keys.
+4. **Finalize and approve**: one local command verifies the completed CI run,
+   signs the APK and update metadata with the original keys on your Mac, and can
+   prepare an **unpublished draft**. After real-device/licensing acceptance, approve
+   **Publish approved release**. Only that advances the public channel.
 5. **Receive**: installed apps check this repository's signed channel on launch or
    foregrounding, at most once per 24 hours. There is also **Check for updates**.
 
@@ -81,6 +84,18 @@ Outputs: `standard/release/`; unpacked desktop bundles:
 `build/desktop-out/`. Local Android builds read the **existing external** signing
 credentials from `../pokebonk-standard-signing/credentials.json`. Never generate
 replacement keys for an already configured application.
+
+To finalize a successful full installer run and prepare a draft:
+
+```sh
+# Set JAVA_HOME (JDK 21) and ANDROID_HOME first.
+pnpm release:finalize RUN_ID --prepare-draft
+```
+
+Use the exact clean source commit that CI built. Private keys stay in the
+external `../pokebonk-standard-signing/` folder; **no GitHub signing secrets are
+required**. The separate publication workflow verifies the already signed files
+without needing those keys. See the maintenance guide before releasing.
 
 For headless UI regression checks, install Playwright's Chromium headless shell,
 or set `CHROME_PATH` to an existing headless executable:

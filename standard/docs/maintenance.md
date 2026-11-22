@@ -1,165 +1,185 @@
-# Upstream maintenance and approved releases
+# Maintain, build, sign locally, approve publication
 
-## One-time repository setup
+Publisher: **Nicartjay/pokebonk-offline-standard**. Visible app: **PokéBonk Offline**.
+The internal edition, application ID, save directories and signing identities
+remain Standard-compatible; the old mixed-edition repository is independent.
 
-Publisher: **`Nicartjay/pokebonk-offline-standard`**. This is independent of the
-older mixed-edition repository. The visible app is **PokéBonk Offline**, but its
-existing Standard application ID and signing identities are intentionally kept.
+## Private keys stay on the Mac
 
-Create two GitHub Actions environments:
+**Do not upload private signing keys/passwords to GitHub.** No signing secrets are
+needed by these workflows. Keep and securely back up the original external
+`../pokebonk-standard-signing/` directory, including its build-machine-only
+`credentials.json`, Android keystore and P-256 release key. Files must not be
+committed, logged, put in the game, cached/uploaded by CI, or rotated.
 
-- `release-signing`: allow only `main` and `standard-v*` tags. No PR workflow uses
-  it. Store the five signing secrets below here.
-- `release-publication`: require an owner/release-maintainer approval and restrict
-  deployment refs to `main` and `standard-v*`. This is the final public-release gate.
+Only the public P-256 key and APK certificate fingerprint belong in config.json.
+Losing the original keys prevents ordinary trusted updates to existing installs.
+A nearby copy is not a disaster-recovery backup: keep another secure offline copy.
 
-With the GitHub CLI authenticated to the owned repository, the explicit helper
-verifies the existing public identities and transfers the original keys through
-stdin into encrypted environment secrets:
+GitHub's **release-publication** environment requires owner/release-maintainer
+approval and permits only `main` and `standard-v*` tags. It needs no private key:
+publication verifies files which were already signed locally.
 
-```sh
-JAVA_HOME=/path/to/jdk21 node standard/scripts/configure-ci-secrets.mjs --approve-upload
-```
-
-It reads `../pokebonk-standard-signing/credentials.json` by default, never commits,
-prints, rotates or deletes local keys, and sets:
-
-- `STANDARD_ANDROID_KEYSTORE_BASE64`
-- `STANDARD_ANDROID_STORE_PASSWORD`
-- `STANDARD_ANDROID_KEY_PASSWORD`
-- `STANDARD_ANDROID_KEY_ALIAS`
-- `STANDARD_UPDATE_PRIVATE_KEY`
-
-Only public verification material belongs in `standard/config.json`. Keep the
-external local key directory securely backed up on another device. GitHub secrets
-are not a replacement for a recoverable offline key backup.
-
-## Daily detection is report-only
+## 1. Detect website changes, without publishing them
 
 `check-upstream.yml` runs daily at **09:41 Asia/Manila** (01:41 UTC), or manually.
-It compares the actual website build/version to `standard/accepted.json` and
-reconciles one tracking issue. Detection failures fail the check; they do not
-approve unknown code.
+It compares the actual website version/build to `standard/accepted.json`, then
+creates/updates one managed tracking issue. It preserves human issue notes and
+fails closed if discovery is unsupported.
 
-It cannot capture assets, change the baseline, commit, tag, sign, build releases or
-publish. There is no unattended website-to-public-release path.
+The checker cannot capture, promote, commit, tag, sign, or publish game code.
+An online update is a review request, not automatically trusted offline code.
 
-## Capture and review a candidate
+## 2. Capture and adapt a pristine candidate
 
-1. Review the detected build and applicable credits/permissions.
-2. Capture a bounded source graph:
+1. Review the detected build and applicable permissions/credits.
+2. Capture bounded public source:
    `node scripts/capture-live-graph.ts upstream/standard-review`.
 3. Review generated resource paths, retained modes, models, sprites/forms, cries,
-   music, atlases, fonts, items and map previews. Produce a finite JSON resource
-   contract with `reviewedBuild`, `required` and `optional` path arrays.
-   A previous asset inventory is not proof that a new build is complete.
+   music, atlases, fonts, items and map previews. Produce a finite JSON contract
+   with `reviewedBuild`, `required` and `optional` path arrays. Do not call a missing
+   required asset “optional” merely to get a successful build.
 4. Run:
    `node standard/scripts/capture-candidate.mjs upstream/standard-review CONTRACT.json`.
-   This verifies captured hashes and versioned URLs and writes a new pristine
-   candidate under `upstream/standard-candidates/BUILD/`. It does not accept it.
-5. Add/test an explicit structural adapter under `standard/adapters/`. The current
-   preparation script accepts **only 0.10.20/mwqb4pwz** and its pinned pristine
-   digest. Missing/ambiguous roles or unsupported builds stop preparation.
-6. Test actual progression, every retained mode, all required assets, serializer
-   compatibility and renderer network isolation.
-7. Only after review, put the pristine snapshot in a **new** vendor directory and
-   update accepted.json, config and the adapter allowlist. Never patch a previously
-   patched game or edit the pristine snapshot in place.
+   It verifies hashes/versioned requests and records a new pristine candidate in
+   `upstream/standard-candidates/BUILD/`; it does not change accepted.json.
+5. Add/test a structural adapter under `standard/adapters/`. Preparation currently
+   accepts **only 0.10.20/mwqb4pwz** and its pinned digest. Unsupported or ambiguous
+   structures stop preparation instead of producing a partly working release.
+6. Verify progression, modes, complete resources, serializer compatibility and
+   network isolation. Only then put the pristine snapshot in a **new** vendor
+   directory and review accepted.json, config and adapter allowlist changes.
+   Never edit a pristine snapshot or patch an already patched game.
 
-## Versioning and save compatibility
+## 3. Version and commit reviewed source
 
-Track independently: application version, Android versionCode, upstream game
-version/build, save schema, source commit, pristine digest and prepared digest.
+Keep independent: app version, Android versionCode, upstream version/build, save
+schema, source commit, pristine asset digest and prepared game digest.
 
-- Increase app `version` in **both package.json and standard/config.json**, and
-  increase `androidVersionCode`, for each published release.
-- Preserve `dev.nicartjay.pokebonk.offline.standard`, app-data locations, save
-  keys, APK signing certificate and P-256 manifest key.
+- Increase `version` in **both package.json and standard/config.json**, and
+  `androidVersionCode`, for each published release.
+- Keep **dev.nicartjay.pokebonk.offline.standard**, save locations/keys, APK
+  signing certificate and P-256 verification key unchanged.
 - Back up before explicit save migrations. Unknown schemas fail closed.
-- Add old builds to `compatibleRunBuilds` only after testing their real serialized
-  runs. Otherwise complete an unfinished run in the old app.
-- Do not import unlock-all identities or automatically convert unlock-all saves.
-- Keep previous releases and corresponding source available.
+- Add a prior build to `compatibleRunBuilds` only after testing its actual serialized
+  runs. Otherwise finish the incompatible run in the previous version.
+- Never automatically convert unlock-all saves.
+- Keep old releases and corresponding source available.
 
-## Build all requested formats
+Run `pnpm prepare:game`, `pnpm test`, `pnpm verify` and the relevant layout/native
+checks, then commit the reviewed source to `main`.
 
-Commit reviewed source, then use **Actions → Build all installers → Run workflow**
-on `main` with an empty tag for a test-only build. It builds:
+## 4. GitHub builds every platform without private keys
 
-- Apple Silicon DMG + app ZIP.
-- Intel Mac DMG + app ZIP.
-- Windows x64 NSIS setup EXE + portable EXE + unpacked ZIP.
-- Linux x64 AppImage + Debian/Ubuntu DEB.
-- Android signed universal APK, using the original signing identity.
-
-The shared job prepares/verifies the game **once** and distributes that exact
-payload to every job. Every artifact receipt includes the same version and game
-digest. The assembler rehashes every output, rejects mixed/incomplete platform
-sets, signs metadata for **all ten** distributions, and adds SHA256SUMS, readable
-provenance, platform receipts and the full corresponding committed source.
-
-An untagged run produces Actions artifacts only (14-day retention), not a release
-or channel update. Builds cannot generate replacement signing identities.
-
-To create a draft after source review:
+Use **Actions → Build all installers** on `main`, leaving the tag empty, for test
+candidates. For an intended release, create/push the exact configured version tag:
 
 ```sh
-git tag standard-v0.1.0   # replace with the configured version
+git tag standard-v0.1.0   # replace with the configured release version
 git push origin standard-v0.1.0
 ```
 
-The tag trigger builds the same matrix and uploads an **unpublished draft**. An
-existing tag can also be passed to the manual build workflow. A release tag must
-match config and identify a commit already on `main`. Reruns may replace files
-only in a draft, never in an already published version.
+The tag trigger (or a manual run with an existing tag) builds:
 
-## Actual acceptance, then explicit publication
+- Apple Silicon: DMG and app ZIP.
+- Intel Mac: DMG and app ZIP.
+- Windows x64: NSIS setup EXE, portable EXE and unpacked ZIP.
+- Linux x64: AppImage and Debian/Ubuntu DEB.
+- Android: optimized universal **UNSIGNED** release candidate, with unit tests/lint.
 
-Download/test the **actual packaged apps**. Do not mark tests complete merely
-because CI packaged them:
+The shared job prepares/verifies the game **once**. All native jobs consume that
+exact archive and verify it against the source commit. Desktop bundles are checked
+after packaging. The Android ZIP is streamed without extraction to verify every
+game file and its native config. Receipts include file sizes/hashes and one common
+game digest. The final candidate-audit job rehashes all formats together.
 
-- Normal starter selection; earned rewards; purchases, insufficient funds and
-  duplicate claims; Classic/Endless/Relay/Practice.
-- Save export/import, process restart, interrupted writes, Android backgrounding
-  and process death.
-- Install N+1 over N without losing progress or changing installation identity.
+Artifacts have **3-day retention**; download/finalize promptly. There are no private
+keys, signing environments or public-release write permissions in this workflow.
+`desktop_only` is available for a smaller smoke test, but skips Android and the
+complete audit and therefore cannot be finalized as a release.
+
+**An UNSIGNED.apk is not an installable signed release.** It uses a separate name,
+kind and receipt, and is rejected by the release assembler and installed updater.
+Do not rename it to bypass the gate or sign it with a new/debug key.
+
+## 5. One local finalization command
+
+Use the key-holding Mac, JDK 21, Android build-tools 36.0.0 and the authenticated
+GitHub CLI. For this Mac's Homebrew/SDK setup, for example:
+
+```sh
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21
+export ANDROID_HOME="$HOME/Library/Android/sdk"
+pnpm release:finalize RUN_ID --prepare-draft
+```
+
+`RUN_ID` is the successful **full installer** Actions run. The current clean
+checkout must be its exact reviewed commit. For `--prepare-draft`, the exact
+`standard-vX.Y.Z` tag must already exist locally/remotely at that commit.
+
+The command:
+
+1. Rejects failed, running, fork/PR, wrong-workflow or wrong-commit runs.
+2. Restores the single CI game payload, downloads the expected per-platform
+   artifacts/receipts and independently rehashes them.
+3. Verifies the candidate audit, APK package/version/name, alignment, every game
+   asset and native configuration.
+4. Signs the APK **locally with the original keystore**, then verifies the actual
+   signing certificate and game payload again.
+5. Assembles and signs ECDSA P-256/SHA-256 DER update metadata **locally**, with the
+   original release key, covering **all ten** final distributions.
+6. Adds checksums, readable provenance, platform receipts and full corresponding
+   committed source, then optionally uploads an **unpublished draft**.
+
+Large installers are moved rather than duplicated. Only temporary downloads are
+removed afterward. The original keys remain unchanged outside Git; neither keys
+nor passwords are passed as command-line values or uploaded. No public update
+channel is changed during finalization.
+
+Omit `--prepare-draft` for local output only. Local platform development builds
+still work through `package:desktop` and `package:android`.
+
+## 6. Actual acceptance, then explicit publication
+
+Test the actual packaged apps; compilation is not gameplay/device acceptance:
+
+- Starter selection; earned rewards; purchases, insufficient funds, duplicate
+  claims; Classic, Endless, Relay and Practice.
+- Save export/import, restart, interrupted writes, Android background/process death.
+- N+1 installation preserving saves, application ID and signing identity.
 - Actual Mac arm64, Mac Intel, Windows, Linux and physical Android gameplay.
-- Fullscreen, keyboard/pointer lock, touch controls, audio and airplane-mode play.
-- Rejection of corrupt manifests/signatures/hashes, wrong editions/platforms,
-  incompatible save schemas/runs, and wrong-package/certificate/version APKs.
-- Original credits, licensing and asset-distribution permissions reviewed.
+- Fullscreen, pointer/keyboard input, touch controls, audio and airplane-mode play.
+- Corrupt signatures/hashes/manifests, wrong editions/platforms, incompatible
+  schemas/runs, wrong-package/certificate/version APKs are rejected.
+- Original credits and game/asset redistribution permissions reviewed.
 
-Fill `standard/acceptance.template.json` using the exact release version,
-`source.commit` and `source.gameDigest` from the signed/readable provenance. Every
-required field must be true, with a real approver and date. Never fabricate
-device results. The receipt is supplied to the publication workflow, not committed
-as part of the source it is approving.
+Fill `standard/acceptance.template.json` with the exact version, source commit and
+game digest from signed provenance, plus the real reviewer/date. Record only
+verified outcomes; never substitute CI/JVM results for physical-device testing.
 
-Run **Actions → Publish approved release**, enter the draft tag and receipt JSON,
-and approve `release-publication`. Enable `first_release` only for the first
-publication when the channel does not yet exist.
+Run **Actions → Publish approved release**, enter the draft tag and completed
+receipt JSON, and approve **release-publication**. Enable `first_release` only for
+the first publication, when the channel has not yet been created.
 
-The publisher validates the signature, all receipts/files/checksums, exact clean
-source/tag and owned public repository; versions and Android version codes must
-increase. It publishes the versioned release, then advances only the mutable
-signed `standard-channel/standard-update.json` discovery asset. Old releases stay.
-Neither a schedule nor app launch invokes publication.
+The publisher revalidates signature, source/tag, owned public repository, all
+receipts/files/checksums and increasing app/APK versions. It publishes the versioned
+release and advances only signed `standard-channel/standard-update.json`.
+Published versioned assets are never overwritten; previous releases stay available.
+If publication is interrupted, inspect the release/channel before retrying.
 
-## Installed-app updating
+## Installed-app updates
 
-Apps check only this repository's public GitHub channel, not the website. Automatic
-checks are throttled to 24 hours (including failed/offline attempts); manual checks
-bypass the timer. Errors never prevent offline play and prompts wait for the menu.
+Apps check the **public GitHub channel**, not the website, on launch/foregrounding
+at most once per 24 hours (including failed/offline checks). Manual checks bypass
+the timer. Prompts wait for the main menu; offline failures never prevent playing.
 
-The native host verifies the ECDSA P-256/SHA-256 DER envelope, exact edition,
-publisher, version, save/run compatibility, platform/distribution, URL, signed
-size and streamed SHA-256. Android additionally validates the actual APK package,
-version, SDK and signing certificate against the installed app before handing it
-to the system installer. The game has no callable updater or arbitrary filesystem
-bridge.
+Trusted native code verifies the signature, exact publisher/edition, save/run
+compatibility, platform/distribution, URL, signed size and streamed SHA-256.
+Android also checks the actual APK package, version, SDK and certificate against
+the installed app before its system installer. The renderer has only validated
+`loadState`/`saveState`, never a callable updater or arbitrary filesystem bridge.
 
-Installation is explicit. Mac users replace the app; Windows users run setup or
-replace their portable file/folder; Linux users replace AppImage or install DEB;
-Android users confirm the system installer. Saves remain outside installation.
-No paid Apple/Windows signing setup is included: macOS is ad-hoc signed and not
-notarized; Windows is unsigned; Android and update metadata use stable private keys.
+Download/installation stay explicit: replace the Mac app, run Windows setup or
+replace a portable file/folder, replace AppImage/install DEB, or confirm Android's
+installer. Saves stay outside installation. macOS builds are ad-hoc signed and not
+notarized; Windows is not Authenticode signed. No paid signing/store setup is used.

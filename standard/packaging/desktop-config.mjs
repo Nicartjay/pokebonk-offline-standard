@@ -66,6 +66,7 @@ export function desktopConfiguration(config, {app, output, game, resources, elec
       target: ["AppImage", "deb"],
       artifactName: `pokebonk-offline-${config.version}-linux-\${arch}.\${ext}`,
       executableName: "pokebonk-offline",
+      syncDesktopName: true,
       icon: path.join(resources, "icon.png"),
       category: "Game",
       maintainer: "Nicartjay",

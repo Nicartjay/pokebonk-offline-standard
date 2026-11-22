@@ -10,9 +10,9 @@ export function releaseFiles(config, artifacts) {
   return [...Object.values(artifacts).map(a => a.name), ...PLATFORMS.map(p => `${p}.json`),
     "standard-update.json", "standard-provenance.json", `pokebonk-offline-${config.version}-source.zip`];
 }
-export async function collectArtifacts(directory, config, gameDigest) {
+export async function collectArtifacts(directory, config, gameDigest, {platforms = PLATFORMS} = {}) {
   const artifacts = {};
-  for (const platform of PLATFORMS) {
+  for (const platform of platforms) {
     const part = JSON.parse(await readFile(path.join(directory, `${platform}.json`), "utf8"));
     if (part.edition !== "standard" || part.platform !== platform || part.version !== config.version || part.gameDigest !== gameDigest) throw new Error(`Different game payload/version in ${platform}.`);
     const expected = Object.keys(DISTRIBUTIONS).filter(id => DISTRIBUTIONS[id].platform === platform);

@@ -14,6 +14,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(await readFile(path.join(root, "../config.json"), "utf8"));
 app.setName(config.productName);
 app.setAppUserModelId(config.applicationId);
+if (process.platform === "linux") app.setDesktopName(`${config.applicationId}.desktop`);
 const dataDirectory = !app.isPackaged && process.env.POKEBONK_STANDARD_USER_DATA
   ? path.resolve(process.env.POKEBONK_STANDARD_USER_DATA)
   : path.join(app.getPath("appData"), config.applicationId);

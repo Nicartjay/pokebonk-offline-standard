@@ -5,10 +5,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing standard-vX.Y.Z tag; leave blank to build main for testing only"
+        description: "Existing standard-vX.Y.Z tag; leave blank for main-branch test candidates"
         required: false
         type: string
         default: ""
+      desktop_only:
+        description: "Desktop-only smoke test (no Android candidate or complete candidate audit)"
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -45,7 +50,7 @@ jobs:
           path: ${{ runner.temp }}/standard-game.tar
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
+          retention-days: 3
   desktop:
     needs: shared
     strategy:
@@ -75,11 +80,11 @@ jobs:
           path: standard/release/
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
+          retention-days: 3
   android:
+    if: github.event_name == 'push' || !inputs.desktop_only
     needs: shared
     runs-on: ubuntu-24.04
-    environment: release-signing
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -89,39 +94,23 @@ jobs:
       - uses: ./.github/actions/setup
       - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with: {distribution: temurin, java-version: "21"}
-      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - run: node standard/scripts/setup-android-sdk.mjs
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: {name: shared-game-payload, path: "${{ runner.temp }}"}
       - run: node standard/scripts/restore-payload.mjs
         env: {GAME_ARCHIVE: "${{ runner.temp }}/standard-game.tar"}
-      - name: Restore stable Android signing identity outside Git
-        run: node standard/scripts/ci-signing.mjs restore
-        env:
-          STANDARD_ANDROID_KEYSTORE: ${{ runner.temp }}/pokebonk-signing/standard-android.p12
-          STANDARD_ANDROID_KEYSTORE_BASE64: ${{ secrets.STANDARD_ANDROID_KEYSTORE_BASE64 }}
-      - name: Test, lint, build and verify signed universal APK
-        run: node standard/scripts/build-android.mjs
-        env:
-          STANDARD_ANDROID_KEYSTORE: ${{ runner.temp }}/pokebonk-signing/standard-android.p12
-          STANDARD_ANDROID_STORE_PASSWORD: ${{ secrets.STANDARD_ANDROID_STORE_PASSWORD }}
-          STANDARD_ANDROID_KEY_PASSWORD: ${{ secrets.STANDARD_ANDROID_KEY_PASSWORD }}
-          STANDARD_ANDROID_KEY_ALIAS: ${{ secrets.STANDARD_ANDROID_KEY_ALIAS }}
-      - name: Remove restored keystore
-        if: always()
-        run: node standard/scripts/ci-signing.mjs clean
-        env:
-          STANDARD_ANDROID_KEYSTORE: ${{ runner.temp }}/pokebonk-signing/standard-android.p12
+      - name: Test, lint and build a clearly unsigned APK without any private keys
+        run: node standard/scripts/build-android.mjs --unsigned-candidate
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: installers-android-universal
-          path: standard/release/
+          name: candidate-android-universal
+          path: standard/candidate/
           if-no-files-found: error
           compression-level: 0
-          retention-days: 14
-  metadata:
+          retention-days: 3
+  verify-candidates:
     needs: [shared, desktop, android]
     runs-on: ubuntu-24.04
-    environment: release-signing
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -139,35 +128,18 @@ jobs:
           pattern: installers-*
           merge-multiple: true
           path: standard/release/
-      - name: Verify every distribution and sign update metadata
-        run: node standard/scripts/assemble-release.mjs
-        env: {STANDARD_UPDATE_PRIVATE_KEY: "${{ secrets.STANDARD_UPDATE_PRIVATE_KEY }}"}
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-bundle-${{ needs.shared.outputs.version }}
-          path: standard/release/
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-  draft:
-    # Untagged manual builds are artifacts only. Even tagged builds stay drafts.
-    if: needs.shared.outputs.tag != ''
-    needs: [shared, metadata]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.shared.outputs.commit }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: ./.github/actions/setup
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: release-bundle-${{ needs.shared.outputs.version }}
-          path: standard/release/
-      - name: Upload an unpublished draft for human testing
-        run: node standard/scripts/publish.mjs --prepare-draft
-        env: {GH_TOKEN: "${{ github.token }}"}
+          name: candidate-android-universal
+          path: standard/candidate/
+      - name: Verify all candidates and embedded Android assets; local signing remains required
+        run: node standard/scripts/verify-candidates.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: candidate-audit-${{ needs.shared.outputs.version }}
+          path: standard/candidate/candidate-summary.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+  # No private-key secrets, signing environment, draft creation or public
+  # publication here. Run release:finalize locally with the original keys.

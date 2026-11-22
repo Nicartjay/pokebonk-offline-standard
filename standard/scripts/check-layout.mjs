@@ -255,7 +255,7 @@ try {
       await scene.evaluate(async screen => {
         // setScreen() has a delayed Web Animations entrance in addition to CSS
         // fadeIn. Measure its settled layout, not an intermediate swipe frame.
-        await Promise.all(screen.getAnimations()
+        await Promise.all(screen.getAnimations({subtree: true})
           .filter(animation => Number.isFinite(animation.effect.getComputedTiming().endTime))
           .map(animation => animation.finished.catch(() => {})));
       });
@@ -271,13 +271,14 @@ try {
           className: screen.className, background: getComputedStyle(screen).backgroundImage,
           viewportHeight: innerHeight};
       });
+      // Preserve evidence even if a layout assertion fails.
+      await page.screenshot({path: path.join(output, `${phase}-${size[0]}x${size[1]}.png`)});
       for (const name of ["screen", "ui", "canvas"]) {
         assert.equal(bounds[name].top, 0, `${phase}: ${name} is inset, cutting off its background.`);
         assert.ok(Math.abs(bounds[name].height - bounds.viewportHeight) <= 1, `${phase}: ${name} is not full-height.`);
       }
-      assert.ok(bounds.header.top >= bounds.titlebarHeight, `${phase}: controls overlap the native title bar.`);
+      assert.ok(bounds.header.top >= bounds.titlebarHeight, `${phase}: controls overlap the native title bar: ${JSON.stringify(bounds)}`);
       results.push({phase, size, bounds});
-      await page.screenshot({path: path.join(output, `${phase}-${size[0]}x${size[1]}.png`)});
       console.log(`Checked ${phase} at ${size[0]}x${size[1]}`);
     }
     await scene.locator(".back-btn").click();

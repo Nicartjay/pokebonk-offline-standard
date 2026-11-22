@@ -47,16 +47,21 @@ try {
     const plist = path.join(bundle, "Contents/Info.plist");
     for (const [key, value] of Object.entries({CFBundleName: config.productName, CFBundleDisplayName: config.productName,
       CFBundleIdentifier: config.applicationId, CFBundleShortVersionString: config.version})) {
-      if (execFileSync("plutil", ["-extract", key, "raw", plist], {encoding: "utf8"}).trim() !== value) throw new Error(`Wrong packaged macOS ${key}.`);
+      if (execFileSync("plutil", ["-extract", key, "raw", plist], {encoding: "utf8"}).trim().normalize("NFC") !== value.normalize("NFC")) throw new Error(`Wrong packaged macOS ${key}.`);
     }
     execFileSync("codesign", ["--verify", "--deep", "--strict", bundle], {stdio: "inherit"});
   } else if (platform === "win32") {
     const exe = path.join(output, "win-unpacked", `${config.productName}.exe`);
-    const command = `(Get-Item -LiteralPath '${exe.replaceAll("'", "''")}').VersionInfo.ProductName`;
+    const command = `[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new(); (Get-Item -LiteralPath '${exe.replaceAll("'", "''")}').VersionInfo.ProductName`;
     if (execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], {encoding: "utf8"}).trim() !== config.productName) {
       throw new Error("Wrong Windows executable ProductName.");
     }
   }
+  const packagedGame = platform === "darwin"
+    ? path.join(output, arch === "arm64" ? "mac-arm64" : "mac", `${config.productName}.app/Contents/Resources/game`)
+    : path.join(output, platform === "win32" ? "win-unpacked" : "linux-unpacked", "resources/game");
+  const bundled = await verifyPayload(packagedGame);
+  if (bundled.inventory.gameDigest !== inventory.gameDigest) throw new Error("The packaged desktop game differs from the accepted shared payload.");
   await mkdir(release, {recursive: true});
   const artifacts = {};
   for (const id of Object.keys(DISTRIBUTIONS).filter(id => DISTRIBUTIONS[id].platform === native)) {

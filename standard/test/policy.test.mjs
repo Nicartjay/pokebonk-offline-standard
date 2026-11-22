@@ -2,15 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {verify} from "node:crypto";
+import path from "node:path";
 import {requireAcceptance} from "../scripts/publish.mjs";
 import {manifest, config} from "./fixtures.mjs";
 import {resolveAsset, byteRange, isGameURL, CSP} from "../desktop/protocol.mjs";
 test("native asset protocol cannot escape root or open remote/file origins", () => {
-  assert.equal(resolveAsset("/game", "pokebonk-standard://game/"), "/game/index.html");
-  assert.equal(resolveAsset("/game", "pokebonk-standard://game/assets/assets/test.png"), "/game/assets/test.png");
+  const root = path.resolve("game-fixture");
+  assert.equal(resolveAsset(root, "pokebonk-standard://game/"), path.join(root, "index.html"));
+  assert.equal(resolveAsset(root, "pokebonk-standard://game/assets/assets/test.png"), path.join(root, "assets/test.png"));
   for (const value of ["file:///etc/passwd", "https://pokebonk.com/", "pokebonk-standard://user@game/foo",
     "pokebonk-standard://game/..%2fsecret", "pokebonk-standard://game/%5csecret", "pokebonk-standard://game/%00secret"]) {
-    assert.throws(() => resolveAsset("/game", value));
+    assert.throws(() => resolveAsset(root, value));
   }
   assert.equal(isGameURL("pokebonk-standard://game:81/a"), false);
   assert.equal(CSP.includes("frame-src 'none'"), true);

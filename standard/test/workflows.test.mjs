@@ -42,15 +42,16 @@ test("all installer jobs reuse one prepared payload and cannot publish publicly"
   assert.deepEqual(w.jobs.desktop.strategy.matrix.include.map(x => `${x.platform}-${x.arch}`),
     ["darwin-arm64", "darwin-x64", "win32-x64", "linux-x64"]);
   assert.equal(w.jobs.shared.steps.filter(s => s.run === "pnpm prepare:game").length, 1);
-  for (const id of ["desktop", "android", "metadata"]) {
+  for (const id of ["desktop", "android", "verify-candidates"]) {
     assert.equal(w.jobs[id].steps.some(s => s.run === "pnpm prepare:game"), false);
     assert.ok(w.jobs[id].steps.some(s => s.run?.includes("restore-payload.mjs")));
   }
-  assert.equal(w.jobs.android.environment, "release-signing");
-  assert.equal(w.jobs.metadata.environment, "release-signing");
-  assert.match(w.jobs.draft.if, /tag != ''/);
-  assert.ok(w.jobs.draft.steps.some(s => s.run?.endsWith("--prepare-draft")));
-  assert.doesNotMatch(JSON.stringify(w), /--approve-publication/);
+  assert.equal(w.jobs.android.environment, undefined);
+  assert.equal(w.jobs["verify-candidates"].environment, undefined);
+  assert.equal(w.jobs.draft, undefined);
+  assert.ok(w.jobs.android.steps.some(s => s.run?.endsWith("--unsigned-candidate")));
+  assert.ok(w.jobs["verify-candidates"].steps.some(s => s.run?.endsWith("verify-candidates.mjs")));
+  assert.doesNotMatch(JSON.stringify(w), /secrets\.|--approve-publication|assemble-release\.mjs|--prepare-draft|release-signing/);
 });
 test("public publication requires manual dispatch, acceptance and a separate protected environment", async () => {
   const w = await document(".github/workflows/publish-release.yml");

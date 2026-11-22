@@ -18,6 +18,7 @@
     "package:android": "pnpm prepare:game && node standard/scripts/build-android.mjs",
     "stage:android": "node standard/scripts/stage-android.mjs",
     "release:assemble": "node standard/scripts/assemble-release.mjs",
+    "release:finalize": "node standard/scripts/finalize-release.mjs",
     "release:publish": "node standard/scripts/publish.mjs",
     "check:upstream": "node standard/scripts/check-upstream.mjs",
     "standard:prepare": "pnpm prepare:game",
@@ -36,7 +37,8 @@
     "electron": "45.0.0",
     "electron-builder": "26.18.0",
     "playwright-core": "1.61.1",
-    "yaml": "2.9.1"
+    "yaml": "2.9.1",
+    "yauzl": "3.4.0"
   },
   "packageManager": "pnpm@10.33.2",
   "engines": {

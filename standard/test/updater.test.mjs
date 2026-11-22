@@ -58,7 +58,7 @@ test("new updater does not offer incompatible save/run migrations", () => {
   assert.equal(compareVersions("0.10.0", "0.2.0"), 1);
 });
 test("download redirects reject external hosts, HTTP, credentials and unusual ports", () => {
-  allowedNetworkURL("https://github.com/Nicartjay/pokebonk-offline/releases/download/standard-v0.2.0/test.zip");
+  allowedNetworkURL(`https://github.com/${config.repository}/releases/download/standard-v0.2.0/test.zip`);
   allowedNetworkURL("https://release-assets.githubusercontent.com/test?token=opaque-github-redirect");
   for (const value of ["http://github.com/x", "https://github.com.evil.invalid/x", "https://user@github.com/x", "https://github.com:444/x", "https://127.0.0.1/x", "https://github.com/x#frag"]) assert.throws(() => allowedNetworkURL(value));
 });
