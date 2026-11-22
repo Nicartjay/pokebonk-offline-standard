@@ -35,6 +35,8 @@ test("every platform uses the approved PokéBonk name and artwork without changi
   assert.equal(c.nsis.shortcutName, production.productName);
   assert.equal(c.linux.desktop.entry.Name, production.productName);
   assert.equal(c.linux.syncDesktopName, true);
+  assert.equal(c.appImage.artifactName, artifactName(production.version, "linux-x64"));
+  assert.equal(c.deb.artifactName, artifactName(production.version, "linux-x64-deb"));
   assert.equal(c.nsis.deleteAppDataOnUninstall, false);
   assert.equal(c.win.signAndEditExecutable, true); // false would leave Electron's icon.
   assert.equal(c.publish, null);

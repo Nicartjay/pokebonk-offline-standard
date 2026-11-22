@@ -64,7 +64,6 @@ export function desktopConfiguration(config, {app, output, game, resources, elec
     },
     linux: {
       target: ["AppImage", "deb"],
-      artifactName: `pokebonk-offline-${config.version}-linux-\${arch}.\${ext}`,
       executableName: "pokebonk-offline",
       syncDesktopName: true,
       icon: path.join(resources, "icon.png"),
@@ -72,6 +71,9 @@ export function desktopConfiguration(config, {app, output, game, resources, elec
       maintainer: "Nicartjay",
       desktop: {entry: {Name: config.productName, Comment: "Offline PokéBonk with normal progression"}},
     },
-    deb: {packageName: "pokebonk-offline-standard", packageCategory: "games", priority: "optional"},
+    // Linux targets otherwise substitute x86_64 / amd64 for ${arch}. Keep one
+    // canonical x64 spelling across manifests, receipts and download filenames.
+    appImage: {artifactName: name("linux-x64")},
+    deb: {artifactName: name("linux-x64-deb"), packageName: "pokebonk-offline-standard", packageCategory: "games", priority: "optional"},
   };
 }
