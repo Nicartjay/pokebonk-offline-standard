@@ -9,7 +9,8 @@ final class NativeMenuAction {
     }
     static String resolve(String url, String method, boolean mainFrame, boolean gesture) {
         if (!mainFrame || !gesture || !"GET".equals(method) || !reserved(url)) return null;
-        for (String action : new String[]{"check-for-updates", "export-backup", "import-backup", "report-bug"}) {
+        for (String action : new String[]{"check-for-updates", "export-backup", "import-backup", "report-bug",
+            "lan/host", "lan/join", "lan/leave", "lan/copy", "lan/find", "lan/cancel-find"}) {
             if ((PREFIX + action).equals(url)) return action;
         }
         return null;

@@ -1,5 +1,28 @@
 [
   {
+    "version": "1.1.0",
+    "date": "2026-11-23",
+    "status": "Stable release",
+    "upstream": {"version": "0.10.26", "build": "mwsewi0r"},
+    "changes": [
+      "Room-to-Lab navigation no longer resets the online room URL. Desktop only closes LAN sessions for actual main-document navigation, not ordinary loading or in-page history changes. The homepage Co-op subtitle is now With friends.",
+      "Moved Find a match into its own card above How to play. Network selection and Personal Records filters now share the original leaderboard dropdown styling, map colors, selected-row highlight and animations, without menus being cropped by their panels.",
+      "Added Find a match for compatible open LAN rooms using bounded local discovery, with search feedback, cancellation and manual-invitation fallback. Full and in-progress rooms are not advertised.",
+      "Matched the homepage Survival / Endless mode and Co-op labels, with clearer icon-to-text spacing.",
+      "Added experimental 2–4-player LAN co-op for Classic / Viridian Forest / Normal, with native private-network pairing, in-room Pokémon changes and local progression. No internet matchmaking, STUN/TURN, leaderboards or online prizes.",
+      "Moved the online-style Co-op button below Endless and Relay into Game Modes. Reorganized the co-op entry into three desktop columns and removed its redundant Pokémon selector.",
+      "Fixed leaving a local room and immediately creating another: retired room callbacks can no longer close or adopt a newer room.",
+      "Check for updates now opens a game-styled loading dialog immediately, followed by clear version details for up-to-date apps, newer local test builds or connection/verification failures. Downloads and installation remain explicit native actions.",
+      "Centered the empty Personal Records messages in KOs, Survival and Time Attack, including the full records dialog and filtered empty results.",
+      "Android Automatic theme follows the device on startup, foreground activation and live light/dark changes. Explicit Light and Dark preferences are preserved; OEM automatic recoloring remains disabled.",
+      "Fixed tablet Expedition title, map labels, equipment names and reward text using behind-the-fill outlines rather than unsupported text-stroke paint order. Entry buttons now have a continuous rounded border, with the gold bevel inside it and an unclipped outer shadow.",
+      "Enabled the original solo Wild Valley and Safari Zone Expedition engines with local equipment, a safe pocket, insurance, seeded loot, extraction and defeat settlement.",
+      "Added Bill's local shop, inventory purchases/sales/recycling/repairs, daily contracts, a permanent earned Expedition Pass and My Extractions. Player trading, co-op, borrowed Pokémon, rivals, rankings and competitive prizes remain excluded.",
+      "Expedition loadouts are escrowed atomically with the run ticket. Duplicate settlements and claims cannot duplicate rewards. Interrupted raids preserve their last durable inventory checkpoint and require explicit defeat settlement, not a silent reset or free extraction.",
+      "Restored Expedition loot-filter settings. Existing profiles receive no automatic Pokémon or equipment unlocks."
+    ]
+  },
+  {
     "version": "1.0.0",
     "date": "2026-11-23",
     "status": "Stable release",

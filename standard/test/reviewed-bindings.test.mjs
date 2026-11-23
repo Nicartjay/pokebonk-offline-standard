@@ -32,7 +32,7 @@ test("the 0.10.23 adapter resolves renamed menu entry points and does not rewrit
   files.set(menus, Buffer.from(source.replace(new RegExp(`\\b${entry.id.name}\\b`, "g"), "ReviewedMenuEntry")));
   const adapted = patchSnapshot(files), result = adapted.files.get(menus).toString();
   assert.match(result, /function ReviewedMenuEntry\(e\)/);
-  assert.match(result, /endless relay/);
+  assert.match(result, /id:"relay"/);
   assert.match(result, /pointerenter/);
   const news = one(tree.body.filter(node => node.type === "FunctionDeclaration" &&
     nodesOf(node, "TemplateLiteral", node => literal(node) === "nw-list scroll").length), "unrelated news view");

@@ -181,10 +181,15 @@ try {
     try {
       assert.equal(await page.locator(".mm-modes > .play").count(), 1);
       assert.equal(await page.locator(".mm-modes > .mm-pair > .endless").count(), 2);
-      const relay = await page.locator(".relay .rv-hubic img").evaluateAll(images => images.map(image => image.getAttribute("src")));
+      assert.equal(await page.locator(".mm-modes .relay").count(), 0);
+      assert.equal(await page.locator(".mm-pair .coop").count(), 1);
+      await activate(page.locator(".mm-modes > .hub"));
+      const relay = await page.locator(".mh-pill").filter({hasText: "Relay"}).locator(".rv-hubic img").evaluateAll(images => images.map(image => image.getAttribute("src")));
       assert.equal(relay.length, 2);
       assert.ok(relay.some(src => /portraits\/4\.png/.test(src)) && relay.some(src => /portraits\/155\.png/.test(src)),
         "Relay must show the real League Pokémon portraits, not the old item icon.");
+      await page.keyboard.press("Escape");
+      await page.locator(".mh").waitFor({state: "detached"});
       assert.equal(await page.locator(".mm-today > .event").count(), 1);
       assert.equal(await page.locator(".mm-today > .tasks .mm-pips > i").count(), 3);
       assert.equal(await page.locator(".mm-tiles > .tile").count(), 4);
@@ -288,7 +293,8 @@ try {
         await page.screenshot({path: `${output}/${platform}-records-${label.replaceAll(" ", "-").toLowerCase()}.png`});
       }
       await activate(page.locator(".offline-records-card").getByRole("tab", {name: "KOs", exact: true}));
-      await page.getByLabel("Filter records by mode", {exact: true}).selectOption("bossrush");
+      await activate(page.getByRole("button", {name:"Filter records by mode",exact:true}));
+      await activate(page.getByRole("option", {name:/^Boss Rush/}));
       assert.equal(await page.locator(".offline-record-table tbody tr").count(), 1);
       await activate(page.locator(".offline-records-card").getByRole("button", {name: "Close", exact: true}));
       for (const [mode, id] of [["bossrush", "rush26"], ["tower", "halloween26"]]) {
@@ -320,12 +326,14 @@ try {
       await page.keyboard.press("Escape");
       await page.locator(".offline-menu").waitFor();
       await activate(page.locator(".mm-modes > .hub"));
-      assert.equal(await page.locator(".mh-pill").count(), 3);
-      assert.equal(await page.locator(".mh-pill").filter({hasText: /Relay|Practice/}).count(), 0);
+      assert.equal(await page.locator(".mh-pill").count(), 4);
+      assert.equal(await page.locator(".mh-pill").filter({hasText: "Relay"}).count(), 1);
+      assert.equal(await page.locator(".mh-pill").filter({hasText: "Practice"}).count(), 0);
       await activate(page.locator(".mh-pill").filter({hasText: "The Great Expedition"}));
-      await page.locator(".offline-expedition-view").waitFor();
-      assert.match(await page.locator(".offline-expedition-draft").textContent(), /DESIGN PREVIEW/);
-      assert.equal(await page.locator(".offline-expedition-go .ex-go").isDisabled(), true);
+      await page.locator(".screen.exb .exb-chart").waitFor();
+      assert.equal(await page.locator(".offline-expedition-draft").count(), 0);
+      assert.equal(await page.locator(".screen.exb .exb-go-tile .ex-go").isDisabled(), false);
+      assert.equal(await page.locator(".exb-party,.exb-season,.exb-scav").count(), 0);
       await page.keyboard.press("Escape");
       await page.locator(".offline-menu").waitFor();
       if (platform === "android") {

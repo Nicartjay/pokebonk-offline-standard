@@ -31,10 +31,12 @@ export async function prepare() {
   if (eventResources.reviewedBuild !== accepted.build || !Array.isArray(eventResources.required) ||
       eventResources.required.some(name => !pristine.has(name))) throw new Error("Missing reviewed offline event resources; preparation stopped.");
   const {files, modules, changed} = reviewed.patch(pristine);
-  for (const name of ["backend.js", "event-rewards.js", "guard.js", "ui.js", "startup.js", "modes.js", "records.js", "android-ui.js", "transport.js", "offline.css", "home.css", "entry.js"]) {
+  for (const name of ["backend.js", "expedition.js", "event-rewards.js", "guard.js", "ui.js", "dropdown.js", "lan.js", "lan-lobby.js", "lan-ui.js", "lan.css", "lan-rtc.js", "lan-session.js", "lan-broker.js", "lan-broker.html", "startup.js", "modes.js", "records.js", "android-ui.js", "transport.js", "offline.css", "home.css", "entry.js"]) {
     files.set("offline/" + name, await readFile("standard/runtime/" + name));
   }
   files.set("common/state.mjs", await readFile("standard/common/state.mjs"));
+  files.set("common/update-feedback.mjs", await readFile("standard/common/update-feedback.mjs"));
+  files.set("common/lan-policy.mjs", await readFile("standard/common/lan-policy.mjs"));
   // No secrets, URLs or updater API are passed into the game.
   const history = JSON.parse(await readFile("standard/history.json", "utf8"));
   if (!Array.isArray(history) || history[0]?.version !== config.version ||
@@ -55,7 +57,7 @@ export async function prepare() {
 <meta name="color-scheme" content="only light"><meta name="supported-color-schemes" content="light">
 <title>${config.productName}</title><link rel="icon" href="/favicon.ico">
 ${css.map(name => `<link rel="stylesheet" href="/${name}">`).join("\n")}
-<link rel="stylesheet" href="/offline/offline.css"><link rel="stylesheet" href="/offline/home.css"><script src="/offline/guard.js"></script>
+<link rel="stylesheet" href="/offline/offline.css"><link rel="stylesheet" href="/offline/home.css"><link rel="stylesheet" href="/offline/lan.css"><script src="/offline/guard.js"></script>
 <script type="module" src="/offline/entry.js"></script></head><body>
 <noscript>JavaScript and WebGL are required.</noscript><canvas id="game"></canvas><div id="ui"></div></body></html>\n`));
   files.set("LICENSE.txt", await readFile("LICENSE"));
@@ -69,7 +71,10 @@ ${css.map(name => `<link rel="stylesheet" href="/${name}">`).join("\n")}
   try { sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {encoding: "utf8"}).trim(); } catch {}
   const metadata = {edition: "standard", applicationId: config.applicationId, appVersion: config.version,
     saveSchema: config.saveSchema, upstream: config.upstream, pristineDigest: manifest.digest, sourceCommit,
-    modes: ["standard", "endless", "relay", "training", "mutation", "bossrush", "tower"],
+    modes: ["standard", "endless", "relay", "training", "mutation", "bossrush", "tower", ...(modules.backendExpedition ? ["expedition"] : [])],
+    ...(modules.backendExpedition ? {expeditionPolicy: "local-expedition-v1"} : {}),
+    ...(modules.backendExpedition ? {coop: {status: "lan-experimental", targetPlayers: {min: 2, max: 4},
+      networkingEnabled: true, policy:"private-lan-v2"}} : {}),
     eventRewards: "local-earned-v1", localProgression: true, rendererNetwork: "local-only",
     modules, changedModules: changed, missingCandidates: manifest.missingCandidates};
   files.set("offline-build.json", Buffer.from(JSON.stringify(metadata, null, 2) + "\n"));

@@ -8,6 +8,8 @@ import {bindTemplate} from "./reviewed-bindings.mjs";
 import {localContracts} from "./local-contracts.mjs";
 import {patchTowerPage, patchMutationPage, patchBossRush} from "./event-pages.mjs";
 import {patchGuidePages} from "./guide.mjs";
+import {expeditionContract, patchExpeditionPages, patchSystemTheme} from "./expedition.mjs";
+import {patchLanRoom,patchLanLanding} from "./lan-room.mjs";
 
 export function patchSnapshot(input, {bindings} = {}) {
 const output = new Map(input);
@@ -24,6 +26,8 @@ const config = module(source=>source.includes("slot-move")&&source.includes("dat
 const cosmetics = one(names.filter(name=>name.startsWith("cosmetics-")&&name.endsWith(".js")), "cosmetics module");
 const training = module(source=>source.includes("as trainingSetup"), "training setup");
 const parse = source => parseJS(source, { ecmaVersion: "latest", sourceType: "module" });
+const enableExpedition = input.get("index.html").toString().includes('content="mwsewi0r"');
+const expedition = enableExpedition ? expeditionContract(input) : null;
 const edits = new Map();
 const add = (file, node, text) => {
   if (file === menus && !bindings) {
@@ -80,7 +84,7 @@ add(main,hudLook,sourceMain.slice(hudLook.start,hudLook.value.body.start+1)+
 for (const node of parse(sourceMain).body) {
   if (node.type === "FunctionDeclaration" && node.id.name === factory.id.name) {
     add(main, node, `function ${factory.id.name}(data){
-      const backend=new globalThis.PokeBonkOfflineBackend({data,rules:__OFFLINE_RULES__,config:__OFFLINE_CONFIG__,cosmetics:__OFFLINE_COSMETICS__,modes:__OFFLINE_MODES__});
+      const backend=new globalThis.PokeBonkOfflineBackend({data,rules:__OFFLINE_RULES__,config:__OFFLINE_CONFIG__,cosmetics:__OFFLINE_COSMETICS__,modes:__OFFLINE_MODES__,${enableExpedition ? "expedition:__OFFLINE_EXPEDITION__," : ""}});
       backend[${JSON.stringify(heartbeatName)}]=(...args)=>backend.checkpoint(...args);return backend
     }`);
   }
@@ -127,6 +131,17 @@ for (const node of parse(sourceMain).body) {
     }
     if (declaration.id.name !== appClass) continue;
     for (const method of declaration.init.body.body) {
+      if (enableExpedition && method.key.name === "startRun") {
+        const argument=maybeName(method.value.params[0]),body=method.value.body;
+        if(!argument)throw new Error("Unsupported application run config.");
+        add(main,method,sourceMain.slice(method.start,body.start+1)+
+          `if(!${argument}.coop&&["hosting","connecting","lobby","preparing","playing"].includes(globalThis.PokeBonkLocalCoop?.state().phase)){this.notice("Leave the local co-op room before starting a solo or practice run.");return false;}`+
+          sourceMain.slice(body.start+1,method.end));
+      }
+      if (enableExpedition && method.key.name === "launch") {
+        const hook=one(nodesOf(method,"AssignmentExpression",n=>maybeName(n.left.property)==="onCoop"),"co-op return action");
+        add(main,hook.right,"()=>{this.toMenu();globalThis.PokeBonkOfflineUI.localCoop()}");
+      }
       if (method.key.name === "constructor") {
         const loop=one(nodesOf(method,"CallExpression",node=>literal(node.arguments[1])==="loop"&&
           node.arguments[2]?.type==="ArrowFunctionExpression"),"game frame callback").arguments[2];
@@ -253,16 +268,14 @@ const offlineMenu = `function Lw(e){
   const play=saved?item("play",K("poke-ball"),"Continue","Saved run","var(--red)",()=>e.offerSaved("menu")):
     item("play",K("poke-ball"),"Play","Classic mode","var(--red)",()=>mT(e));
   play.append(q("span",{class:"mm-partner"},J(n.lastSpecies)),q("span",{class:"mm-shine","aria-hidden":"true"}));
-  const members=n.league.filter(Xt),portraits=[members[0],members[Math.floor(members.length/2)],members[members.length-1]]
-    .filter((id,index,all)=>id!=null&&all.indexOf(id)===index);
-  const relayIcon=q("span",{class:"rv-hubic n"+portraits.length},...portraits.map(id=>J(id)));
-  const endless=item("endless",K("moon-stone"),"Endless","Survival","#5a4cd8",()=>mT(e,"endless"));
+  const endless=item("endless",K("moon-stone"),"Survival","Endless mode","#5a4cd8",()=>mT(e,"endless"));
   endless.querySelector(".mm-ic").append(...[0,1,2].map(index=>q("i",{class:"mm-star",style:{"--k":index}})));
-  const relay=item("endless relay",relayIcon,"Relay","Swap team","#e0306a",()=>mT(e,"relay"));
+  const coop=${enableExpedition ? 'item("endless coop offline-lan-entry",Z("friends",40),"Co-op","With friends","#1fa86a",()=>globalThis.PokeBonkOfflineUI.localCoop())' : "null"};
+  if(coop)coop.title="Co-op: play Classic with up to three friends on your local network";
   const hub=localModeHub(item,()=>localModeOptions(e));
-  hub.querySelector(".mm-tx b").textContent="Modes";hub.querySelector(".mm-tx small").textContent="3 modes";
+  hub.querySelector(".mm-tx b").textContent="Modes";hub.querySelector(".mm-tx small").textContent="4 modes";
   hub.setAttribute("aria-label","Game modes");
-  const modes=q("div",{class:"mm-modes"},play,q("div",{class:"mm-pair"},endless,relay),hub);
+  const modes=q("div",{class:"mm-modes"},play,coop?q("div",{class:"mm-pair"},endless,coop):endless,hub);
   const event=item("event",Z("rush-trophy",40),"Mewtwo Strikes Back","Event challenge","#8a3aff",()=>localEventView(e,"rush26"));
   event.style.setProperty("--ev-img",'url("assets/ui/events/rush-card.jpg")');
   event.title="Boss Rush · earned pass rewards and missions · no deadline";
@@ -309,10 +322,16 @@ const offlineMenu = `function Lw(e){
 }`;
 
 const sourceMenus = get(menus);
+const lanRoom = enableExpedition ? patchLanRoom(sourceMenus) : null;
+const lanLanding = enableExpedition ? patchLanLanding(sourceMenus) : null;
+if (lanRoom) add(menus, lanRoom.change, lanRoom.change.text);
+if (lanRoom) add(menus, lanRoom.cleanupChange, lanRoom.cleanupChange.text);
 // Resolve UI entry points by their DOM/content contracts. The replacement
 // templates below use reviewed 0.10.20 bindings, translated to discovered names.
 // Unknown or ambiguous shapes fail BEFORE touching the previous built payload.
 const menuTree = parse(sourceMenus);
+const expeditionPages = enableExpedition ? patchExpeditionPages(sourceMenus) : null;
+if (expeditionPages) for (const change of expeditionPages.changes) add(menus, change, change.text);
 const declarations = menuTree.body.filter(n=>n.type==="FunctionDeclaration");
 const roleActual = new Map();
 for(const [role, marker] of Object.entries({
@@ -338,6 +357,14 @@ roleActual.set("Fg",one(declarations.filter(n=>{
 }),"desktop website updater").id.name);
 const calls = (fn,name) => nodesOf(fn,"CallExpression",n=>n.callee.type==="Identifier"&&n.callee.name===name).length>0;
 const originalMenu = one(declarations.filter(node => node.id.name === roleActual.get("Lw")), "homepage catalog owner");
+const originalBoard = one(declarations.filter(node=>nodesOf(node,"Literal").concat(nodesOf(node,"TemplateLiteral"))
+  .some(value=>literal(value)==="mm-sp-scope")),"homepage leaderboard scope owner");
+const scopeBiomes = one([...new Set(nodesOf(originalBoard,"CallExpression",node=>
+  maybeName(node.callee.property)==="filter"&&node.callee.object?.type==="Identifier")
+  .map(node=>node.callee.object.name))],"leaderboard map-scope palette");
+const scopeSky = one(nodesOf(originalBoard,"Property",node=>literal(node.key)==="--sky"),"leaderboard map-scope sky");
+const scopeColor = maybeName(scopeSky.value?.callee);
+if(!scopeColor)throw new Error("Unsupported leaderboard palette color helper.");
 roleActual.set("localDexData", one([...new Set(nodesOf(originalMenu, "MemberExpression", node =>
   maybeName(node.property) === "length" && maybeName(node.object?.property) === "pokemon" &&
   node.object.object.type === "Identifier").map(node=>node.object.object.name))], "national Pokédex menu catalog"));
@@ -384,20 +411,25 @@ for (const node of parse(sourceMenus).body) {
   // Only positively resolved roles may be rewritten in a different build.
   const name = canonicalRole.get(node.id.name) ?? (bindings ? null : node.id.name);
   if (name === "Lw") addTemplate(menus, node, offlineMenu);
+  else if (name === "M_" && lanLanding) add(menus, node, lanLanding.change.text);
   else if (name === "Pw") add(menus, node, `function ${node.id.name}(){return globalThis.PokeBonkOfflineUI.fullscreenButton()}`);
   else if (name === "Bb") add(menus, node, `function ${node.id.name}(){return globalThis.PokeBonkOfflineUI.versionBadge()}`);
   else if (name === "localEventView") add(menus, node, patchTowerPage(sourceMenus, node));
   else if (name === "localMutationView") add(menus, node, patchMutationPage(sourceMenus, node));
   else if (name === "localModeOptions") addTemplate(menus, node, `function localModeOptions(e){
     const daily=e.backend.dailyChallenge(),mutation=daily.mutation;
+    const members=e.meta.profile.league.filter(Xt),portraits=[members[0],members[Math.floor(members.length/2)],members[members.length-1]]
+      .filter((id,index,all)=>id!=null&&all.indexOf(id)===index);
     return [
+      {id:"relay",icon:()=>q("span",{class:"rv-hubic n"+portraits.length},...portraits.map(id=>J(id))),title:"Relay",color:"#e0306a",chip:"TEAM",
+        sub:"Four Pokémon · one at a time",desc:"Recruit your League and swap during the run",action:()=>mT(e,"relay")},
       {id:"mutation",icon:()=>Z(mutation.icon,50),title:mutation.name,color:mutation.color,chip:"DAILY",
         sub:"Daily Mutation",desc:"Daily rules · local rewards",action:()=>localMutationView(e)},
       {id:"tower",icon:()=>Z("torre",50),title:"Lavender Tower",color:"#9a6aff",chip:"EVENT",
         sub:"Climb the tower",desc:"Earn Candles, pass rewards and missions",action:()=>localEventView(e,"halloween26")},
-      {id:"expedition",icon:()=>Z("exp-bag",50),title:"The Great Expedition",color:"#1f9a6a",chip:"PREVIEW",
-        sub:"Solo loot & extraction",desc:"Offline adaptation in progress",action:()=>globalThis.PokeBonkOfflineUI.expeditionPreview(e,
-          {mount:content=>UC(e,"dim ex exp3d exb offline-expedition",content)})}
+      {id:"expedition",icon:()=>Z("exp-bag",50),title:"The Great Expedition",color:"#1f9a6a",chip:${enableExpedition ? '"SOLO"' : '"PREVIEW"'},
+        sub:"Solo loot & extraction",desc:${enableExpedition ? '"Keep the loot you extract"' : '"Offline adaptation in progress"'},action:()=>${enableExpedition ?
+          "globalThis.PokeBonkOpenExpedition(e)" : 'globalThis.PokeBonkOfflineUI.expeditionPreview(e,{mount:content=>UC(e,"dim ex exp3d exb offline-expedition",content)})'}}
     ];
   }`);
   else if (name === "XC") {
@@ -416,11 +448,11 @@ for (const node of parse(sourceMenus).body) {
   else if (name === "localGuidePages") add(menus, node, patchGuidePages(sourceMenus, node));
   else if (name === "LE") {
     const replacements = [];
-    const offlineOnlyKeys = new Set(["mateFx", "showLadder", "teamChat", "lootMinRarity",
-      "lootShinyMin", "lootMinLevel", "lootUse", "lootTreasure", "lootHideUse", "lootHideTreasure"]);
+    const offlineOnlyKeys = new Set(["mateFx", "showLadder", "teamChat", ...enableExpedition ? [] : ["lootMinRarity",
+      "lootShinyMin", "lootMinLevel", "lootUse", "lootTreasure", "lootHideUse", "lootHideTreasure"]]);
     const unavailableRows = new Set(node.body.body.filter(statement=>statement.type==="VariableDeclaration")
       .flatMap(statement=>statement.declarations)
-      .filter(declaration=>["ArrowFunctionExpression","FunctionExpression"].includes(declaration.init?.type)&&
+      .filter(declaration=>!enableExpedition&&["ArrowFunctionExpression","FunctionExpression"].includes(declaration.init?.type)&&
         /lootMinRarity|lootShinyMin|lootMinLevel|lootUse|lootTreasure/.test(sourceMenus.slice(declaration.init.start,declaration.init.end)))
       .map(declaration=>maybeName(declaration.id)));
     walk(node, child => {
@@ -611,6 +643,7 @@ function withoutExternalDestinations(source) {
 
 const changed = [];
 output.set("offline/upstream-modes.js", localContracts(input, {menus, config, cosmetics}));
+if (expedition) output.set("offline/upstream-expedition.js", expedition.bytes);
 for (const file of names.filter(name => name.endsWith(".js"))) {
   let source = get(file);
   for (const change of (edits.get(file) ?? []).sort((a, b) => b.start - a.start)) source = source.slice(0, change.start) + change.text + source.slice(change.end);
@@ -640,6 +673,7 @@ for (const file of names.filter(name => name.endsWith(".js"))) {
   try { source = withoutExternalDestinations(source); }
   catch(error){throw new Error(`Invalid offline rewrite in ${file}: ${error.message}`,{cause:error});}
   if (file === main) {
+    source = patchSystemTheme(source);
     const localModesImport = 'import * as __OFFLINE_MODES__ from "../offline/upstream-modes.js";';
     if(bindings){
       const exports={
@@ -654,6 +688,11 @@ for (const file of names.filter(name => name.endsWith(".js"))) {
       source = localModesImport + `import * as __OFFLINE_RULES__ from "../offline/upstream-rules.js";import * as __OFFLINE_CONFIG__ from "../offline/upstream-config.js";import * as __OFFLINE_COSMETICS__ from "../offline/upstream-cosmetics.js";const __STANDARD_MANUAL__=new Map();\n`+source;
     }else source = localModesImport + `import * as __OFFLINE_RULES__ from "./${rules}";import * as __OFFLINE_CONFIG__ from "./${config}";import * as __OFFLINE_COSMETICS__ from "./${cosmetics}";const __STANDARD_MANUAL__=new Map();\n` + source;
   }
+  if (file === main && expedition) source = 'import * as __OFFLINE_EXPEDITION__ from "../offline/upstream-expedition.js";\n' + source;
+  if (file === menus && expeditionPages) source += `\nglobalThis.PokeBonkOpenExpedition=${expeditionPages.entry};\n`;
+  if (file === menus && lanRoom) source += `\nglobalThis.PokeBonkOpenLocalRoom=${lanRoom.entry};\n`;
+  if (file === menus && lanLanding) source += `\nglobalThis.PokeBonkOpenLanHome=${lanLanding.entry};\n`;
+  if (file === menus) source += `\nglobalThis.PokeBonkOfflineUI.setScopePalette(${scopeBiomes}.map(map=>({id:map.id,sky:${scopeColor}(map.sky[0]),ground:${scopeColor}(map.ground[1])})));\n`;
   try { parse(source); }
   catch(error){throw new Error(`Invalid offline patch in ${file}: ${error.message}; near ${source.slice(Math.max(0,(error.pos??0)-120),(error.pos??0)+220)}`,{cause:error});}
   if(file===boot)source=patchNativeOriginGate(source).replaceAll("pokebonk://game/","pokebonk-standard://game/");
@@ -663,5 +702,6 @@ for (const file of names.filter(name => name.endsWith(".js"))) {
 
 return {files:output, modules:{main,boot,menus,rules,config,cosmetics,training,
   backendModes:"offline/upstream-modes.js",
+  ...(expedition ? {backendExpedition:"offline/upstream-expedition.js"} : {}),
   ...(bindings?{backendRules:"offline/upstream-rules.js",backendConfig:"offline/upstream-config.js",backendCosmetics:"offline/upstream-cosmetics.js"}:{})},changed};
 }

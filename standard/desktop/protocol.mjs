@@ -11,6 +11,19 @@ export function isGameURL(value) {
   try { const u = new URL(value); return u.protocol === "pokebonk-standard:" && u.host === "game" && !u.username && !u.password; }
   catch { return false; }
 }
+// A loading spinner is not proof of a page reload. In-document navigation
+// (including the original menus' history changes) must keep the room alive.
+// Positional arguments support Electron's older event signature as well.
+export function endsLanSessionForNavigation(details,legacySameDocument,legacyMainFrame) {
+  const main=typeof details?.isMainFrame==="boolean"?details.isMainFrame:legacyMainFrame;
+  const same=typeof details?.isSameDocument==="boolean"?details.isSameDocument:legacySameDocument;
+  return main===true&&same===false;
+}
+export function allowLanBrokerPermission(permission,origin,{trusted,isMainFrame,phase}){
+  return trusted===true&&isMainFrame===true&&isGameURL(origin)&&
+    ["local-network","local-network-access"].includes(permission)&&
+    ["connecting","hosting","lobby","preparing","playing"].includes(phase);
+}
 export function resolveAsset(root, value) {
   if (!isGameURL(value)) throw new Error("Blocked origin.");
   const raw = decodeURIComponent(new URL(value).pathname);

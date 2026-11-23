@@ -44,6 +44,8 @@ final class RepositoryUpdater {
     private volatile File ready;
     private volatile String event;
     private volatile String message;
+    private volatile JSONObject feedback;
+    private boolean checking, reportCheck;
     RepositoryUpdater(MainActivity activity, NativeSaveStore saves, JSONObject config) {
         this.activity = activity; this.saves = saves; this.config = config;
         preferences = activity.getSharedPreferences("standard-native-updater-v1", 0);
@@ -52,6 +54,7 @@ final class RepositoryUpdater {
     synchronized String takeEvent() { String value = event; event = null; return value; }
     String message() { return message; }
     JSONObject candidate() { return candidate; }
+    JSONObject feedback() { return feedback; }
     private synchronized void emit(String type, String text) { message = text; event = type; }
     static void require(boolean ok, String message) throws IOException { if (!ok) throw new IOException(message); }
     static boolean allowedURL(URL url) {
@@ -153,23 +156,54 @@ final class RepositoryUpdater {
             NativeSaveStore.contains(compatibility.getJSONArray("compatibleRunBuilds"), saved.getJSONObject("upstream").getString("build")),
             "Finish the unfinished run in this app version before updating. The checkpoint will not be discarded.");
     }
-    void check(boolean manual) {
+    private synchronized void emitFeedback(String state, String latest, String detail) {
+        JSONObject value = new JSONObject();
+        try {
+            value.put("state", state);
+            if (latest != null) value.put("latestVersion", latest);
+            if (detail != null) value.put("detail", detail);
+        } catch (org.json.JSONException impossible) { throw new IllegalStateException(impossible); }
+        feedback = value; event = "feedback";
+    }
+    synchronized void check(boolean manual) {
         long now = System.currentTimeMillis(), last = preferences.getLong("lastCheck", 0);
         if (!manual && last <= now && now - last < INTERVAL) return;
-        if (!busy.compareAndSet(false, true)) { if (manual) emit("message", "An update operation is already in progress."); return; }
+        if (!busy.compareAndSet(false, true)) {
+            if (manual && checking) { reportCheck = true; emitFeedback("checking", null, null); }
+            else if (manual) emitFeedback("error", null, "An update is already downloading or being verified. Wait for it to finish, then try again.");
+            return;
+        }
+        checking = true; reportCheck = manual;
+        if (manual) emitFeedback("checking", null, null);
         worker.execute(() -> {
+            JSONObject checked = null; Exception failure = null;
             try {
                 require(preferences.edit().putLong("lastCheck", System.currentTimeMillis()).commit(), "Cannot store update check time.");
                 JSONObject m = verifyManifest(readMetadata(open(new URL(ENDPOINT))));
-                String version = m.getString("version"), highest = preferences.getString("highestSeen", BuildConfig.VERSION_NAME);
+                // A local test version is not a previously verified public
+                // release. Only signed manifests advance the rollback floor.
+                String version = m.getString("version"), highest = preferences.getString("highestSeen", "0.0.0");
                 require(compare(version, highest) >= 0, "Rejected a rolled-back update manifest.");
                 require(preferences.edit().putString("highestSeen", version).commit(), "Cannot store verified version.");
-                if (compare(version, BuildConfig.VERSION_NAME) <= 0) { if (manual) emit("message", "PokéBonk Offline is current."); return; }
-                require(m.getJSONObject("artifacts").getJSONObject("android-universal").getInt("versionCode") > BuildConfig.VERSION_CODE, "Android version code is not an upgrade.");
-                candidate = m; emit("available", null);
-            } catch (Exception error) { if (manual) emit("message", "Could not check for updates: " + error.getMessage() + "\nKeep playing offline."); }
-            finally { busy.set(false); }
+                if (compare(version, BuildConfig.VERSION_NAME) > 0)
+                    require(m.getJSONObject("artifacts").getJSONObject("android-universal").getInt("versionCode") > BuildConfig.VERSION_CODE, "Android version code is not an upgrade.");
+                checked = m;
+            } catch (Exception error) { failure = error; }
+            finally { completeCheck(checked, failure); }
         });
+    }
+    private synchronized void completeCheck(JSONObject checked, Exception failure) {
+        checking = false; busy.set(false);
+        boolean report = reportCheck; reportCheck = false;
+        if (failure != null) { if (report) emitFeedback("error", null, failure.getMessage()); return; }
+        String version = checked.optString("version");
+        try {
+            int order = compare(version, BuildConfig.VERSION_NAME);
+            if (order <= 0) {
+                candidate = null;
+                if (report) emitFeedback(order < 0 ? "ahead" : "current", version, null);
+            } else { candidate = checked; emit("available", null); }
+        } catch (Exception error) { if (report) emitFeedback("error", null, error.getMessage()); }
     }
     void download() {
         JSONObject m = candidate;

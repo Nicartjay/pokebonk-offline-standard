@@ -51,6 +51,13 @@ final class NativeSaveStore {
         require(value != null && value.getString("id").matches("offline-[\\w-]{1,160}"), "Invalid local ticket.");
         double seed = value.getDouble("seed");
         require(seed >= 0 && seed <= 4294967295L && seed == Math.floor(seed), "Invalid local seed.");
+        if(value.has("lan")&&!value.isNull("lan")){
+            JSONObject lan=value.getJSONObject("lan"),rules=value.getJSONObject("config");
+            require(lan.optInt("version")==1&&LanPolicy.id(lan.optString("party"))&&lan.optString("party").equals(value.optString("party"))&&
+                LanPolicy.id(lan.optString("me"))&&lan.optInt("size")>=2&&lan.optInt("size")<=4&&lan.opt("launched") instanceof Boolean&&
+                "standard".equals(rules.optString("mode"))&&"forest".equals(rules.optString("biome"))&&rules.optInt("tier",-1)==0,
+                "Unsupported local co-op ticket. Keep the original save.");
+        }
     }
     static JSONObject validateState(JSONObject state) throws Exception {
         safe(state, 0);

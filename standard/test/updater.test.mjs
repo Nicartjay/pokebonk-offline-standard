@@ -116,3 +116,28 @@ test("persisted highest signed version rejects rollback across process restarts"
   await new StandardUpdater({...args, fetch: async () => signed(manifest("0.3.0"))}).check(true);
   await assert.rejects(new StandardUpdater({...args, fetch: async () => signed(manifest("0.2.0"))}).check(true), /rolled-back/);
 });
+test("manual feedback identifies equal public releases and newer local builds without allowing downgrade", async t => {
+  for (const [installed, published, ahead] of [["0.2.0", "0.2.0", false], ["0.3.0", "0.2.0", true]]) {
+    const u = new StandardUpdater({config: {...config, version: installed}, directory: await directory(t),
+      platform: "darwin-arm64", loadSave: async () => save(), fetch: async () => signed(manifest(published))});
+    const result = await u.check(true);
+    assert.deepEqual(result, {current: true, latestVersion: published, ahead});
+    assert.equal(u.pending, null, "An older public release must never be offered as an update.");
+    assert.equal((await u.status()).highestSeen, published, "Only an actually verified public version advances the rollback floor.");
+  }
+});
+test("a manual request joins an in-flight automatic check and still receives its verified result", async t => {
+  let finish, calls = 0, started;
+  const fetching = new Promise(resolve => { started = resolve; });
+  const u = new StandardUpdater({config: {...config, version: "0.2.0"}, directory: await directory(t),
+    platform: "darwin-arm64", loadSave: async () => save(), fetch: () => {
+      calls++; started(); return new Promise(resolve => { finish = resolve; });
+    }});
+  const automatic = u.check();
+  await fetching;
+  const manual = u.check(true);
+  finish(signed(manifest("0.2.0")));
+  assert.deepEqual(await manual, {current: true, latestVersion: "0.2.0", ahead: false});
+  await automatic;
+  assert.equal(calls, 1, "Clicking while an automatic check runs cannot start a second network request.");
+});

@@ -2,7 +2,7 @@
 
 Unofficial offline PokéBonk for **macOS, Windows, Linux, and Android**. Play with normal progression and local saves—no online account or automatic unlocks.
 
-**App v1.0.0 · Bundled game v0.10.26**
+**App v1.1.0 · Bundled game v0.10.26**
 
 [Download the latest release](https://github.com/Nicartjay/pokebonk-offline-standard/releases/latest) · [Report a bug](https://github.com/Nicartjay/pokebonk-offline-standard/issues)
 
@@ -10,9 +10,11 @@ Unofficial offline PokéBonk for **macOS, Windows, Linux, and Android**. Play wi
 
 - Classic, Endless, Relay, Practice, and Daily Mutation.
 - Offline Boss Rush and Lavender Tower, including earned Challenge Pass rewards and missions.
+- Solo Great Expedition with local loot, extraction, inventory, shop and earned pass rewards.
+- Experimental 2–4-player LAN co-op with local room discovery (Classic · Viridian Forest · Normal). See the [LAN guide](standard/docs/local-coop.md).
 - Personal Records, JSON save backups, desktop graphics options, and Android touch controls.
 
-**The Great Expedition is a disabled preview.** Multiplayer, online leaderboards, and competitive prizes are excluded.
+No public matchmaking, online leaderboards or competitive prizes.
 
 ## Install
 

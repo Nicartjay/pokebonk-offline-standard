@@ -26,11 +26,16 @@ final class OfflineAssetWebViewClient extends WebViewClient {
     private final AssetManager assetManager;
     private final Runnable pageReady;
     private final Consumer<String> nativeAction;
+    private final boolean broker;
 
     OfflineAssetWebViewClient(AssetManager assetManager, Runnable pageReady, Consumer<String> nativeAction) {
+        this(assetManager,pageReady,nativeAction,false);
+    }
+    OfflineAssetWebViewClient(AssetManager assetManager, Runnable pageReady, Consumer<String> nativeAction, boolean broker) {
         this.assetManager = assetManager;
         this.pageReady = pageReady;
         this.nativeAction = nativeAction;
+        this.broker = broker;
     }
 
     @Override
@@ -42,6 +47,8 @@ final class OfflineAssetWebViewClient extends WebViewClient {
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
         Uri uri = request.getUrl();
+        if(broker)return true;
+        if((APP_ORIGIN+"/offline/lan-broker.html").equals(uri.toString()))return true;
         if (NativeMenuAction.reserved(uri.toString())) {
             String action = NativeMenuAction.resolve(uri.toString(), request.getMethod(), request.isForMainFrame(), request.hasGesture());
             if (action != null) nativeAction.accept(action);

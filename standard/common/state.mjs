@@ -4,6 +4,44 @@ export const MAX_STATE_BYTES = 32 * 1024 * 1024;
 export const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
 const fail = message => { throw new Error(message); };
 
+function validateExpedition(state) {
+  const e = state.profile.exp;
+  if (e == null) return;
+  // Refuse unknown formats rather than replacing equipment or resetting a
+  // future run. This is an additive, independently versioned save extension.
+  if (!isObject(e) || e.offlineVersion !== 1) fail("Unsupported Expedition save version. Keep the original save.");
+  const uint = (n, max = Number.MAX_SAFE_INTEGER) => Number.isSafeInteger(n) && n >= 0 && n <= max;
+  for (const key of ["coins", "shards", "rep", "out", "best"]) if (!uint(e[key])) fail("Invalid Expedition balance.");
+  if (!uint(e.next, 9999999) || !e.next || !uint(e.slots, 120) || e.slots < 40 ||
+      !isObject(e.gear) || !Array.isArray(e.bag) || e.bag.length > 12 ||
+      !Array.isArray(e.stash) || e.stash.length > e.slots || !Array.isArray(e.over) ||
+      !Array.isArray(e.ins) || !Array.isArray(e.codex) || !Array.isArray(e.history) || e.history.length > 50 ||
+      !isObject(e.ps) || !uint(e.ps.xp) || !Array.isArray(e.ps.got) ||
+      e.ps.got.some(n => !uint(n, 30) || n < 1) || new Set(e.ps.got).size !== e.ps.got.length) fail("Invalid Expedition inventory or pass.");
+  const ids = new Set();
+  const item = value => {
+    if (!isObject(value) || !uint(value.id, 9999998) || value.id < 1 || value.id >= e.next ||
+        typeof value.b !== "string" || !/^[a-z0-9-]{1,80}$/.test(value.b) ||
+        !uint(value.lv, 30) || value.lv < 1 || !uint(value.r, 4) || !uint(value.s, 0xffffffff) ||
+        value.q !== undefined && (!uint(value.q, 100) || value.q < 1) ||
+        value.d !== undefined && !uint(value.d, 100)) fail("Invalid Expedition item.");
+    if (ids.has(value.id)) fail("Duplicate Expedition item identity.");
+    ids.add(value.id);
+  };
+  for (const [slot, value] of Object.entries(e.gear)) {
+    if (!["held", "band", "charm", "gem"].includes(slot)) fail("Invalid Expedition slot.");
+    item(value);
+  }
+  for (const value of [...e.stash, ...e.over, ...e.bag, ...e.pocket ? [e.pocket] : []]) item(value);
+  if (e.raid != null) {
+    const ticket = state.activeRun?.ticket;
+    if (typeof e.raid !== "string" || ticket?.id !== e.raid || ticket.config?.mode !== "expedition" ||
+        ticket.expeditionPolicy !== "local-expedition-v1" || !isObject(ticket.exp?.gear) ||
+        !Array.isArray(ticket.exp?.bag) || !Array.isArray(ticket.expInsured)) fail("Invalid escrowed Expedition.");
+    for (const value of [...Object.values(ticket.exp.gear), ...ticket.exp.bag,
+      ...ticket.exp.pocket ? [ticket.exp.pocket] : []]) item(value);
+  }
+}
 function safeJSON(value, depth = 0) {
   if (depth > 100) fail("Save nesting is too deep.");
   if (value === null || typeof value === "string" || typeof value === "boolean") return;
@@ -39,10 +77,10 @@ export function validateState(state) {
   }
   // Additive schema-1 extension: old backups are accepted and backfilled by
   // the local backend. Unknown future formats must never be reset to empty.
-  if (state.records != null) {
-    if (!isObject(state.records) || state.records.version !== 1) fail("Unsupported personal-records format. Keep the original save.");
+  for (const records of [state.records, state.lanRecords].filter(value => value != null)) {
+    if (!isObject(records) || records.version !== 1) fail("Unsupported personal-records format. Keep the original save.");
     for (const tab of ["kos", "survival", "time"]) {
-      const rows = state.records[tab];
+      const rows = records[tab];
       if (!isObject(rows) || Object.keys(rows).length > 20000) fail("Invalid personal records.");
       for (const row of Object.values(rows)) {
         if (!isObject(row) || !["standard", "endless", "relay", "mutation", "bossrush", "tower"].includes(row.mode) ||
@@ -63,6 +101,13 @@ export function validateState(state) {
   const ticket = value => {
     if (!isObject(value) || typeof value.id !== "string" || !value.id.startsWith("offline-") ||
         !Number.isSafeInteger(value.seed) || value.seed < 0 || value.seed > 0xffffffff) fail("Invalid local run ticket.");
+    if (value.lan != null && (!isObject(value.lan) || value.lan.version !== 1 ||
+        value.lan.party !== value.party || typeof value.party !== "string" || !/^lan-[\w-]{1,80}$/.test(value.party) ||
+        typeof value.lan.me !== "string" || !/^lan-[\w-]{1,80}$/.test(value.lan.me) ||
+        !Number.isInteger(value.lan.size) || value.lan.size < 2 || value.lan.size > 4 || typeof value.lan.launched !== "boolean" ||
+        value.config?.mode !== "standard" || value.config?.biome !== "forest" || value.config?.tier !== 0)) {
+      fail("Unsupported local co-op ticket. Keep the original save.");
+    }
   };
   if (state.activeRun != null) {
     if (!isObject(state.activeRun) || !["running", "suspended"].includes(state.activeRun.status)) fail("Invalid active run.");
@@ -74,6 +119,7 @@ export function validateState(state) {
     ticket(state.suspended.ticket);
     if (state.activeRun && state.activeRun.ticket.id !== state.suspended.ticket.id) fail("Suspended run identity mismatch.");
   }
+  validateExpedition(state);
   return state;
 }
 

@@ -162,9 +162,10 @@ test("online and server-managed modes cannot start", async () => {
   const f = fixture();
   const account = await f.backend.restore();
   await f.backend.chooseStarter(account, 4);
-  for (const mode of ["duel", "coop", "expedition", "unknown"]) {
+  for (const mode of ["duel", "coop", "unknown"]) {
     await assert.rejects(f.backend.startRun(account, { species: 4, mode }), /local single-player/);
   }
+  await assert.rejects(f.backend.startRun(account, {species: 4, mode: "expedition"}), /reviewed offline Expedition/);
 });
 
 test("explicitly suspended games are portable in the local save file", async () => {

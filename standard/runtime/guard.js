@@ -1,6 +1,10 @@
 /* Install before any game module. All game traffic must remain on this PC. */
 (() => {
   "use strict";
+  let systemDark;
+  Object.defineProperty(globalThis, "PokeBonkSystemTheme", {value: Object.freeze({
+    isDark: fallback => typeof systemDark === "boolean" ? systemDark : Boolean(fallback),
+  })});
   // Honor the game's own theme before first paint and prevent OEM automatic
   // darkening from independently changing text fills on Android tablets.
   try {
@@ -11,6 +15,16 @@
       document.querySelector(`meta[name="${name}"]`)?.setAttribute("content", dark ? "dark" : name === "color-scheme" ? "only light" : "light");
     }
   } catch { /* Theme storage is optional; native progression storage is not. */ }
+  // Presentation-only, one-way native metadata. It adds no callable Android
+  // interface. Explicit game preferences are still resolved by the game.
+  globalThis.addEventListener?.("standard:system-theme", event => {
+    if (!window.PokeBonkStandardAndroid || window.PokeBonkStandard || typeof event.detail?.dark !== "boolean") return;
+    systemDark = event.detail.dark;
+    try {
+      const chosen = localStorage.getItem("pokebonk.theme");
+      if (chosen !== "light" && chosen !== "dark") document.documentElement.dataset.theme = systemDark ? "dark" : "light";
+    } catch {}
+  });
   const blocked = [];
   const allowed = value => {
     try {

@@ -16,8 +16,8 @@ export class StandardUpdater {
     try {
       const value = JSON.parse(await readFile(this.statusFile, "utf8"));
       return {lastCheck: Number.isFinite(value.lastCheck) ? value.lastCheck : 0,
-        highestSeen: /^\d+\.\d+\.\d+$/.test(value.highestSeen) ? value.highestSeen : this.config.version};
-    } catch { return {lastCheck: 0, highestSeen: this.config.version}; }
+        highestSeen: /^\d+\.\d+\.\d+$/.test(value.highestSeen) ? value.highestSeen : "0.0.0"};
+    } catch { return {lastCheck: 0, highestSeen: "0.0.0"}; }
   }
   async check(manual = false) {
     if (this.checking) return this.checking;
@@ -33,7 +33,10 @@ export class StandardUpdater {
     const manifest = verifyManifest(signed, this.config);
     if (compareVersions(manifest.version, status.highestSeen) < 0) throw new Error("Rejected a rolled-back update manifest.");
     await atomicWrite(this.statusFile, JSON.stringify({lastCheck: now, highestSeen: manifest.version}));
-    if (compareVersions(manifest.version, this.config.version) <= 0) { this.pending = null; return {current: true}; }
+    if (compareVersions(manifest.version, this.config.version) <= 0) {
+      this.pending = null;
+      return {current: true, latestVersion: manifest.version, ahead: compareVersions(this.config.version, manifest.version) > 0};
+    }
     const artifact = selectArtifact(manifest, this.platform, this.config, this.distribution);
     this.pending = {manifest, artifact, signed};
     return this.pending;

@@ -4,6 +4,8 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Insets;
@@ -33,6 +35,9 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @SuppressWarnings("deprecation")
 public final class MainActivity extends Activity {
@@ -44,6 +49,11 @@ public final class MainActivity extends Activity {
     private GameSafeArea safeArea;
     private NativeSaveStore saves;
     private RepositoryUpdater updater;
+    private LanNetwork lan;
+    private WebView lanBroker;
+    private boolean lanBrokerReady;
+    private final List<String> lanBrokerQueue=new ArrayList<>();
+    private final AtomicInteger pendingLan=new AtomicInteger();
     private boolean resumed, dialogOpen, recoveryMode;
     private String pendingRecoveryAction;
     private byte[] pendingExport;
@@ -68,6 +78,22 @@ public final class MainActivity extends Activity {
             }
             saves = new NativeSaveStore(this, config);
             updater = new RepositoryUpdater(this, saves, config);
+            String digest;
+            try(InputStream input=getAssets().open("www/asset-manifest.json")){
+                digest=new JSONObject(new String(readBounded(input,4*1024*1024),StandardCharsets.UTF_8)).getString("gameDigest");
+            }
+            if(!digest.matches("[a-f0-9]{64}"))throw new Exception("Invalid game identity.");
+            String identity="PB-LAN2|"+config.getString("applicationId")+"|"+config.getString("version")+"|"+
+                config.getJSONObject("upstream").getString("build")+"|"+digest;
+            lan=new LanNetwork(this,identity,()->{
+                JSONObject envelope=saves.load();
+                if(envelope==null)throw new Exception("Choose your starters first.");
+                JSONObject value=envelope.getJSONObject("state");
+                return new JSONObject().put("name",value.getJSONObject("profile").getString("name"))
+                    .put("league",value.getJSONObject("profile").getJSONArray("league"))
+                    .put("unfinished",!value.isNull("activeRun")||!value.isNull("suspended"))
+                    .put("ticket",value.optJSONObject("activeRun")==null?JSONObject.NULL:value.getJSONObject("activeRun").getJSONObject("ticket"));
+            },this::lanBrokerInput,this::lanEvent);
         } catch (Exception error) { throw new IllegalStateException("Bundled Standard configuration is missing.", error); }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if (Build.VERSION.SDK_INT >= 28) getWindow().getAttributes().layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
@@ -91,8 +117,9 @@ public final class MainActivity extends Activity {
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE); // Bundled assets must follow the installed APK, including fixed offline/*.js paths.
         CookieManager.getInstance().setAcceptCookie(false);
         web.addJavascriptInterface(new StorageBridge(), "PokeBonkStandardAndroid");
+        web.addJavascriptInterface(new LanBridge(),"PokeBonkLANAndroid");
         web.setWebViewClient(new OfflineAssetWebViewClient(getAssets(),
-            () -> { recoveryMode = false; applySafeArea(root.getRootWindowInsets()); }, this::nativeMenuAction));
+            () -> { recoveryMode = false; publishSystemTheme(); applySafeArea(root.getRootWindowInsets()); lan.publish(); }, this::nativeMenuAction));
         web.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) publishSafeArea();
         });
@@ -161,6 +188,13 @@ public final class MainActivity extends Activity {
             ",menuSize:0,menuGap:0" +
             ",width:" + web.getWidth() + ",height:" + web.getHeight() + "}}))", null);
     }
+    private void publishSystemTheme() {
+        if (web == null) return;
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+            == Configuration.UI_MODE_NIGHT_YES;
+        // One-way boolean, no native methods, preferences, URLs or paths.
+        web.evaluateJavascript("dispatchEvent(new CustomEvent('standard:system-theme',{detail:{dark:" + dark + "}}))", null);
+    }
     @SuppressLint("NewApi")
     private void registerBack() { getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::back); }
     @Override @SuppressLint("GestureBackNavigation") public void onBackPressed() { back(); }
@@ -204,6 +238,26 @@ public final class MainActivity extends Activity {
         nativeMenuAction(action);
     }
     private void nativeMenuAction(String action) {
+        if(action.startsWith("lan/")){
+            if(!resumed||!hasWindowFocus()||dialogOpen)return;
+            if("lan/leave".equals(action)){lan.command("leave",new JSONObject());return;}
+            if("lan/cancel-find".equals(action)){lan.command("cancel-find",new JSONObject());return;}
+            if("lan/copy".equals(action)){
+                try{
+                    String invite=new JSONObject(lan.state()).optString("invitation");
+                    if(!invite.isEmpty()){getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Local co-op invitation",invite));Toast.makeText(this,"Local invitation copied",Toast.LENGTH_SHORT).show();}
+                }catch(Exception error){notice("Could not copy the local invitation.");}
+                return;
+            }
+            final String form="(()=>{if(globalThis.PokeBonkNativeApp?.run)return null;const r=document.querySelector('.offline-lan-home,.offline-lan-card');"+
+                "if(!r)return null;const f=n=>r.querySelector('[data-lan-field=\"'+n+'\"]')?.value??'';"+
+                "return {species:Number(f('species')),address:f('address'),invitation:f('invitation')}})()";
+            web.evaluateJavascript(form,text->{
+                try{if(text.length()<=512&&!"null".equals(text))lan.command(action.substring(4),new JSONObject(text));}
+                catch(Exception error){notice("Could not read the local lobby fields.");}
+            });
+            return;
+        }
         whenIdle(() -> {
             if ("check-for-updates".equals(action)) updater.check(true);
             else if ("export-backup".equals(action)) exportSave();
@@ -224,11 +278,15 @@ public final class MainActivity extends Activity {
     private void presentUpdate() {
         String event = updater.takeEvent();
         if (event == null) return;
+        if ("feedback".equals(event)) presentUpdateFeedback(updater.feedback());
         if ("message".equals(event)) showDialog(new AlertDialog.Builder(this).setTitle("PokéBonk Offline updates").setMessage(updater.message()).setPositiveButton("OK", null));
         if ("available".equals(event)) {
+            web.evaluateJavascript("globalThis.PokeBonkOfflineUI?.updateFeedback({state:'handoff'})", null);
             JSONObject candidate = updater.candidate();
             showDialog(new AlertDialog.Builder(this).setTitle("PokéBonk Offline " + candidate.optString("version") + " available")
-                .setMessage(candidate.optString("notes") + "\n\nDownload only; installation needs a separate confirmation.")
+                .setMessage("Installed app: v" + BuildConfig.VERSION_NAME + "\nLatest public release: v" +
+                    candidate.optString("version") + "\n\n" + candidate.optString("notes") +
+                    "\n\nDownloading will not install the update or replace the app. Your saves stay on this device.")
                 .setNegativeButton("Later", null).setPositiveButton("Download update", (dialog, which) -> {
                     updater.download(); Toast.makeText(this, "Downloading and verifying update…", Toast.LENGTH_LONG).show();
                 }));
@@ -236,6 +294,26 @@ public final class MainActivity extends Activity {
         if ("ready".equals(event)) showDialog(new AlertDialog.Builder(this).setTitle("Verified APK ready")
             .setMessage("Open Android’s system installer? Installation is optional. Your app identity and native saves are retained.")
             .setNegativeButton("Later", null).setPositiveButton("Open installer", (dialog, which) -> updater.install()));
+    }
+    private void presentUpdateFeedback(JSONObject value) {
+        if (value == null) return;
+        web.evaluateJavascript("globalThis.PokeBonkOfflineUI?.updateFeedback(" + value + ") ?? false", handled -> {
+            if ("true".equals(handled)) return;
+            // Recovery when the game UI itself cannot boot. Ordinary checks
+            // use the bundled game-styled modal, not this native fallback.
+            String state = value.optString("state"), latest = value.optString("latestVersion", "Not available");
+            if ("checking".equals(state)) { notice("Checking GitHub for the latest PokéBonk Offline app release…"); return; }
+            String title = "error".equals(state) ? "Couldn’t check for updates" :
+                "ahead".equals(state) ? "No newer public release" : "You’re up to date";
+            String explanation = "error".equals(state) ? "Check your connection and try again. You can keep playing offline.\n\n" + value.optString("detail") :
+                "ahead".equals(state) ? "You’re using a newer test build than the latest public release. No newer published update is available." :
+                "Your installed app matches the latest public release. No update is needed.";
+            whenIdle(() -> showDialog(new AlertDialog.Builder(this).setTitle(title).setMessage(explanation +
+                "\n\nInstalled app: v" + BuildConfig.VERSION_NAME + "\nLatest public release: " +
+                ("Not available".equals(latest) ? latest : "v" + latest) +
+                "\nBundled game: v" + BuildConfig.UPSTREAM_VERSION +
+                "\n\nYour installed app and saves have not changed.").setPositiveButton("OK", null)));
+        });
     }
     private void exportSave() {
         io.execute(() -> {
@@ -286,14 +364,15 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume(); resumed = true; hideBars();
-        if (web != null) web.onResume();
+        if (web != null) { web.onResume(); publishSystemTheme(); }
         if (updater != null) updater.check(false);
         dispatchRecoveryWhenFocused();
     }
     @Override protected void onPause() {
         resumed = false;
+        if(lan!=null)lan.fromGame("cancel-find","null");
         if (web != null) {
-            web.evaluateJavascript("(()=>{const r=globalThis.PokeBonkNativeApp?.run;if(r?.state==='play')r.pause();r?.autosave?.(true)})()", null);
+            web.evaluateJavascript("(()=>{const r=globalThis.PokeBonkNativeApp?.run;if(r?.state==='play')r.pause();dispatchEvent(new Event('standard:checkpoint'))})()", null);
             web.onPause(); // Timers are not globally suspended; in-flight native commits can finish.
         }
         super.onPause();
@@ -302,7 +381,9 @@ public final class MainActivity extends Activity {
         super.onWindowFocusChanged(focus);
         if (focus) { hideBars(); if (resumed && updater != null) updater.check(false); dispatchRecoveryWhenFocused(); }
     }
-    @Override public void onConfigurationChanged(Configuration config) { super.onConfigurationChanged(config); root.requestApplyInsets(); hideBars(); }
+    @Override public void onConfigurationChanged(Configuration config) {
+        super.onConfigurationChanged(config); publishSystemTheme(); root.requestApplyInsets(); hideBars();
+    }
     private void hideBars() {
         if (Build.VERSION.SDK_INT >= 30) {
             WindowInsetsController controller = getWindow().getInsetsController();
@@ -312,11 +393,75 @@ public final class MainActivity extends Activity {
         if (root != null) root.requestApplyInsets();
     }
     @Override protected void onDestroy() {
+        if(lan!=null)lan.close();
+        if(lanBroker!=null){lanBroker.removeJavascriptInterface("PokeBonkLanBrokerNative");lanBroker.stopLoading();lanBroker.destroy();lanBroker=null;}
+        lanBrokerQueue.clear();
         handler.removeCallbacksAndMessages(null); io.shutdownNow();
         if (updater != null) updater.close();
         if (fileCallback != null) fileCallback.onReceiveValue(null);
-        if (web != null) { web.removeJavascriptInterface("PokeBonkStandardAndroid"); web.stopLoading(); web.destroy(); }
+        if (web != null) { web.removeJavascriptInterface("PokeBonkStandardAndroid"); web.removeJavascriptInterface("PokeBonkLANAndroid"); web.stopLoading(); web.destroy(); }
         super.onDestroy();
+    }
+    private void lanEvent(JSONObject value){
+        handler.post(()->{
+            if(web==null||isFinishing()||isDestroyed())return;
+            String type=value.optString("type"),suffix;
+            if("state".equals(type))suffix="state";
+            else if("frame".equals(type))suffix="frame";
+            else if("peer-closed".equals(type))suffix="peer-closed";
+            else if("notice".equals(type))suffix="notice";else return;
+            Object detail="state".equals(type)?value.opt("value"):value;
+            web.evaluateJavascript("document.dispatchEvent(new CustomEvent('standard:lan-"+suffix+"',{detail:"+
+                JSONObject.quote(String.valueOf(detail))+"}))",null);
+        });
+    }
+    private void lanBrokerInput(JSONObject value){
+        final String text=value.toString();
+        handler.post(()->{
+            if(isFinishing()||isDestroyed())return;
+            if(lanBroker==null&&"reset".equals(value.optString("type")))return;
+            if(lanBroker==null)createLanBroker();
+            if(lanBrokerReady)lanBroker.evaluateJavascript("globalThis.PokeBonkLanBrokerInput("+text+")",null);
+            else if(lanBrokerQueue.size()<128)lanBrokerQueue.add(text);
+            else lan.stop("The local transport queue exceeded its limit.",true);
+        });
+    }
+    @SuppressLint({"SetJavaScriptEnabled","AddJavascriptInterface"})
+    private void createLanBroker(){
+        lanBroker=new WebView(this);WebSettings s=lanBroker.getSettings();s.setJavaScriptEnabled(true);
+        s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setAllowFileAccessFromFileURLs(false);s.setAllowUniversalAccessFromFileURLs(false);
+        // This separate trusted broker needs peer transport. Its asset client
+        // and CSP still reject all external HTTP/navigation; native + shared
+        // SDP policy admits private host candidates only. The GAME WebView
+        // above retains setBlockNetworkLoads(true).
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setBlockNetworkLoads(false);s.setSupportMultipleWindows(false);s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        lanBroker.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT,false);
+        lanBroker.addJavascriptInterface(new BrokerBridge(),"PokeBonkLanBrokerNative");
+        lanBroker.setWebViewClient(new OfflineAssetWebViewClient(getAssets(),()->{},ignored->{},true));
+        lanBroker.setAlpha(0);root.addView(lanBroker,new FrameLayout.LayoutParams(1,1));
+        lanBroker.loadUrl(OfflineAssetWebViewClient.APP_ORIGIN+"/offline/lan-broker.html");
+    }
+    public final class LanBridge{
+        @JavascriptInterface public String state(){return lan.state();}
+        @JavascriptInterface public void send(String channel,String text){
+            if(channel==null||!channel.matches("ctl|snap|prepared|failed|leave|refresh|cancel-find|room-ready|room-start|room-pick|room-chat")||text==null||text.length()>48000)return;
+            if(pendingLan.incrementAndGet()>96){pendingLan.decrementAndGet();return;}
+            handler.post(()->{pendingLan.decrementAndGet();if(!isFinishing()&&!isDestroyed())lan.fromGame(channel,text);});
+        }
+    }
+    public final class BrokerBridge{
+        @JavascriptInterface public void emit(String text){
+            if(text==null||text.length()>48000)return;
+            handler.post(()->{
+                if(isFinishing()||isDestroyed()||lanBroker==null)return;
+                try{
+                    JSONObject value=LanPolicy.parse(text,48000);
+                    if("ready".equals(value.optString("type"))){
+                        lanBrokerReady=true;for(String queued:lanBrokerQueue)lanBroker.evaluateJavascript("globalThis.PokeBonkLanBrokerInput("+queued+")",null);lanBrokerQueue.clear();
+                    }else lan.fromBroker(text);
+                }catch(Exception error){lan.stop("Invalid local transport message.",true);}
+            });
+        }
     }
     public final class StorageBridge {
         private String failure(Exception error) {

@@ -1,4 +1,4 @@
-import {app, BrowserWindow, Menu, dialog, protocol, session, ipcMain, shell, screen, powerSaveBlocker} from "electron";
+import {app, BrowserWindow, Menu, dialog, protocol, session, ipcMain, shell, screen, powerSaveBlocker, clipboard} from "electron";
 import {createReadStream, existsSync, readFileSync} from "node:fs";
 import {readFile, stat, realpath, writeFile} from "node:fs/promises";
 import {Readable} from "node:stream";
@@ -7,12 +7,15 @@ import {fileURLToPath} from "node:url";
 import {StateStore} from "../common/store.mjs";
 import {importEnvelope, MAX_STATE_BYTES} from "../common/state.mjs";
 import {StandardUpdater} from "./updater.mjs";
-import {ORIGIN, CSP, MIME, isGameURL, resolveAsset, byteRange} from "./protocol.mjs";
+import {ORIGIN, CSP, MIME, isGameURL, resolveAsset, byteRange,allowLanBrokerPermission,endsLanSessionForNavigation} from "./protocol.mjs";
 import {windowChrome, connectWindowUI, quitAfterLastWindow} from "./window-ui.mjs";
 import {updateDistribution, installationInstructions} from "./distribution.mjs";
 import {issueFormURL} from "./report.mjs";
 import {DesktopPreferences, graphicsSwitches, restoreBounds} from "./preferences.mjs";
 import {createDesktopControls} from "./desktop-controls.mjs";
+import {updateFeedbackView} from "../common/update-feedback.mjs";
+import {NativeLan} from "./lan.mjs";
+import {lanIdentity} from "../common/lan-policy.mjs";
 const root = path.dirname(fileURLToPath(import.meta.url));
 // Graphics switches must be selected before Electron initializes Chromium.
 const config = JSON.parse(readFileSync(path.join(root, "../config.json"), "utf8"));
@@ -45,7 +48,35 @@ const updater = new StandardUpdater({config, directory: dataDirectory,
   distribution: updateDistribution({platform: process.platform, arch: process.arch, packaged: app.isPackaged,
     env: process.env, nsisInstalled: app.isPackaged && existsSync(path.join(path.dirname(process.execPath), ".pokebonk-offline-nsis"))}),
   loadSave: () => store.loadState()});
-let window, desktopControls, pendingMessage, presentedVersion, showing = false, verifiedDownload;
+let window, desktopControls, pendingMessage, pendingFeedback, presentedVersion, showing = false, verifiedDownload;
+let lan, brokerWindow, brokerReady, brokerResolve, brokerReject;
+const BROKER_URL = `${ORIGIN}/offline/lan-broker.html`;
+async function brokerInput(value) {
+  if(value.type==="reset"&&(!brokerWindow||brokerWindow.isDestroyed()))return;
+  if(!brokerWindow || brokerWindow.isDestroyed()){
+    brokerReady=new Promise((resolve,reject)=>{brokerResolve=resolve;brokerReject=reject;});
+    brokerWindow=new BrowserWindow({show:false,width:32,height:32,skipTaskbar:true,
+      webPreferences:{preload:path.join(root,"lan-broker-preload.cjs"),sandbox:true,contextIsolation:true,nodeIntegration:false,
+        webSecurity:true,backgroundThrottling:false,devTools:!app.isPackaged}});
+    brokerWindow.webContents.setWindowOpenHandler(()=>({action:"deny"}));
+    brokerWindow.webContents.on("will-navigate",event=>event.preventDefault());
+    brokerWindow.webContents.on("will-redirect",event=>event.preventDefault());
+    brokerWindow.webContents.on("will-attach-webview",event=>event.preventDefault());
+    brokerWindow.webContents.on("render-process-gone",()=>{brokerReject?.(new Error("LAN transport stopped."));brokerWindow?.destroy();brokerWindow=null;lan?.stop("LAN transport stopped. Your save is preserved.",true,false);});
+    brokerWindow.webContents.on("did-fail-load",()=>brokerReject?.(new Error("Bundled LAN transport could not load.")));
+    void brokerWindow.loadURL(BROKER_URL).catch(error=>brokerReject?.(error));
+  }
+  await brokerReady;
+  if(brokerWindow&&!brokerWindow.isDestroyed())brokerWindow.webContents.send("standard:lan-broker-input",value);
+}
+function lanEvent(value){
+  if(window&&!window.isDestroyed()&&!window.webContents.isDestroyed())window.webContents.send("standard:lan-event",value);
+}
+async function lanProfile(){
+  const saved=(await store.loadState())?.state;
+  if(!saved)throw new Error("Choose your starters and create a local save first.");
+  return {name:saved.profile.name,league:saved.profile.league,unfinished:Boolean(saved.activeRun||saved.suspended),ticket:saved.activeRun?.ticket};
+}
 
 async function idle() {
   if (!window || window.isDestroyed() || !window.isFocused() || window.webContents.isLoading()) return false;
@@ -58,7 +89,17 @@ async function showPending() {
   if (showing || !await idle()) return;
   showing = true;
   try {
-    if (pendingMessage) {
+    if (pendingFeedback) {
+      const value = pendingFeedback; pendingFeedback = null;
+      const handled = await presentUpdateFeedback(value);
+      if (!handled && !await idle()) { pendingFeedback = value; return; }
+      if (!handled && value.state !== "checking") {
+        const view = updateFeedbackView(value, config);
+        await dialog.showMessageBox(window, {type: value.state === "error" ? "warning" : "info", message: view.title,
+          detail: [view.summary, ...view.rows.map(([label, text]) => `${label}: ${text}`), view.note, view.detail].filter(Boolean).join("\n\n"),
+          buttons: ["OK"]});
+      }
+    } else if (pendingMessage) {
       const detail = pendingMessage; pendingMessage = null;
       await dialog.showMessageBox(window, {type: "info", message: `${config.productName} updates`, detail, buttons: ["OK"]});
     } else if (verifiedDownload) {
@@ -68,10 +109,11 @@ async function showPending() {
         buttons: ["Show verified download", "Later"], defaultId: 1, cancelId: 1});
       if (choice.response === 0) shell.showItemInFolder(ready.file);
     } else if (updater.pending && updater.pending.manifest.version !== presentedVersion) {
+      await presentUpdateFeedback({state: "handoff"});
       const {manifest} = updater.pending;
       presentedVersion = manifest.version;
       const choice = await dialog.showMessageBox(window, {type: "info", message: `${config.productName} ${manifest.version} is available`,
-        detail: `Bundled game ${manifest.upstream.version} (${manifest.upstream.build})\n\n${manifest.notes}\n\nDownloading does not install or replace the game.`,
+        detail: `Installed app: v${config.version}\nLatest public release: v${manifest.version}\nBundled game: v${manifest.upstream.version} (${manifest.upstream.build})\n\n${manifest.notes}\n\nDownloading does not install or replace the game. Your saves stay on this device.`,
         buttons: ["Download update", "Later"], defaultId: 1, cancelId: 1});
       if (choice.response === 0) {
         // No automatic download; this branch only follows the explicit button.
@@ -81,14 +123,27 @@ async function showPending() {
     }
   } finally { showing = false; }
 }
+async function presentUpdateFeedback(value) {
+  if (!window || window.isDestroyed()) return false;
+  // One-way UI data only. The renderer receives no updater methods, URLs or
+  // arbitrary commands; download/installation remain explicit native actions.
+  try {
+    return await window.webContents.executeJavaScript(
+      `globalThis.PokeBonkOfflineUI?.updateFeedback(${JSON.stringify(value)}) ?? false`);
+  } catch { return false; }
+}
 async function checkUpdates(manual = false) {
+  if (manual) {
+    pendingFeedback = {state: "checking"};
+    presentedVersion = null;
+    await showPending();
+  }
   try {
     const result = await updater.check(manual);
-    if (manual && result.current) pendingMessage = `You have the latest verified ${config.productName} release.`;
-    if (manual) presentedVersion = null;
+    if (manual && result.current) pendingFeedback = {state: result.ahead ? "ahead" : "current", latestVersion: result.latestVersion};
   } catch (error) {
     // Automatic errors are intentionally silent. Playing never depends on GitHub.
-    if (manual) pendingMessage = `Could not check for updates: ${error.message}\nKeep playing the installed version offline.`;
+    if (manual) pendingFeedback = {state: "error", detail: error.message};
   }
   await showPending();
 }
@@ -157,7 +212,8 @@ async function createWindow() {
   desktopControls.connect(window);
   window.webContents.setWindowOpenHandler(() => ({action: "deny"}));
   window.webContents.on("will-navigate", event => {
-    if (!isGameURL(event.url) || new URL(event.url).pathname.startsWith("/__native__/")) event.preventDefault();
+    if (!isGameURL(event.url) || new URL(event.url).pathname.startsWith("/__native__/") ||
+        new URL(event.url).pathname === "/offline/lan-broker.html") event.preventDefault();
   });
   window.webContents.on("will-redirect", event => { if (!isGameURL(event.url)) event.preventDefault(); });
   window.webContents.on("will-attach-webview", event => event.preventDefault());
@@ -173,6 +229,7 @@ async function createWindow() {
     if (restoreFullscreen) window.setFullScreen(true);
   });
   window.webContents.on("render-process-gone", async (_event, details) => {
+    lan?.stop("The game renderer stopped. Your unfinished run is preserved.",true);
     if (window.isDestroyed() || details.reason === "clean-exit") return;
     const choice = await dialog.showMessageBox(window, {type: "warning", message: "The game renderer stopped",
       detail: "Your last durable checkpoint and earned progress remain on disk. Reloading may lose only changes since that checkpoint. If this repeats, reset graphics to Auto from View.",
@@ -183,6 +240,16 @@ async function createWindow() {
   });
   window.on("focus", () => { void checkUpdates(); });
   window.webContents.on("did-finish-load", () => { void checkUpdates(); });
+  window.webContents.on("did-finish-load", () => lan?.publish());
+  window.webContents.on("did-start-navigation", (details,_url,sameDocument,mainFrame) => {
+    if(endsLanSessionForNavigation(details,sameDocument,mainFrame)&&
+      ["hosting","connecting","lobby","preparing","playing"].includes(lan?.value.phase))
+      lan.stop("The game reloaded. Your unfinished run is preserved.",true);
+  });
+  window.on("closed",()=>{
+    lan?.stop();
+    brokerWindow?.destroy();brokerWindow=null;brokerReady=null;
+  });
   await window.loadURL(`${ORIGIN}/index.html?lang=en`);
 }
 
@@ -195,14 +262,20 @@ else {
     desktopControls = createDesktopControls({app, screen, powerSaveBlocker, dialog, preferences, config,
       getWindow: () => window, idle, notify: message => { pendingMessage = message; }});
     const offline = session.defaultSession;
+    const assetIdentity=JSON.parse(await readFile(path.join(game,"asset-manifest.json"),"utf8")).gameDigest;
+    lan=new NativeLan({identity:lanIdentity(config,assetIdentity),profile:lanProfile,emit:lanEvent,broker:brokerInput});
     offline.webRequest.onBeforeRequest({urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*", "ftp://*/*"]},
       (_request, callback) => callback({cancel: true}));
     offline.setPermissionCheckHandler((contents, permission, origin, details) =>
-      contents === window?.webContents && details.isMainFrame && isGameURL(origin) &&
-      ["pointerLock", "fullscreen"].includes(permission));
+      (contents === window?.webContents && details.isMainFrame && isGameURL(origin) &&
+      ["pointerLock", "fullscreen"].includes(permission))||
+      allowLanBrokerPermission(permission,origin,{isMainFrame:details.isMainFrame,phase:lan.value.phase,
+        trusted:Boolean(brokerWindow&&!brokerWindow.isDestroyed()&&contents===brokerWindow.webContents&&contents.getURL()===BROKER_URL)}));
     offline.setPermissionRequestHandler((contents, permission, callback, details) =>
-      callback(contents === window?.webContents && details.isMainFrame &&
-        isGameURL(details.requestingUrl) && ["pointerLock", "fullscreen"].includes(permission)));
+      callback((contents === window?.webContents && details.isMainFrame &&
+        isGameURL(details.requestingUrl) && ["pointerLock", "fullscreen"].includes(permission))||
+        allowLanBrokerPermission(permission,details.requestingUrl,{isMainFrame:details.isMainFrame,phase:lan.value.phase,
+          trusted:Boolean(brokerWindow&&!brokerWindow.isDestroyed()&&contents===brokerWindow.webContents&&contents.getURL()===BROKER_URL)})));
     offline.on("will-download", (_event, item) => {
       if (!item.getURL().startsWith(`blob:${ORIGIN}/`)) { item.cancel(); return; }
       item.setSaveDialogOptions({title: "Export local backup", defaultPath: "pokebonk-offline-save.json"});
@@ -229,6 +302,32 @@ else {
     });
     ipcMain.handle("standard:load-state", async event => { sender(event); return store.loadState(); });
     ipcMain.handle("standard:save-state", async (event, value) => { sender(event); return store.saveState(value); });
+    let lanCommands=Promise.resolve(),lanSearchRequest=0;
+    ipcMain.on("standard:lan-action",(event,action,data,...extra)=>{
+      try{
+        sender(event);
+        if(extra.length||!["host","join","leave","copy","find","cancel-find"].includes(action)||!data||JSON.stringify(data).length>512)return;
+        if(action==="cancel-find"){lanSearchRequest++;lan.cancelFind();return;}
+        const searchRequest=lanSearchRequest;
+        lanCommands=lanCommands.catch(()=>{}).then(async()=>{
+          if(!window||window.isDestroyed()||!window.isFocused())return;
+          if(action==="copy"){if(lan.value.invitation){clipboard.writeText(lan.value.invitation);lanEvent({type:"notice",message:"Local invitation copied."});}return;}
+          const allowed=await window.webContents.executeJavaScript("!globalThis.PokeBonkNativeApp?.run&&Boolean(document.querySelector('.offline-lan-card,.offline-lan-home,.offline-lan-room'))");
+          if(allowed&&(action!=="find"||searchRequest===lanSearchRequest))await lan.command(action,data);
+        }).catch(error=>{lanEvent({type:"notice",message:error.message});if(["host","join"].includes(action))lan.stop(error.message,true);});
+      }catch{}
+    });
+    ipcMain.on("standard:lan-game",(event,channel,data,...extra)=>{
+      try{sender(event);if(extra.length||typeof channel!=="string"||JSON.stringify(data??null).length>48000)return;
+        if(channel==="cancel-find")lanSearchRequest++;
+        void lan.fromGame(channel,data).catch(error=>lanEvent({type:"notice",message:error.message}));
+      }catch{}
+    });
+    ipcMain.on("standard:lan-broker",(event,text)=>{
+      if(!brokerWindow||event.sender!==brokerWindow.webContents||event.senderFrame!==brokerWindow.webContents.mainFrame||
+        event.senderFrame.url!==BROKER_URL||typeof text!=="string"||text.length>48000)return;
+      try{const value=JSON.parse(text);if(value.type==="ready")brokerResolve?.();else lan.fromBroker(value);}catch{}
+    });
     ipcMain.on("standard:check-updates", (event, ...args) => {
       try {
         sender(event);

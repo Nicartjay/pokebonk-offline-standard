@@ -11,17 +11,21 @@ import {describeArtifact, writeReceipt} from "./release-files.mjs";
 import {verifyPayload} from "./verify.mjs";
 
 const require = createRequire(import.meta.url);
-const [platform = process.platform, arch = process.arch, outputDirectory] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const localTest = args.includes("--local-test");
+const [platform = process.platform, arch = process.arch, outputDirectory] = args.filter(arg => arg !== "--local-test");
 const native = `${platform}-${arch}`;
 if (!["darwin-arm64", "darwin-x64", "win32-x64", "linux-x64"].includes(native)) throw new Error("Desktop targets: darwin arm64/x64, win32 x64, linux x64.");
 if (process.platform !== platform) throw new Error("Package on the target OS (Intel macOS may also be packaged on Apple Silicon).");
+if (localTest && platform !== "darwin") throw new Error("Local desktop test bundles currently support macOS only.");
 const config = JSON.parse(await readFile("standard/config.json", "utf8"));
 const rootPackage = JSON.parse(await readFile("package.json", "utf8"));
 if (rootPackage.version !== config.version || rootPackage.productName !== config.productName) throw new Error("Package/config branding or version mismatch.");
-const {inventory} = await verifyPayload();
+const {inventory, metadata} = await verifyPayload();
 const game = path.resolve("build/standard-game"), resources = path.resolve("standard/resources");
 const temp = await mkdtemp(path.join(os.tmpdir(), "pokebonk-offline-package-"));
-const output = outputDirectory ? path.resolve(outputDirectory) : path.resolve("build/desktop-out", native);
+const output = outputDirectory ? path.resolve(outputDirectory) : localTest
+  ? path.resolve("build/local-test", `macos-${arch}`) : path.resolve("build/desktop-out", native);
 if (!output.startsWith(path.resolve("build") + path.sep)) throw new Error("Desktop package output must stay inside build/.");
 const release = path.resolve("standard/release");
 try {
@@ -40,7 +44,7 @@ try {
   const builderPlatform = {darwin: Platform.MAC, win32: Platform.WINDOWS, linux: Platform.LINUX}[platform];
   await build({
     projectDir: process.cwd(),
-    targets: builderPlatform.createTarget(undefined, Arch[arch]),
+    targets: builderPlatform.createTarget(localTest ? "dir" : undefined, Arch[arch]),
     config: desktopConfiguration(config, {app, output, game, resources, electronVersion: require("electron/package.json").version}),
     publish: "never",
   });
@@ -61,6 +65,10 @@ try {
     }
     validateMacBundleNames(config.productName, {name: value(plist, "CFBundleName"),
       displayName: value(plist, "CFBundleDisplayName"), executable: value(plist, "CFBundleExecutable"), helpers});
+    const binary = path.join(bundle, "Contents/MacOS", value(plist, "CFBundleExecutable"));
+    if (execFileSync("lipo", ["-archs", binary], {encoding: "utf8"}).trim() !== (arch === "x64" ? "x86_64" : arch)) {
+      throw new Error("The packaged macOS executable has the wrong architecture.");
+    }
     execFileSync("codesign", ["--verify", "--deep", "--strict", bundle], {stdio: "inherit"});
   } else if (platform === "win32") {
     const exe = path.join(output, "win-unpacked", `${config.productName}.exe`);
@@ -74,13 +82,28 @@ try {
     : path.join(output, platform === "win32" ? "win-unpacked" : "linux-unpacked", "resources/game");
   const bundled = await verifyPayload(packagedGame);
   if (bundled.inventory.gameDigest !== inventory.gameDigest) throw new Error("The packaged desktop game differs from the accepted shared payload.");
-  await mkdir(release, {recursive: true});
-  const artifacts = {};
-  for (const id of Object.keys(DISTRIBUTIONS).filter(id => DISTRIBUTIONS[id].platform === native)) {
-    const name = artifactName(config.version, id);
-    await cp(path.join(output, name), path.join(release, name));
-    artifacts[id] = await describeArtifact(release, id, config);
+  if (localTest) {
+    const bundle = path.resolve(packagedGame, "../../..");
+    const archive = path.join(output, `pokebonk-offline-${config.version}-macos-${arch}-LOCAL-TEST.zip`);
+    execFileSync("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", bundle, archive], {stdio: "inherit"});
+    execFileSync("unzip", ["-tq", archive], {stdio: "inherit"});
+    await writeFile(path.join(output, "macos-local-test.json"), JSON.stringify({
+      status: "Unpublished local test; not a release receipt", version: config.version,
+      applicationId: config.applicationId, platform: native, upstream: config.upstream,
+      gameDigest: inventory.gameDigest, bundle: path.relative(output, bundle), archive: path.basename(archive),
+      ...(metadata.coop ? {coop: metadata.coop} : {}),
+    }, null, 2) + "\n");
+    console.log(`Local test app (not published): ${bundle}`);
+    console.log(`Local test ZIP (not published): ${archive}`);
+  } else {
+    await mkdir(release, {recursive: true});
+    const artifacts = {};
+    for (const id of Object.keys(DISTRIBUTIONS).filter(id => DISTRIBUTIONS[id].platform === native)) {
+      const name = artifactName(config.version, id);
+      await cp(path.join(output, name), path.join(release, name));
+      artifacts[id] = await describeArtifact(release, id, config);
+    }
+    await writeReceipt(release, native, config, inventory.gameDigest, artifacts);
+    console.log(`Packaged ${config.productName}: ${Object.values(artifacts).map(a => a.name).join(", ")}`);
   }
-  await writeReceipt(release, native, config, inventory.gameDigest, artifacts);
-  console.log(`Packaged ${config.productName}: ${Object.values(artifacts).map(a => a.name).join(", ")}`);
 } finally { await rm(temp, {recursive: true, force: true}); }

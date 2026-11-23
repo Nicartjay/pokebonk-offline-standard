@@ -162,7 +162,7 @@ test("Daily Mutation uses the upstream on-device rotation/seed and keeps earned 
   await f.backend.finishRun(f.account, ticket, result("mutation"));
   assert.equal(f.disk.profile.stardust, balance, "Retry cannot award mutation milestones twice.");
 });
-test("unreviewed event IDs, rewards, missions, policies and Expedition never award or replace progress", async () => {
+test("unreviewed events/policies and missing Expedition rules never award or replace progress", async () => {
   const f = await fixture(), before = structuredClone(f.disk);
   for (const id of ["expedicion26", "unknown", "__proto__"]) {
     await assert.rejects(f.backend.claimEventTrack(f.account, id, 0), /Unknown or unsupported/);
@@ -170,7 +170,7 @@ test("unreviewed event IDs, rewards, missions, policies and Expedition never awa
   }
   for (const index of [-2, 0.5, 100000]) await assert.rejects(f.backend.claimEventTrack(f.account, "rush26", index), /Unknown/);
   await assert.rejects(f.backend.claimEventQuest(f.account, "rush26", "invented"), /Unknown/);
-  await assert.rejects(f.backend.startRun(f.account, {species: 4, mode: "expedition"}), /local single-player/);
+  await assert.rejects(f.backend.startRun(f.account, {species: 4, mode: "expedition"}), /reviewed offline Expedition/);
   assert.deepEqual(f.disk, before);
   const ticket = await f.backend.startRun(f.account, {species: 4, mode: "bossrush"});
   await f.backend.change(() => { f.backend.state.activeRun.ticket.eventPolicy = "future-policy"; });

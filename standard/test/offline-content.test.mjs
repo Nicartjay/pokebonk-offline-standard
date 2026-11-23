@@ -27,7 +27,9 @@ test("the OFFLINE badge/history use the app version and preserve independent ups
 test("all advertised offline challenges and their artwork are in the shared payload", async () => {
   const inventory = JSON.parse(await readFile("build/standard-game/asset-manifest.json", "utf8"));
   const names = new Set(inventory.files.map(file => file.name));
-  assert.deepEqual(metadata.modes, ["standard", "endless", "relay", "training", "mutation", "bossrush", "tower"]);
+  assert.deepEqual(metadata.modes, ["standard", "endless", "relay", "training", "mutation", "bossrush", "tower", "expedition"]);
+  assert.equal(metadata.expeditionPolicy, "local-expedition-v1");
+  assert.ok(names.has(metadata.modules.backendExpedition));
   assert.equal(metadata.eventRewards, EVENT_POLICY);
   for (const event of OFFLINE_EVENTS) {
     assert.ok(metadata.modes.includes(event.mode));

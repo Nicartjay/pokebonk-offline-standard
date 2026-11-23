@@ -29,7 +29,8 @@ export function desktopConfiguration(config, {app, output, game, resources, elec
       notarize: false,
       // Electron's helper-path guard needs exactly the builder's NFD spelling,
       // not merely a visually equivalent NFC "é". Keep display branding intact.
-      extendInfo: {CFBundleName: config.productName.normalize("NFD"), CFBundleDisplayName: config.productName},
+      extendInfo: {CFBundleName: config.productName.normalize("NFD"), CFBundleDisplayName: config.productName,
+        NSLocalNetworkUsageDescription:"Connect to trainers on the same Wi-Fi or local hotspot for offline LAN co-op."},
     },
     dmg: {
       title: config.productName,

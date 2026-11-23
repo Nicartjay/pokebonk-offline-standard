@@ -2,7 +2,15 @@ import {androidPresentationSettings, androidMinimapScale, androidBatteryFpsCap,
   skipAndroidBatteryFrame, isAndroidShell} from "./android-ui.js";
 import {MODE_NAMES, BIOME_NAMES} from "./modes.js";
 import {waitForStartupMusic} from "./startup.js";
+import {updateFeedbackView} from "../common/update-feedback.mjs";
+import {installLanUI} from "./lan-ui.js";
+import {createScopeDropdown} from "./dropdown.js";
 const OFFLINE_CREATOR = "Nicartjay";
+const biomePalette = new Map();
+const mapScopeOption = (value, subtitle, group = "By map") => ({
+  value, title:mapName(value), subtitle, group,
+  ...(biomePalette.has(value) ? {dot:biomePalette.get(value)} : {icon:"globe"}),
+});
 
 const el = (tag, text, className) => {
   const node = document.createElement(tag);
@@ -43,6 +51,7 @@ function modal(title, onClose) {
     if (!overlay.isConnected) return document.removeEventListener("keydown", onKey, true);
     const layers = document.querySelectorAll(".offline-modal");
     if (layers[layers.length - 1] !== overlay) return;
+    if(event.target?.closest?.(".offline-scope-menu"))return;
     if (event.key === "Escape") { event.stopImmediatePropagation(); close(); }
     if (event.key === "Tab") {
       const nodes = [...panel.querySelectorAll("button:not(:disabled), a[href], input, select, [tabindex='0']")];
@@ -86,7 +95,11 @@ function nativeAction(text, action, close) {
   const link = el("a", text, "btn offline-native-action");
   link.href = "/__native__/" + action;
   link.dataset.standardNativeAction = action;
-  link.addEventListener("click", event => { if (event.isTrusted) close?.(); });
+  link.addEventListener("click", event => {
+    if (!event.isTrusted) return;
+    close?.();
+    if (action === "check-for-updates") globalThis.PokeBonkOfflineUI?.updateFeedback({state: "checking"});
+  });
   return link;
 }
 function desktopAction(text, action, value = "", selected = false) {
@@ -162,7 +175,58 @@ export function createFullscreenButton({document: doc = globalThis.document, win
 }
 
 export function installOfflineUI(config) {
+  let updateModal;
   const api = {
+    lan: globalThis.PokeBonkLocalCoop,
+    updateFeedback(value) {
+      if (value?.state === "handoff") { updateModal?.close(); updateModal = null; return true; }
+      const view = updateFeedbackView(value, config);
+      if (!view || globalThis.PokeBonkNativeApp?.run) return false;
+      if (!updateModal?.overlay.isConnected) {
+        const current = modal("App updates", () => { if (updateModal === current) updateModal = null; });
+        current.panel.classList.add("offline-player-card", "offline-update-card");
+        current.body = el("div", null, "offline-player-body offline-update-body");
+        current.body.setAttribute("aria-live", "polite");
+        current.body.setAttribute("aria-atomic", "true");
+        current.panel.append(current.body);
+        updateModal = current;
+      }
+      const {panel, body, close} = updateModal;
+      panel.dataset.updateState = view.state;
+      panel.setAttribute("aria-busy", String(view.checking));
+      panel.querySelector(".offline-card-head button").textContent = view.checking ? "Hide" : "Close";
+      const hero = el("div", null, "offline-update-hero");
+      const symbol = el("span", view.checking ? null : view.state === "error" ? "!" : "✓", "offline-update-symbol");
+      symbol.setAttribute("aria-hidden", "true");
+      if (view.checking) symbol.classList.add("offline-update-spinner");
+      const heading = el("div");
+      heading.append(el("h3", view.title), el("p", view.summary));
+      hero.append(symbol, heading);
+      const rows = el("dl", null, "offline-update-versions");
+      for (const [label, text] of view.rows) {
+        const row = el("div"); row.append(el("dt", label), el("dd", text)); rows.append(row);
+      }
+      body.replaceChildren(hero);
+      if (view.checking) {
+        const progress = el("div", null, "offline-update-progress");
+        progress.setAttribute("role", "progressbar");
+        progress.setAttribute("aria-label", "Checking for updates");
+        progress.setAttribute("aria-valuetext", "Contacting GitHub and verifying release information");
+        progress.append(el("span")); body.append(progress);
+      }
+      body.append(rows, el("p", view.note, "offline-update-note"));
+      if (view.detail) {
+        const details = el("details", null, "offline-update-details");
+        details.append(el("summary", "Technical details"), el("p", view.detail));
+        body.append(details);
+      }
+      if (!view.checking) {
+        const actions = el("div", null, "offline-update-actions");
+        actions.append(nativeAction("Check again", "check-for-updates", close), button("Done", close, "btn blue"));
+        body.append(actions);
+      }
+      return true;
+    },
     creatorCredit() {
       return el("span", `Offline by ${OFFLINE_CREATOR}`, "offline-creator");
     },
@@ -338,6 +402,29 @@ export function installOfflineUI(config) {
         nativeAction("Open GitHub issue form", "report-bug", close),
         el("p", `Offline v${config.version} · PokéBonk v${config.upstream.version} (${config.upstream.build})`, "offline-app-menu-version"));
     },
+    expeditionHistory(app) {
+      const root = el("section", null, "ex-card offline-expedition-history");
+      root.append(el("h2", "My Extractions"), el("p", "Your last 50 expeditions · saved only on this device. No rankings or seasonal reset.", "muted"));
+      const runs = app.meta.profile.exp?.history ?? [];
+      if (!runs.length) root.append(el("p", "Enter the valley and reach an extraction point to bring your loot home."));
+      else {
+        const table = el("table"), head = el("thead"), heading = el("tr");
+        for (const text of ["Result", "Map", "Pokémon", "Time", "KOs", "Loot"]) {
+          const cell = el("th", text); cell.scope = "col"; heading.append(cell);
+        }
+        head.append(heading); table.append(head);
+        const body = el("tbody");
+        for (const run of runs) {
+          const row = el("tr");
+          for (const text of [run.out ? "Extracted" : "Defeated", run.biome === "safari" ? "Safari Zone" : "Wild Valley",
+            config.pokemonNames?.[run.species] ?? String(run.species),
+            `${Math.floor(run.time / 60)}:${String(Math.floor(run.time % 60)).padStart(2, "0")}`, run.kills, run.value]) row.append(el("td", text));
+          body.append(row);
+        }
+        table.append(body); root.append(table);
+      }
+      return root;
+    },
     expeditionPreview(app, {mount}) {
       // Design review only. Do not fabricate an inventory, discard equipment,
       // call server endpoints or enable a run before local settlement exists.
@@ -464,11 +551,17 @@ export function installOfflineUI(config) {
       updates.append(el("h3", "App options"), el("p", "Updates are verified and installed only with your approval. Playing never needs a connection.", "muted"), utilities);
       body.append(updates,
         el("small", `OFFLINE v${config.version} · by ${OFFLINE_CREATOR} · PokéBonk v${config.upstream.version}`, "offline-app-menu-version"));
-      if (app.backend.state?.activeRun) body.append(button("End unfinished run without rewards", async () => {
-        if (!confirm("Export a backup first if needed. Explicitly end this unfinished run without rewards?")) return;
-        await app.backend.discardSaved();
-        location.reload();
-      }, "btn ghost"));
+      if (app.backend.state?.activeRun) {
+        const expedition = app.backend.state.activeRun.ticket?.config?.mode === "expedition";
+        if(app.backend.state.activeRun.ticket?.lan)body.append(el("p","An interrupted LAN run cannot be rejoined in this version. Its ticket and last progress checkpoint are preserved. Export a backup if needed, then explicitly end the unfinished run before creating or joining another room.","muted"));
+        if (expedition) body.append(el("p", "An interrupted Expedition cannot be resumed. End it as a defeat to recover only the last saved safe pocket and insured equipment. Unextracted gear is lost; export a backup first if needed.", "muted"));
+        body.append(button(expedition ? "End interrupted Expedition as defeat" : "End unfinished run without rewards", async () => {
+          if (!confirm(expedition ? "End this Expedition as a defeat? Only the last saved safe pocket and insured gear can return. Other items will be lost." :
+            "Export a backup first if needed. Explicitly end this unfinished run without rewards?")) return;
+          try { await app.backend.discardSaved(); location.reload(); }
+          catch (error) { app.notice(error.message); }
+        }, "btn ghost"));
+      }
       if (app.backend.saveWarning) body.append(el("p", app.backend.saveWarning, "err"));
       panel.append(body);
     },
@@ -531,11 +624,10 @@ export function installOfflineUI(config) {
       const tabs = el("div", null, "seg offline-home-tabs");
       tabs.setAttribute("role", "tablist");
       tabs.setAttribute("aria-label", "Home personal records");
-      const filter = el("label", null, "offline-home-filter");
-      const label = el("span", "Map");
-      const maps = el("select", null, "field");
-      maps.setAttribute("aria-label", "Home records map");
-      filter.append(label, maps);
+      const filter = el("div", null, "offline-home-filter");
+      const maps = createScopeDropdown({label:"Home records map",
+        onChange:value=>{biome=value;render();}});
+      filter.append(maps.el);
       const body = el("div", null, "offline-home-record-body");
       body.id = "offline-home-records";
       body.setAttribute("role", "tabpanel");
@@ -554,11 +646,9 @@ export function installOfflineUI(config) {
         body.setAttribute("aria-labelledby", "offline-home-tab-" + tab);
         const records = app.backend.recordsLocal(tab), available = [...new Set(records.map(row => row.biome))];
         if (!available.includes(biome)) biome = "";
-        maps.replaceChildren();
-        for (const id of ["", ...available]) {
-          const option = el("option", id ? mapName(id) : "All maps"); option.value = id; maps.append(option);
-        }
-        maps.value = biome;
+        const metric = tab === "kos" ? "KO records" : tab === "survival" ? "Longest runs" : "Fastest clears";
+        maps.setOptions([{value:"",title:"All maps",subtitle:"Your best runs on this device",icon:"globe"},
+          ...available.map(id=>mapScopeOption(id,metric))],biome);
         const rows = records.filter(row => !biome || row.biome === biome);
         const table = el("table", null, "offline-home-record-table");
         const thead = el("thead"), heading = el("tr");
@@ -590,7 +680,6 @@ export function installOfflineUI(config) {
         }
         table.append(tbody); body.replaceChildren(table);
       };
-      maps.addEventListener("change", () => { biome = maps.value; render(); });
       tabs.addEventListener("keydown", event => {
         if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
         event.preventDefault(); event.stopPropagation();
@@ -647,19 +736,14 @@ export function installOfflineUI(config) {
         const filter = (label, values, current, change) => {
           const field = el("label");
           field.append(el("span", label));
-          const select = el("select", null, "field");
-          select.setAttribute("aria-label", `Filter records by ${label.toLowerCase()}`);
-          const all = el("option", label === "Difficulty" ? "All difficulties" : `All ${label.toLowerCase()}s`);
-          all.value = "";
-          select.append(all);
-          for (const [value, text] of values) {
-            const option = el("option", text);
-            option.value = value;
-            select.append(option);
-          }
-          select.value = current;
-          select.addEventListener("change", () => { change(select.value); draw(); });
-          field.append(select); filters.append(field);
+          const all = label === "Difficulty" ? "All difficulties" : `All ${label.toLowerCase()}s`;
+          const choices = [{value:"",title:all,subtitle:"Your saved runs",icon:"globe"},
+            ...values.map(([value,text])=>label==="Map"?mapScopeOption(value,"Your saved runs"):
+              {value,title:text,subtitle:label==="Mode"?"Game mode":"Run difficulty",
+                group:label==="Mode"?"Game modes":"Difficulty",icon:"record"})];
+          const picker = createScopeDropdown({label:`Filter records by ${label.toLowerCase()}`,value:current,options:choices,
+            onChange:value=>{change(value);draw();}});
+          field.append(picker.el); filters.append(field);
         };
         filter("Mode", [...new Set(records.map(row => row.mode))].map(value => [value, MODE_NAMES[value]]), mode, value => { mode = value; });
         filter("Map", [...new Set(records.map(row => row.biome))].map(value => [value, mapName(value)]), biome, value => { biome = value; });
@@ -761,8 +845,12 @@ export function installOfflineUI(config) {
       // cleanup remain identical to ordinary results screens.
       ui.modal(card).classList.add("offline-challenge-result-modal");
     },
+    setScopePalette(maps) {
+      for(const map of maps)biomePalette.set(map.id,{sky:map.sky,ground:map.ground});
+    },
     unavailable(app) { app?.notice?.("This online feature has been removed from the offline edition."); },
   };
+  installLanUI(api, config, {el, button, modal});
   window.PokeBonkOfflineUI = Object.freeze(api);
   addEventListener("pokebonk:local-save-warning", event => {
     let notice = document.getElementById("offline-save-warning");

@@ -230,18 +230,18 @@ try {
   await activate(page.getByRole("button", {name: "Start adventure", exact: true}));
   await page.locator(".offline-name-setup").waitFor({state: "detached"});
   if (platform !== "android") {
-    await page.locator(".mm-item.endless:not(.relay)").hover();
-    assert.equal(await page.locator(".mm-item.endless:not(.relay)").evaluate(node => node.classList.contains("focus")), true,
+    await page.locator(".mm-item.endless:not(.coop)").hover();
+    assert.equal(await page.locator(".mm-item.endless:not(.coop)").evaluate(node => node.classList.contains("focus")), true,
       "Mouse hover must select the same animated focus state as the keyboard.");
     await page.mouse.move(0, 0);
-    await page.locator(".mm-item.endless:not(.relay)").focus();
+    await page.locator(".mm-item.endless:not(.coop)").focus();
     await page.keyboard.press("ArrowRight");
-    assert.equal(await page.locator(".mm-item.relay").evaluate(node => node.classList.contains("focus")), true);
-    const relay = await page.locator(".mm-item.relay").evaluate(node => ({
+    assert.equal(await page.locator(".mm-item.coop").evaluate(node => node.classList.contains("focus")), true);
+    const coop = await page.locator(".mm-item.coop").evaluate(node => ({
       modeStyle: node.classList.contains("endless"), background: getComputedStyle(node).backgroundImage,
     }));
-    assert.equal(relay.modeStyle, true, "Relay must use the same decorated mode-button design.");
-    assert.ok(relay.background.includes("gradient"), "Relay still looks like an unstyled white utility button.");
+    assert.equal(coop.modeStyle, true, "Co-op must use the same decorated mode-button design.");
+    assert.ok(coop.background.includes("gradient"), "Co-op must use the upstream green mode-button background.");
     await page.mouse.move(0, 0);
   } else assert.equal(await page.locator(".offline-fullscreen").count(), 0, "Android still creates a fullscreen menu control.");
   if (platform === "android") assert.equal(await page.locator(".offline-menu .mm-top").evaluate(node =>

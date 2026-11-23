@@ -1,8 +1,8 @@
 {
   "applicationId": "dev.nicartjay.pokebonk.offline.standard",
   "productName": "PokéBonk Offline",
-  "version": "1.0.0",
-  "androidVersionCode": 7,
+  "version": "1.1.0",
+  "androidVersionCode": 9,
   "edition": "standard",
   "repository": "Nicartjay/pokebonk-offline-standard",
   "channelUrl": "https://github.com/Nicartjay/pokebonk-offline-standard/releases/download/standard-channel/standard-update.json",

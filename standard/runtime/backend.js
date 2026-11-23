@@ -4,6 +4,7 @@ import {validateState} from "../common/state.mjs";
 import {isEventMode, localEvents} from "./modes.js";
 import {addRecord, ensureRecords, personalRecords} from "./records.js";
 import {EVENT_POLICY, applyEventProgress, claimTrack, claimMission} from "./event-rewards.js";
+import {expeditionState, expeditionActions, beginExpedition, settleExpedition} from "./expedition.js";
 const STATE_KEY = "dev.nicartjay.pokebonk.offline.standard.state.v1";
 const PREFS = ["settings", "lastSpecies", "lastBiome", "avatar", "frame", "title", "banner", "skins", "team"];
 const copy = value => structuredClone(value);
@@ -13,7 +14,7 @@ const jsonCopy = value => JSON.parse(JSON.stringify(value));
 const randomId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 export class OfflineBackend {
-  constructor({ data, rules, config, cosmetics, modes, storage, transport, now } = {}) {
+  constructor({ data, rules, config, cosmetics, modes, expedition, storage, transport, now } = {}) {
     this.kind = "local";
     this.clockSkew = 0;
     this.data = data;
@@ -21,6 +22,7 @@ export class OfflineBackend {
     this.config = config;
     this.cosmetics = cosmetics;
     this.modes = modes ?? {};
+    this.expedition = expedition;
     this.storage = storage ?? globalThis.localStorage;
     this.now = now ?? (() => Date.now());
     this.transport = transport ?? globalThis.PokeBonkStandardTransport;
@@ -114,6 +116,18 @@ export class OfflineBackend {
   dailyChallenge() {
     if (typeof this.modes.dailyMutation !== "function") throw new Error("This build has no reviewed Daily Mutation rules.");
     return jsonCopy(this.modes.dailyMutation(this.now()));
+  }
+  expState() {
+    return this.change(profile => {
+      expeditionState(profile, this.expedition, this.now());
+      return {profile: this.profile(), now: this.now()};
+    });
+  }
+  expAction(account, actions) {
+    return this.change(profile => {
+      expeditionActions(profile, this.expedition, actions, this.now());
+      return this.profile();
+    });
   }
   recordsLocal(tab = "kos") { return copy(personalRecords(this.state, tab, this.modes.recordMetrics)); }
   claimEventTrack(account, id, index) {
@@ -221,9 +235,25 @@ export class OfflineBackend {
   }
   async startRun(account, config) {
     return this.change(profile => {
+      const session = globalThis.PokeBonkLocalCoop?.state();
+      if (config.party) {
+        const ticket = this.state.activeRun?.ticket;
+        if (session?.phase !== "playing" || session.match?.party !== config.party ||
+            !ticket?.lan || ticket.lan.launched || ticket.party !== config.party ||
+            ticket.config.species !== config.species || config.mode !== "standard" ||
+            config.biome !== "forest" || config.tier !== 0 || config.boosts?.length ||
+            ticket.lan.size !== session.members.length) {
+          throw new Error("No matching, durably prepared local co-op run.");
+        }
+        ticket.lan.launched = true;
+        return copy(ticket);
+      }
+      if (["hosting", "connecting", "lobby", "preparing", "playing"].includes(session?.phase)) {
+        throw new Error("Leave the local co-op lobby before starting a single-player run.");
+      }
       if (this.state.activeRun || this.state.suspended) throw new Error("An unfinished run is preserved. Continue it, or explicitly end it in Player & saves before starting another.");
       const mode = config.mode ?? "standard";
-      if (!["standard", "endless", "relay", "mutation", "bossrush", "tower"].includes(mode)) throw new Error("This mode is not part of the local single-player edition.");
+      if (!["standard", "endless", "relay", "mutation", "bossrush", "tower", "expedition"].includes(mode)) throw new Error("This mode is not part of the local single-player edition.");
       if (!profile.league.includes(config.species)) throw new Error("Choose a Pokémon in your League.");
       if (config.party || config.coop || config.duel || config.competitive || config.scav) throw new Error("Only local single-player runs are supported.");
       let daily;
@@ -252,9 +282,43 @@ export class OfflineBackend {
         boosts, config: copy(config), ...(daily ? {mutation: daily.mutation.id} : {}),
         ...(isEventMode(mode) ? {eventPolicy: EVENT_POLICY} : {}),
       };
+      if (mode === "expedition") beginExpedition(profile, this.expedition, ticket, this.now());
       this.state.activeRun = { ticket, status: "running" };
       this.state.suspended = null;
       return copy(ticket);
+    });
+  }
+  prepareLan(session) {
+    return this.change(profile => {
+      const native = globalThis.PokeBonkLocalCoop?.state();
+      if (!native || JSON.stringify(native) !== JSON.stringify(session) || session.phase !== "preparing" ||
+          !Array.isArray(session.members) || session.members.length < 2 || session.members.length > 4 ||
+          new Set(session.members.map(member => member.id)).size !== session.members.length ||
+          !session.linked || !session.members.every(member => member.ready) ||
+          !/^lan-[\w-]{1,80}$/.test(session.match?.party) ||
+          !Number.isInteger(session.match.seed) || session.match.seed < 0 || session.match.seed > 0xffffffff ||
+          session.match.mode !== "standard" || session.match.biome !== "forest" || session.match.tier !== 0) {
+        throw new Error("The native local co-op session is not ready.");
+      }
+      const active = this.state.activeRun;
+      if (active?.ticket.lan && !active.ticket.lan.launched && active.ticket.party === session.match.party &&
+          active.ticket.seed === session.match.seed && active.ticket.lan.size === session.members.length) return;
+      if (active || this.state.suspended) throw new Error("Your unfinished run is preserved. Finish or explicitly end it first.");
+      const mine = session.members.find(member => member.id === session.me);
+      if (!mine || !profile.league.includes(mine.species)) throw new Error("Choose an owned Pokémon.");
+      const ticket = {
+        id: `offline-${randomId()}`, seed: session.match.seed, party: session.match.party,
+        local: true, ranked: true, clean: true, offline: false, started: this.now(), boosts: [],
+        config: {species: mine.species, biome: "forest", tier: 0, mode: "standard"},
+        lan: {version: 1, party: session.match.party, me: session.me, size: session.members.length, launched: false},
+      };
+      this.state.activeRun = {ticket, status: "running"};
+    });
+  }
+  cancelPreparedLan(party) {
+    return this.change(() => {
+      const ticket = this.state.activeRun?.ticket;
+      if (ticket?.party === party && ticket.lan?.launched === false) this.state.activeRun = null;
     });
   }
   async finishRun(account, ticket, result) {
@@ -266,6 +330,11 @@ export class OfflineBackend {
       if (!ticket.id?.startsWith("offline-")) throw new Error("This is not a local game.");
       if (this.state.activeRun?.ticket.id !== ticket.id) throw new Error("This run is not the active local run.");
       ticket = this.state.activeRun.ticket;
+      if (ticket.lan) {
+        if (!ticket.lan.launched || result.coop?.party !== ticket.party || result.coop?.size !== ticket.lan.size) {
+          throw new Error("The co-op result does not match its local run ticket.");
+        }
+      } else if (result.coop) throw new Error("A single-player ticket cannot settle a co-op result.");
       const runConfig = ticket.config ?? {}, hasConfig = Number.isInteger(runConfig.species);
       const mode = runConfig.mode ?? (!hasConfig ? result.mode : undefined) ?? "standard";
       // Some compatible legacy schema-1 tickets retained only id/seed. They
@@ -287,6 +356,7 @@ export class OfflineBackend {
       }
       const legacyEvent = isEventMode(mode) && ticket.eventPolicy !== EVENT_POLICY;
       const previousEvents = copy(profile.events ?? {});
+      const expeditionInfo = mode === "expedition" ? settleExpedition(profile, this.expedition, ticket, normalized, this.now()) : null;
       const info = legacyEvent ? {
         // 0.1.3 tickets promised records-only settlement. Never silently turn
         // an imported/unfinished old challenge into a reward-bearing run.
@@ -295,7 +365,7 @@ export class OfflineBackend {
         stardust: 0, runDust: 0, shinyDust: 0, medal: 0, medalDust: 0,
         joined: [], forms: [], bonk: 0, tasks: [], events: [],
       } : this.rules.Ut(profile, normalized, this.data(), {
-        ...ticket, uid: this.state.playerId, now: this.now(), clean: true, ranked: true, coop: false,
+        ...ticket, uid: this.state.playerId, now: this.now(), clean: true, ranked: true, coop: Boolean(ticket.lan),
       });
       if (!legacyEvent && Array.isArray(this.modes.eventDefinitions)) {
         // The shared upstream settlement also has calendar-gated event logic.
@@ -311,7 +381,11 @@ export class OfflineBackend {
         }
       }
       const records = ensureRecords(this.state, this.modes.recordMetrics);
-      addRecord(records, {...normalized, ...info.record,
+      if (expeditionInfo) info.exp = expeditionInfo;
+      // Upstream co-op rewards are allowed, but shared-run metrics must never
+      // overwrite solo personal bests. Keep an independent local ledger.
+      const targetRecords = ticket.lan ? (this.state.lanRecords ??= {version: 1, kos: {}, survival: {}, time: {}}) : records;
+      addRecord(targetRecords, {...normalized, ...info.record,
         ...(runConfig.mutationDay != null ? {mutationDay: runConfig.mutationDay} : {})}, this.modes.recordMetrics);
       this.state.finished[ticket.id] = copy(info);
       for (const id of Object.keys(this.state.finished).slice(0, -100)) delete this.state.finished[id];
@@ -323,7 +397,22 @@ export class OfflineBackend {
     });
   }
   checkpoint(account, ticket, result) {
+    if (ticket && result && this.state?.activeRun?.ticket.id === ticket.id &&
+        this.state.activeRun.ticket.lan) return this.change(() => {
+      if(this.state.activeRun?.ticket.id===ticket.id)this.state.activeRun.lastResult = jsonCopy(result);
+    });
+    if (this.state?.activeRun?.ticket.config?.mode === "expedition") {
+      return this.checkpointExpedition(ticket, result);
+    }
     if (ticket && result && this.state?.activeRun?.ticket.id === ticket.id) this.state.activeRun.lastResult = copy(result);
+  }
+  checkpointExpedition(ticket, result) {
+    return this.change(() => {
+      const active = this.state.activeRun;
+      if (active?.ticket.id !== ticket?.id || active.ticket.config?.mode !== "expedition") return;
+      if (!result?.exp || result.mode !== "expedition" || result.species !== active.ticket.config.species) throw new Error("Invalid Expedition checkpoint.");
+      active.lastResult = jsonCopy(result);
+    });
   }
   // Compatibility for the original offline integration. New adapters resolve
   // the current client's checkpoint method structurally and bind checkpoint().
@@ -360,7 +449,22 @@ export class OfflineBackend {
     return save?.ticket.id === id ? copy(save) : null;
   }
   async autoWaiting() { return this.state?.activeRun?.status === "running"; }
-  async discardSaved() { await this.change(() => { this.state.activeRun = this.state.suspended = null; }); }
+  async discardSaved() {
+    await this.change(profile => {
+      const active = this.state.activeRun, ticket = active?.ticket;
+      if (ticket?.config?.mode === "expedition") {
+        const entry = ticket.exp;
+        const result = active.lastResult ?? {species: ticket.config.species, time: 0, kills: 0, exp: {
+          out: false, loot: [], gear: Object.fromEntries(Object.entries(entry.gear).map(([s, item]) => [s, "e" + item.id])),
+          bag: entry.bag.map(item => "e" + item.id), pocket: entry.pocket ? "e" + entry.pocket.id : null,
+        }};
+        // Explicit abandonment is a defeat, never a free extraction. A saved
+        // pocket/insured loadout can return, but unextracted loot cannot.
+        settleExpedition(profile, this.expedition, ticket, {...result, exp: {...result.exp, out: false}}, this.now(), {abandoned: true});
+      }
+      this.state.activeRun = this.state.suspended = null;
+    });
+  }
   hasPending() { return false; }
   async retryNow() { return { left: 0, saved: 0 }; }
   afterRun() {}

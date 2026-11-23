@@ -4,6 +4,21 @@ contextBridge.exposeInMainWorld("PokeBonkStandard", Object.freeze({
   loadState: () => ipcRenderer.invoke("standard:load-state"),
   saveState: state => ipcRenderer.invoke("standard:save-state", state),
 }));
+let lan = {phase:"idle",members:[],interfaces:[],linked:false};
+contextBridge.exposeInMainWorld("PokeBonkLAN", Object.freeze({
+  state: () => structuredClone(lan),
+  send: (channel,data) => {
+    if(!["ctl","snap","prepared","failed","leave","refresh","cancel-find","room-ready","room-start","room-pick","room-chat"].includes(channel))return;
+    const text=JSON.stringify(data??null);
+    if(text.length<=48000)ipcRenderer.send("standard:lan-game",channel,data);
+  },
+}));
+ipcRenderer.on("standard:lan-event",(_event,value)=>{
+  if(!value||JSON.stringify(value).length>48000)return;
+  if(value.type==="state")lan=value.value;
+  const suffix={state:"state",frame:"frame","peer-closed":"peer-closed",notice:"notice"}[value.type];
+  if(suffix)document.dispatchEvent(new CustomEvent("standard:lan-"+suffix,{detail:JSON.stringify(value.type==="state"?value.value:value)}));
+});
 
 // One-way, validated window presentation state. The game still receives only
 // loadState/saveState as callable native methods, never arbitrary IPC.
@@ -47,6 +62,16 @@ window.addEventListener("DOMContentLoaded", () => {
 // cannot request it. The main process separately validates sender and idle.
 document.addEventListener("click", event => {
   if (!event.isTrusted || event.button !== 0) return;
+  const lanLink=event.target.closest?.("a[data-standard-lan-action]");
+  if(lanLink&&lanLink.closest(".offline-lan-card,.offline-lan-home,.offline-lan-room")){
+    const action=lanLink.dataset.standardLanAction;
+    if(!["host","join","leave","copy","find","cancel-find"].includes(action)||lanLink.getAttribute("href")!=="/__native__/lan/"+action)return;
+    const root=lanLink.closest(".offline-lan-card,.offline-lan-home,.offline-lan-room");
+    const field=name=>root.querySelector('[data-lan-field="'+name+'"]')?.value??"";
+    event.preventDefault();
+    ipcRenderer.send("standard:lan-action",action,{species:Number(field("species")),address:field("address"),invitation:field("invitation")});
+    return;
+  }
   if (event.target.closest?.("button.offline-fullscreen")) {
     event.preventDefault();
     event.stopImmediatePropagation();
