@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {verify} from "node:crypto";
 import path from "node:path";
-import {requireAcceptance} from "../scripts/publish.mjs";
+import {requireAcceptance, findRelease} from "../scripts/publish.mjs";
 import {manifest, config} from "./fixtures.mjs";
 import {resolveAsset, byteRange, isGameURL, CSP} from "../desktop/protocol.mjs";
 test("native asset protocol cannot escape root or open remote/file origins", () => {
@@ -62,6 +62,22 @@ test("stable owner waiver is explicit, exact, truthful and cannot waive automate
     assert.throws(() => requireAcceptance(bad, manifest(), options), /owner/);
   }
   assert.throws(() => requireAcceptance({...receipt, gameDigest: "f".repeat(64)}, manifest(), options), /exact release/);
+});
+test("draft release discovery uses authenticated CLI lookup without recreating or hiding errors", () => {
+  const repo = "Nicartjay/pokebonk-offline-standard", tag = "standard-v1.0.0";
+  for (const draft of [true, false]) {
+    const release = findRelease((command, args) => {
+      assert.equal(command, "gh");
+      assert.deepEqual(args, ["release", "view", tag, "--repo", repo, "--json", "isDraft,tagName"]);
+      return JSON.stringify({isDraft: draft, tagName: tag});
+    }, repo, tag);
+    assert.deepEqual(release, {draft, tag_name: tag});
+  }
+  const missing = Object.assign(new Error("missing"), {stderr: "release not found"});
+  assert.equal(findRelease(() => {throw missing;}, repo, tag), undefined);
+  const unavailable = Object.assign(new Error("network"), {stderr: "connection timed out"});
+  assert.throws(() => findRelease(() => {throw unavailable;}, repo, tag), error => error === unavailable);
+  assert.throws(() => findRelease(() => JSON.stringify({isDraft:true, tagName:"another-tag"}), repo, tag), /another tag/);
 });
 test("shared Java DER interoperability fixture is also valid in Node", async () => {
   const root = new URL("./fixtures/", import.meta.url);

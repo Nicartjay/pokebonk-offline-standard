@@ -46,6 +46,19 @@ export async function verifyReleaseFiles(directory, config, manifest) {
   if (!isDeepStrictEqual(lines, actual)) throw new Error("Release checksum list is incomplete or mismatched.");
   return artifacts;
 }
+export function findRelease(capture, repository, tag) {
+  try {
+    // REST's releases/tags endpoint can return 404 for an authenticated draft.
+    // The CLI resolves both drafts and published releases without creating one.
+    const release = JSON.parse(capture("gh", ["release", "view", tag, "--repo", repository,
+      "--json", "isDraft,tagName"]));
+    if (typeof release.isDraft !== "boolean" || release.tagName !== tag) throw new Error("Release lookup returned another tag.");
+    return {draft: release.isDraft, tag_name: release.tagName};
+  } catch (error) {
+    if (!/(?:HTTP 404|release not found|no release found)/i.test(String(error.stderr))) throw error;
+    return undefined;
+  }
+}
 async function publish() {
   const draftOnly = process.argv.includes("--prepare-draft"), approved = process.argv.includes("--approve-publication");
   const allowWaiver = process.argv.includes("--accept-maintainer-waiver");
@@ -74,9 +87,7 @@ async function publish() {
   const tag = `standard-v${manifest.version}`;
   if (capture("git", ["rev-parse", `${tag}^{commit}`]) !== head) throw new Error("Create and push the exact Standard version tag after review.");
   if (capture("gh", ["api", `repos/${config.repository}/commits/${tag}`, "--jq", ".sha"]) !== head) throw new Error("Remote release tag does not identify this source commit.");
-  let existing;
-  try { existing = JSON.parse(capture("gh", ["api", `repos/${config.repository}/releases/tags/${tag}`])); }
-  catch (error) { if (!String(error.stderr).includes("HTTP 404")) throw error; }
+  const existing = findRelease(capture, config.repository, tag);
   if (existing && !existing.draft) throw new Error("Published versioned releases are immutable. Increase both app version and Android versionCode.");
   // --verify-tag prevents implicitly creating a remote tag or pushing source.
   const notes = path.join(directory, "release-notes-approved.md");

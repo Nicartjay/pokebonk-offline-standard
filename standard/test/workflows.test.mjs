@@ -73,6 +73,9 @@ test("stable publication requires manual dispatch, explicit acceptance and a sep
   assert.equal(stable.if, "${{ !inputs.prerelease }}");
   assert.equal(w.on.workflow_dispatch.inputs.accept_maintainer_waiver.default, false);
   assert.match(stable.run, /--accept-maintainer-waiver/);
+  assert.equal(stable.env.PUBLISH_TOOL_COMMIT, "${{ github.sha }}");
+  assert.match(stable.run, /trusted-publisher\.mjs/);
+  assert.match(stable.run, /"git", \["show",/);
   const checks = await document(".github/workflows/checks.yml");
   assert.doesNotMatch(JSON.stringify(checks), /secrets\.|release-signing|contents":"write"/);
 });

@@ -56,14 +56,31 @@ jobs:
         if: ${{ !inputs.prerelease }}
         shell: bash
         run: |
+          # Publication tooling may be fixed independently of the already signed
+          # app. Load it from this exact trusted workflow commit, but run every
+          # source/tag/hash/acceptance check against the untouched tagged checkout.
+          node --input-type=module <<'NODE'
+          import {writeFile} from "node:fs/promises";
+          import {execFileSync} from "node:child_process";
+          import path from "node:path";
+          import {pathToFileURL} from "node:url";
+          const commit = process.env.PUBLISH_TOOL_COMMIT;
+          if (!/^[a-f0-9]{40}$/.test(commit)) throw new Error("Missing trusted publication-tool commit.");
+          const file = path.resolve("standard/scripts/publish.mjs");
+          const source = execFileSync("git", ["show", `${commit}:standard/scripts/publish.mjs`], {encoding:"utf8"});
+          const tool = source.replace(/\bfrom\s+(["'])(\.\.?\/[^"']+)\1/g, (_, quote, relative) =>
+            "from " + JSON.stringify(pathToFileURL(path.resolve(path.dirname(file), relative)).href));
+          await writeFile(path.join(process.env.RUNNER_TEMP, "trusted-publisher.mjs"), tool);
+          NODE
           args=(--approve-publication)
           if [ "$FIRST_RELEASE" = "true" ]; then args+=(--first-release); fi
           if [ "$ACCEPT_MAINTAINER_WAIVER" = "true" ]; then args+=(--accept-maintainer-waiver); fi
-          node standard/scripts/publish.mjs "${args[@]}"
+          node "$RUNNER_TEMP/trusted-publisher.mjs" "${args[@]}"
         env:
           GH_TOKEN: ${{ github.token }}
           FIRST_RELEASE: ${{ inputs.first_release }}
           ACCEPT_MAINTAINER_WAIVER: ${{ inputs.accept_maintainer_waiver }}
+          PUBLISH_TOOL_COMMIT: ${{ github.sha }}
       - name: Publish an explicitly approved prerelease without changing the stable channel
         if: ${{ inputs.prerelease }}
         shell: bash
