@@ -11,7 +11,7 @@ import {describeArtifact, writeReceipt} from "./release-files.mjs";
 import {verifyPayload} from "./verify.mjs";
 
 const require = createRequire(import.meta.url);
-const [platform = process.platform, arch = process.arch] = process.argv.slice(2);
+const [platform = process.platform, arch = process.arch, outputDirectory] = process.argv.slice(2);
 const native = `${platform}-${arch}`;
 if (!["darwin-arm64", "darwin-x64", "win32-x64", "linux-x64"].includes(native)) throw new Error("Desktop targets: darwin arm64/x64, win32 x64, linux x64.");
 if (process.platform !== platform) throw new Error("Package on the target OS (Intel macOS may also be packaged on Apple Silicon).");
@@ -21,7 +21,9 @@ if (rootPackage.version !== config.version || rootPackage.productName !== config
 const {inventory} = await verifyPayload();
 const game = path.resolve("build/standard-game"), resources = path.resolve("standard/resources");
 const temp = await mkdtemp(path.join(os.tmpdir(), "pokebonk-offline-package-"));
-const output = path.resolve("build/desktop-out", native), release = path.resolve("standard/release");
+const output = outputDirectory ? path.resolve(outputDirectory) : path.resolve("build/desktop-out", native);
+if (!output.startsWith(path.resolve("build") + path.sep)) throw new Error("Desktop package output must stay inside build/.");
+const release = path.resolve("standard/release");
 try {
   const app = path.join(temp, "app");
   await mkdir(path.join(app, "standard"), {recursive: true});

@@ -52,7 +52,8 @@ export async function verifyPayload(directory = "build/standard-game") {
   await walk(root);
   if (actual.length !== names.size + 1 || actual.some(name => !names.has(name) && name !== "asset-manifest.json")) throw new Error("Unexpected payload files.");
   for (const file of manifest.files) {
-    if (!names.has(file.name) && !["version.json", "desktop.json", "manifest.webmanifest"].includes(file.name)) throw new Error(`Missing captured asset: ${file.name}`);
+    if (!names.has(file.name) && !["version.json", "desktop.json", "manifest.webmanifest",
+      "cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"].includes(file.name)) throw new Error(`Missing captured asset: ${file.name}`);
   }
   const metadata = JSON.parse(await readFile(path.join(root, "offline-build.json"), "utf8"));
   if (metadata.edition !== "standard" || metadata.pristineDigest !== manifest.digest ||

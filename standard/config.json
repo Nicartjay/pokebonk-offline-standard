@@ -1,17 +1,19 @@
 {
   "applicationId": "dev.nicartjay.pokebonk.offline.standard",
   "productName": "PokéBonk Offline",
-  "version": "0.1.1",
-  "androidVersionCode": 2,
+  "version": "1.0.0",
+  "androidVersionCode": 7,
   "edition": "standard",
   "repository": "Nicartjay/pokebonk-offline-standard",
   "channelUrl": "https://github.com/Nicartjay/pokebonk-offline-standard/releases/download/standard-channel/standard-update.json",
   "saveSchema": 1,
   "upstream": {
-    "version": "0.10.20",
-    "build": "mwqb4pwz"
+    "version": "0.10.26",
+    "build": "mwsewi0r"
   },
   "compatibleRunBuilds": [
+    "mwsewi0r",
+    "mwro88g3",
     "mwqb4pwz"
   ],
   "updateKeyId": "standard-release-p256-v1",

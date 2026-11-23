@@ -17,17 +17,20 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Consumer;
 
 final class OfflineAssetWebViewClient extends WebViewClient {
-    static final String APP_ORIGIN = "https://appassets.androidplatform.net";
+    static final String APP_ORIGIN = NativeMenuAction.ORIGIN;
     private static final String APP_HOST = "appassets.androidplatform.net";
     private static final String ASSET_ROOT = "www/";
     private final AssetManager assetManager;
     private final Runnable pageReady;
+    private final Consumer<String> nativeAction;
 
-    OfflineAssetWebViewClient(AssetManager assetManager, Runnable pageReady) {
+    OfflineAssetWebViewClient(AssetManager assetManager, Runnable pageReady, Consumer<String> nativeAction) {
         this.assetManager = assetManager;
         this.pageReady = pageReady;
+        this.nativeAction = nativeAction;
     }
 
     @Override
@@ -39,12 +42,18 @@ final class OfflineAssetWebViewClient extends WebViewClient {
     @Override
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
         Uri uri = request.getUrl();
+        if (NativeMenuAction.reserved(uri.toString())) {
+            String action = NativeMenuAction.resolve(uri.toString(), request.getMethod(), request.isForMainFrame(), request.hasGesture());
+            if (action != null) nativeAction.accept(action);
+            return true; // Reserved actions never become documents or requests.
+        }
         return !"https".equals(uri.getScheme()) || !APP_HOST.equals(uri.getHost()) || uri.getPort() != -1;
     }
 
     @Override
     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
         Uri uri = request.getUrl();
+        if (NativeMenuAction.reserved(uri.toString())) return errorResponse(403, "Navigation only");
         if (!"https".equals(uri.getScheme()) || !APP_HOST.equals(uri.getHost()) || uri.getPort() != -1 ||
             (!"GET".equals(request.getMethod()) && !"HEAD".equals(request.getMethod()))) {
             return errorResponse(403, "Blocked");
@@ -66,7 +75,7 @@ final class OfflineAssetWebViewClient extends WebViewClient {
 
             InputStream stream = assetManager.open(ASSET_ROOT + assetPath, AssetManager.ACCESS_STREAMING);
             Map<String, String> headers = new HashMap<>();
-            headers.put("Cache-Control", assetPath.equals("index.html") ? "no-cache" : "public, max-age=31536000, immutable");
+            headers.put("Cache-Control", "no-store");
             headers.put("X-Content-Type-Options", "nosniff");
             headers.put("Content-Security-Policy", "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' blob: data:; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'");
             return new WebResourceResponse(mimeType(assetPath), null, 200, "OK", headers, stream);
@@ -119,7 +128,7 @@ final class OfflineAssetWebViewClient extends WebViewClient {
         headers.put("Accept-Ranges", "bytes");
         headers.put("Content-Length", Long.toString(responseLength));
         headers.put("Content-Range", String.format(Locale.US, "bytes %d-%d/%d", start, end, totalLength));
-        headers.put("Cache-Control", "public, max-age=31536000, immutable");
+        headers.put("Cache-Control", "no-store");
         return new WebResourceResponse(
             mimeType(assetPath),
             null,

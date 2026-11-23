@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 import {createHash} from "node:crypto";
-import {ast, nodesOf} from "../../scripts/source.ts";
+import {ast, nodesOf, one, maybeName} from "../../scripts/source.ts";
 import {patchSnapshot} from "../adapters/mwqb4pwz.mjs";
 const root = "vendor/pokebonk-standard-0.10.20";
 async function sourceFiles() {
@@ -19,10 +19,18 @@ test("App/backend and main-menu targets survive private identifier renaming", as
   files.set(menusName, Buffer.from(files.get(menusName).toString().replace(/\bLw\b/g, "renamedMainMenu")));
   const result = patchSnapshot(files);
   const main = result.files.get(mainName).toString(), menus = result.files.get(menusName).toString();
-  assert.match(main, /function renamedBackendFactory\(data\).*PokeBonkOfflineBackend/);
+  assert.match(main, /function renamedBackendFactory\(data\)\{\s*const backend=new globalThis\.PokeBonkOfflineBackend/);
   assert.match(menus, /function renamedMainMenu\(e\)/);
-  assert.match(menus, /OFFLINE · LOCAL SAVES/);
+  assert.ok(!menus.includes("OFFLINE · LOCAL SAVES"), "The removed status label must not return.");
+  for (const marker of ["recordsPanel(e)", "creatorCredit()", "tr-playable", "offline-report-entry"]) {
+    assert.ok(menus.includes(marker), `The adapted homepage is missing ${marker}.`);
+  }
   assert.match(menus, /season-modal offline-appearance/);
+  const home = one(nodesOf(ast(menus), "FunctionDeclaration", node => node.id.name === "renamedMainMenu"), "adapted homepage");
+  const firstVisits = nodesOf(home, "CallExpression", node => node.callee.type === "MemberExpression" &&
+    maybeName(node.callee.property) === "firstVisit");
+  assert.equal(firstVisits.length, 1, "Only the completed homepage may schedule the first-use Guide.");
+  assert.ok(firstVisits[0].start > menus.indexOf('UC(e,"mm offline-menu"'));
   assert.doesNotMatch(main, /https:\/\/api\.pokebonk\.com/);
 });
 test("unsupported upstream structural contracts fail rather than emitting partially patched game", async () => {
@@ -34,17 +42,33 @@ test("unsupported upstream structural contracts fail rather than emitting partia
 test("native snapshot writers/recovery work even when Web Storage quota is exhausted", async () => {
   const info = JSON.parse(await readFile("build/standard-game/offline-build.json", "utf8"));
   const source = await readFile(`build/standard-game/assets/${info.modules.main}`, "utf8");
-  const names = ["Av", "Nv", "kv", "Mv", "Xv", "jv", "Iv"];
-  const functions = nodesOf(ast(source), "FunctionDeclaration", n => names.includes(n.id.name));
-  assert.equal(functions.length, names.length);
+  const declarations = nodesOf(ast(source), "FunctionDeclaration");
+  const find = (predicate, label) => one(declarations.filter(node => predicate(source.slice(node.start, node.end))), label);
+  const functions = {
+    Av: find(text => text.includes("const __text=JSON.stringify") && text.includes("backend.uploadSave"), "manual native writer"),
+    Nv: find(text => text.includes("__STANDARD_MANUAL__.set") && text.includes("return __hash") &&
+      !text.includes("backend.uploadSave") && !text.includes("localStorage"), "native snapshot recovery"),
+    kv: find(text => text.includes("save:JSON.parse(entry.text)"), "parsed native cache reader"),
+    Mv: find(text => text.includes("?.text??null") && text.includes("__STANDARD_MANUAL__"), "native snapshot text reader"),
+    Xv: find(text => text.includes("return entry?await") && text.includes("__STANDARD_MANUAL__"), "native snapshot hash reader"),
+    jv: find(text => text.includes("__STANDARD_MANUAL__.delete") && text.includes(".del("), "native cache clearing"),
+    Iv: find(text => text.includes("backend.uploadSave") && text.includes("return __hash") &&
+      !text.includes("const __text=JSON.stringify"), "automatic native checkpoint writer"),
+  };
+  const cacheKey = one(nodesOf(functions.Av, "CallExpression", n => n.callee.type === "MemberExpression" &&
+    maybeName(n.callee.property) === "setItem"), "manual browser cache key").arguments[0].callee.name;
+  const digest = one(nodesOf(functions.Av, "AwaitExpression", n => n.argument.type === "CallExpression" &&
+    n.argument.callee.type === "Identifier"), "native snapshot hash").argument.callee.name;
+  const cache = one(nodesOf(functions.jv, "CallExpression", n => n.callee.type === "MemberExpression" &&
+    maybeName(n.callee.property) === "del"), "browser cache deletion").callee.object.name;
   const writes = [];
   const context = vm.createContext({structuredClone,
     localStorage: {setItem() { throw new Error("quota exceeded"); }, getItem() { return null; }},
-    Z: {del() {}}, Ov: user => user,
-    Zv: async text => createHash("sha256").update(text).digest("hex"),
+    [cache]: {del() {}}, [cacheKey]: user => user,
+    [digest]: async text => createHash("sha256").update(text).digest("hex"),
     PokeBonkNativeApp: {backend: {async uploadSave(...args) { writes.push(args); }}}});
-  vm.runInContext(`const __STANDARD_MANUAL__=new Map();${functions.map(n => source.slice(n.start, n.end)).join("\n")}
-    globalThis.helpers={${names.join(",")}}`, context);
+  vm.runInContext(`const __STANDARD_MANUAL__=new Map();${Object.values(functions).map(n => source.slice(n.start, n.end)).join("\n")}
+    globalThis.helpers={${Object.entries(functions).map(([name, node]) => `${name}:${node.id.name}`).join(",")}}`, context);
   const h = context.helpers, ticket = {id: "offline-run", seed: 1}, snapshot = {v: 1, large: "x".repeat(6 * 1024 * 1024)};
   const hash = await h.Av("player", ticket, snapshot);
   assert.equal(writes.length, 1);

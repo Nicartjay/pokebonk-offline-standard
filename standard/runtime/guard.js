@@ -1,6 +1,16 @@
 /* Install before any game module. All game traffic must remain on this PC. */
 (() => {
   "use strict";
+  // Honor the game's own theme before first paint and prevent OEM automatic
+  // darkening from independently changing text fills on Android tablets.
+  try {
+    const chosen = localStorage.getItem("pokebonk.theme");
+    const dark = chosen === "dark" || chosen !== "light" && matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    for (const name of ["color-scheme", "supported-color-schemes"]) {
+      document.querySelector(`meta[name="${name}"]`)?.setAttribute("content", dark ? "dark" : name === "color-scheme" ? "only light" : "light");
+    }
+  } catch { /* Theme storage is optional; native progression storage is not. */ }
   const blocked = [];
   const allowed = value => {
     try {
@@ -75,6 +85,9 @@
       }
     }
     for (const button of document.querySelectorAll("button")) {
+      // The replacement opens a fixed, native-owned GitHub issue action,
+      // never the removed website feedback service.
+      if (button.classList.contains("offline-report-entry")) continue;
       const text = button.textContent.trim().toLowerCase();
       const title = button.getAttribute("title") ?? "";
       if (removedLabels.has(text) ||

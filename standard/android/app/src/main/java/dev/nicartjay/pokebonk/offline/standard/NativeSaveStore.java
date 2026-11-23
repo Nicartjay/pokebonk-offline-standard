@@ -71,6 +71,14 @@ final class NativeSaveStore {
             if (profile.has(key)) require(profile.getDouble(key) >= 0, "Invalid save balance.");
         }
         for (String key : new String[]{"stash", "finished", "spins"}) state.getJSONObject(key);
+        if (state.has("onboarding") && !state.isNull("onboarding")) {
+            JSONObject onboarding = state.optJSONObject("onboarding");
+            require(onboarding != null, "Invalid first-use guide marker.");
+            if (onboarding.has("trainerGuide")) require(onboarding.opt("trainerGuide") instanceof Number &&
+                onboarding.getDouble("trainerGuide") == 1, "Unsupported first-use guide marker.");
+            if (onboarding.has("playerName")) require(onboarding.opt("playerName") instanceof Number &&
+                onboarding.getDouble("playerName") == 1, "Unsupported initial player-name marker.");
+        }
         JSONObject active = state.optJSONObject("activeRun"), suspended = state.optJSONObject("suspended");
         if (!state.isNull("activeRun")) {
             require(active != null && ("running".equals(active.optString("status")) || "suspended".equals(active.optString("status"))), "Invalid active run.");

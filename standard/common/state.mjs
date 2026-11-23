@@ -32,6 +32,34 @@ export function validateState(state) {
     if (p[key] !== undefined && (!Number.isFinite(p[key]) || p[key] < 0)) fail("Invalid save balance.");
   }
   for (const key of ["stash", "finished", "spins"]) if (!isObject(state[key])) fail(`Invalid ${key} in save.`);
+  if (state.onboarding != null) {
+    if (!isObject(state.onboarding) ||
+        state.onboarding.trainerGuide !== undefined && state.onboarding.trainerGuide !== 1) fail("Invalid first-use guide marker.");
+    if (state.onboarding.playerName !== undefined && state.onboarding.playerName !== 1) fail("Invalid initial player-name marker.");
+  }
+  // Additive schema-1 extension: old backups are accepted and backfilled by
+  // the local backend. Unknown future formats must never be reset to empty.
+  if (state.records != null) {
+    if (!isObject(state.records) || state.records.version !== 1) fail("Unsupported personal-records format. Keep the original save.");
+    for (const tab of ["kos", "survival", "time"]) {
+      const rows = state.records[tab];
+      if (!isObject(rows) || Object.keys(rows).length > 20000) fail("Invalid personal records.");
+      for (const row of Object.values(rows)) {
+        if (!isObject(row) || !["standard", "endless", "relay", "mutation", "bossrush", "tower"].includes(row.mode) ||
+            typeof row.biome !== "string" || !/^[\w:-]{1,100}$/.test(row.biome) ||
+            !Number.isInteger(row.tier) || row.tier < 0 || row.tier > 10 ||
+            row.species !== null && (!Number.isInteger(row.species) || row.species < 1 || row.species > 10000) ||
+            row.finalSpecies !== null && (!Number.isInteger(row.finalSpecies) || row.finalSpecies < 1 || row.finalSpecies > 10000) ||
+            typeof row.id !== "string" || row.id.length > 180 ||
+            typeof row.victory !== "boolean" || typeof row.legacy !== "boolean" ||
+            typeof row.mutation !== "string" || row.mutation.length > 100 ||
+            typeof row.variant !== "string" || row.variant.length > 100) fail("Invalid personal-record row.");
+        for (const key of ["kills", "time", "attackTime", "date", "floor", "beaten"]) {
+          if (row[key] !== null && (!Number.isFinite(row[key]) || row[key] < 0)) fail("Invalid personal-record metric.");
+        }
+      }
+    }
+  }
   const ticket = value => {
     if (!isObject(value) || typeof value.id !== "string" || !value.id.startsWith("offline-") ||
         !Number.isSafeInteger(value.seed) || value.seed < 0 || value.seed > 0xffffffff) fail("Invalid local run ticket.");

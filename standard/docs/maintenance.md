@@ -43,13 +43,71 @@ An online update is a review request, not automatically trusted offline code.
    `node standard/scripts/capture-candidate.mjs upstream/standard-review CONTRACT.json`.
    It verifies hashes/versioned requests and records a new pristine candidate in
    `upstream/standard-candidates/BUILD/`; it does not change accepted.json.
-5. Add/test a structural adapter under `standard/adapters/`. Preparation currently
-   accepts **only 0.10.20/mwqb4pwz** and its pinned digest. Unsupported or ambiguous
+5. Add/test a structural adapter under `standard/adapters/`. The current source
+   revision selects **0.10.26/mwsewi0r** in `vendor/pokebonk-standard-0.10.26`,
+   pinned to `e5136575172172b5c82df2b65aaf8b58b8b5b4768d32f63a3433984af3cdea77`.
+   It is a local-test candidate, NOT a release-approved payload.
+   Its lifecycle module initializes App internally rather than exporting it.
+   Role matching explicitly handles this structure and its decoded-track audio
+   instance. Eleven new form sheets are required alongside the event resources.
+   The preceding 0.10.23 local-complete capture, events capture and
+   **0.10.20/mwqb4pwz** remain immutable references; their partial
+   event asset sets are not sufficient for a new event-enabled payload.
+   The current adapter resolves changed bindings by reviewed AST
+   contracts and the hash-verified original reference, including a stable
+   progression API facade. Unrelated reused minified names are never treated as
+   role matches. Unsupported or ambiguous
    structures stop preparation instead of producing a partly working release.
 6. Verify progression, modes, complete resources, serializer compatibility and
    network isolation. Only then put the pristine snapshot in a **new** vendor
    directory and review accepted.json, config and adapter allowlist changes.
    Never edit a pristine snapshot or patch an already patched game.
+   Website-only Cloudflare email decoding is omitted from the prepared game,
+   alongside the website updater/service-worker metadata; original pristine
+   source and artist credits remain preserved.
+   Check room/prop model IDs as well as URL literals: the Boss Rush lamps,
+   consoles, crates, lighthouse, pillars and statues are resolved dynamically.
+   `standard/resource-contracts/BUILD-events.json` requires all 27 reviewed
+   Rush/Tower models and all six pass/mission item icons before preparation can
+   succeed. The 0.10.26 contract additionally requires the eleven new form sheets.
+   `capture-candidate.mjs` accepts an optional third argument naming a pristine
+   reuse snapshot. It may reuse hash-verified bytes only when the exact
+   versioned asset-catalog key is unchanged; it never reuses patched payloads.
+
+### November 23 local-test continuation
+
+The maintainer reviewed the r4 screenshots and said to continue with tests and
+local builds. Publication remains ON HOLD. Older test/installer evidence is for
+0.10.23, not 0.10.26; require new digest-pinned reports and receipts. Android code 6
+identifies this local build. Actual Classic/Endless snapshots from 0.10.20 and
+0.10.23 retained their original values and advanced simulation in the new engine
+before those builds were added to the compatibility list. Run the replay suite
+again without its review-only reader override before accepting a final payload.
+
+Desktop presentation preferences use their own atomic
+`desktop-preferences.json`/`.previous` files, not the progression save. Graphics
+trials are recorded before Chromium starts so an early driver crash cannot
+repeatedly select an unproven backend. Never add unsafe command-line overrides,
+disable the renderer sandbox or globally disable background throttling. Display
+changes are fixed native UI actions, validated again in the host.
+
+The Guide's schema-1 additive `state.onboarding.trainerGuide` marker is durable
+but grants no progression/unlocks. Android's two JavascriptInterface storage
+methods remain unchanged. All ordinary native actions moved into Player &
+saves; Back offers recovery only when startup is unavailable.
+
+`check-desktop.mjs` verifies actual macOS controls/Auto/Metal and preference/save
+restart using pre-entry isolated appData. It never replaces the installed app.
+Keep the packaged-DMG boot/quit check separate: a development-shell pass does not
+prove that bundle names/signing in the installer work. Windows/Linux driver and
+physical Android acceptance remain separate from simulated Chromium layouts.
+
+After the final local Mac/Android artifacts, digest-pinned layout/content/native
+reports, packaged-DMG check, JVM tests and lint all pass, run
+`node standard/scripts/local-test-report.mjs build/local-test-APPVERSION-GAMEVERSION`.
+It refuses stale/different-payload reports and review-only reader overrides,
+copies the verified signed APK beside the Mac files, and writes local checksums
+and testing instructions. It creates no signed update manifest, tag or release.
 
 ## 3. Version and commit reviewed source
 
@@ -58,12 +116,19 @@ schema, source commit, pristine asset digest and prepared game digest.
 
 - Increase `version` in **both package.json and standard/config.json**, and
   `androidVersionCode`, for each published release.
+- Add a truthful entry to **standard/history.json** with that app version,
+  its corresponding upstream version/build and actual publication/test status.
+  Preparation fails if the current entry and native config disagree. The
+  renderer receives only this safe display metadata, never updater URLs/keys.
 - Keep **dev.nicartjay.pokebonk.offline.standard**, save locations/keys, APK
   signing certificate and P-256 verification key unchanged.
 - Back up before explicit save migrations. Unknown schemas fail closed.
 - Add a prior build to `compatibleRunBuilds` only after testing its actual serialized
   runs. Otherwise finish the incompatible run in the previous version.
 - Never automatically convert unlock-all saves.
+- Personal bests are an additive schema-1 `state.records` extension, committed
+  atomically with the profile. Backfill older saves only from known retained
+  values; never fabricate missing run details or reset a future records format.
 - Keep old releases and corresponding source available.
 
 Run `pnpm prepare:game`, `pnpm test`, `pnpm verify` and the relevant layout/native
@@ -161,7 +226,21 @@ still work through `package:desktop` and `package:android`.
 Test the actual packaged apps; compilation is not gameplay/device acceptance:
 
 - Starter selection; earned rewards; purchases, insufficient funds, duplicate
-  claims; Classic, Endless, Relay and Practice.
+  claims; Classic, Endless, Relay, Practice and Daily Mutation.
+- Offline Boss Rush and Lavender Tower entry/Back/restart/result screens,
+  including dates outside the original event window. New tickets earn local
+  progression and the reviewed event points, pass and mission rewards exactly
+  once; earlier records-only tickets retain their no-reward policy. Claims must
+  roll back on failed writes and survive restart/import without duplicates.
+  No server board, clan/competitive prize or unreviewed event may be reachable.
+- The Great Expedition is a disabled, clearly labelled visual preview only.
+  Never advertise playable inventory/extraction or include it in acceptance as
+  a working mode before its real local settlement is implemented and verified.
+- KOs/Survival/Time Attack records, filters, legacy backfill, restart and backup
+  round trips; retain bests after more than 30 recent runs. Keep challenge
+  rotations separate and use the real upstream Classic overtime metrics.
+- Clickable OFFLINE app-version badge, readable offline history and matching
+  upstream version/build metadata at desktop, phone and tablet sizes.
 - Save export/import, restart, interrupted writes, Android background/process death.
 - N+1 installation preserving saves, application ID and signing identity.
 - Actual Mac arm64, Mac Intel, Windows, Linux and physical Android gameplay.
@@ -202,10 +281,29 @@ its public notes, and never creates or advances `standard-channel` or marks the
 release Latest. `first_release` has no effect in this mode. Prerelease status does
 not grant third-party asset redistribution rights or establish licensing review.
 
-The stable path still requires every original device/save/licensing check to be
-true. Published prerelease files are immutable too: use a new app version and
+The default stable path requires every original device/save/licensing check to
+be true. Published prerelease files are immutable too: use a new app version and
 Android versionCode for a subsequent stable release rather than replacing these
 downloads. Installed apps will not discover an initial prerelease automatically.
+
+### Explicit owner acceptance of remaining checks
+
+Never change an incomplete result to `true` merely to publish. When the repository
+owner explicitly accepts the remaining checks for an exact stable release, the
+truthful receipt may instead contain `maintainerWaiver` with `version: 1`,
+`approveStable: true`, the same `approvedBy`/`approvedAt` as the receipt, a
+substantive `reason`, and a `checks` array containing exactly every false field.
+Enable `accept_maintainer_waiver` in the protected publication workflow (or use
+`--accept-maintainer-waiver` with the local publisher). It defaults to false.
+The authenticated workflow actor must be the repository owner and receipt
+reviewer. Automated tests and corrupt-update rejection cannot be waived.
+All signature/hash/source/tag/version/identity gates remain mandatory.
+
+This is a recorded owner decision, not device-test evidence or a grant of
+third-party redistribution rights. The receipt remains separate from the
+feature-focused release notes; it is not added to the release's public assets
+or transformed into a claim that its false checks passed. Owner approval does
+not automatically run or repeat device tests.
 
 ## Installed-app updates
 

@@ -1,12 +1,48 @@
 const sides = ["left", "top", "right", "bottom"];
 export const ANDROID_UI_SCALE = 0.9;
 
+export function isAndroidShell(win = globalThis.window) {
+  return Boolean(win?.PokeBonkStandardAndroid && !win.PokeBonkStandard);
+}
+
 export function androidPresentationSettings(settings, win = globalThis.window) {
-  if (!win?.PokeBonkStandardAndroid || win.PokeBonkStandard || !settings || typeof settings !== "object") return settings;
+  if (!isAndroidShell(win) || !settings || typeof settings !== "object") return settings;
   const scaled = value => (Number.isFinite(value) ? value : 1) * ANDROID_UI_SCALE;
   // Pass a copy through the game's own scale handling so layout, joystick
   // geometry and touch hit targets agree. Never rewrite the saved preferences.
   return {...settings, hudScale: scaled(settings.hudScale), touchScale: scaled(settings.touchScale)};
+}
+
+export function androidMinimapScale(requested, upstream, win = globalThis.window) {
+  if (!isAndroidShell(win)) return upstream;
+  // The settings slider offers 60–200%. Do not keep upstream's small-phone
+  // 120% cap, which made the upper half of that slider ineffective.
+  return Math.max(.6, Math.min(2, Number.isFinite(requested) ? requested : 1));
+}
+
+export function androidBatteryFpsCap(saver, upstream, win = globalThis.window) {
+  if (!isAndroidShell(win) || !saver) return upstream;
+  // Battery saver wins over a previously chosen 60/90/120/uncapped FPS option.
+  // A deliberately lower frame limit remains lower.
+  return Math.min(30, Number.isFinite(upstream) && upstream > 0 ? upstream : 30);
+}
+
+const androidFrames = new WeakMap();
+export function skipAndroidBatteryFrame(app, timestamp, win = globalThis.window) {
+  if (!isAndroidShell(win) || !app.saver || !Number.isFinite(timestamp)) {
+    androidFrames.delete(app);
+    return false;
+  }
+  // Later engines keep frameGap private/minified. fpsCap is the reviewed
+  // public policy; never depend on a build-specific private method name.
+  const cap = Number(app.fpsCap?.());
+  const gap = Math.max(1000 / 30, Number(app.frameGap?.()) || (cap > 0 ? 1000 / cap : 0));
+  const previous = androidFrames.get(app);
+  // Limit real simulation/render work, not just the displayed FPS counter.
+  // In particular, renderer.needsDraw must not bypass this battery-only cap.
+  if (previous !== undefined && timestamp >= previous && timestamp - previous < gap - .01) return true;
+  androidFrames.set(app, timestamp);
+  return false;
 }
 
 // Native insets arrive in physical pixels. Project into the current CSS
@@ -27,10 +63,74 @@ export function projectAndroidInsets(value, width, height) {
   return projected;
 }
 
+export function installAndroidStarterLayout({window: win = globalThis.window, document: doc = globalThis.document} = {}) {
+  if (!isAndroidShell(win)) return null;
+  const ui = doc.getElementById("ui");
+  if (!ui) return null;
+  let active, frame = 0, disposed = false;
+  const schedule = () => {
+    if (!disposed && !frame) frame = win.requestAnimationFrame(fit);
+  };
+  const sizes = win.ResizeObserver ? new win.ResizeObserver(schedule) : null;
+  // offsetHeight is the layout size, unaffected by the cards' scale-in
+  // animation. Measuring their painted rectangles would undersize this track.
+  const infoHeight = nodes => Math.max(...nodes.map(node => node.offsetHeight)) + 1;
+  function fit() {
+    frame = 0;
+    const screen = ui.querySelector(":scope > .screen.sp");
+    if (screen !== active) {
+      sizes?.disconnect();
+      active = screen;
+      if (screen) {
+        // Observe content too: fonts, translations and narrower windows can
+        // change the space needed by the longest passive description.
+        for (const node of [screen, ...screen.querySelectorAll(".sp-head, .sp-row, .sp-foot, .sp-info")]) {
+          sizes?.observe(node);
+        }
+      }
+    }
+    const row = screen?.querySelector(".sp-row");
+    if (!row?.clientWidth || !row.clientHeight) return;
+    const info = [...row.querySelectorAll(".sp-info")];
+    if (!info.length) return;
+
+    // Measure the roomy layout first, not the already compressed result.
+    // Compact only when that layout cannot leave enough space for the art;
+    // there is deliberately no phone/tablet or user-agent breakpoint.
+    screen.classList.remove("standard-starter-compact");
+    row.style.removeProperty("--standard-starter-info-height");
+    const roomyInfo = infoHeight(info);
+    const minimumArt = parseFloat(win.getComputedStyle(screen)
+      .getPropertyValue("--standard-starter-roomy-art-min")) || 220;
+    const compact = row.clientHeight - roomyInfo < minimumArt;
+    screen.classList.toggle("standard-starter-compact", compact);
+    // A shared description track leaves exactly the same artwork height in
+    // all three cards, even when their text wraps onto different line counts.
+    row.style.setProperty("--standard-starter-info-height",
+      `${compact ? infoHeight(info) : roomyInfo}px`);
+  }
+  const changes = new win.MutationObserver(schedule);
+  // Screens are mounted directly under #ui. Do not watch the entire gameplay
+  // subtree or run a layout measurement on every HUD update.
+  changes.observe(ui, {childList: true});
+  win.addEventListener("resize", schedule);
+  win.visualViewport?.addEventListener("resize", schedule);
+  doc.fonts?.ready.then(schedule);
+  schedule();
+  return () => {
+    disposed = true;
+    if (frame) win.cancelAnimationFrame(frame);
+    sizes?.disconnect();
+    changes.disconnect();
+    win.removeEventListener("resize", schedule);
+    win.visualViewport?.removeEventListener("resize", schedule);
+  };
+}
+
 export function installAndroidSafeArea({window: win = globalThis.window, document: doc = globalThis.document} = {}) {
   // Positive native-shell detection only; desktop and browser layouts are
   // unchanged. This adds no renderer-callable native capabilities.
-  if (!win.PokeBonkStandardAndroid || win.PokeBonkStandard) return null;
+  if (!isAndroidShell(win)) return null;
   const root = doc.documentElement;
   root.dataset.standardPlatform = "android";
   root.style.setProperty("--standard-android-ui-scale", String(ANDROID_UI_SCALE));

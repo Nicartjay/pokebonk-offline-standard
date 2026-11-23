@@ -1,0 +1,1 @@
+export{dt as DESKTOP_APP,ft as androidAppVersion,pt as apkUrl,mt as desktopAppButton,ht as offerDesktopApp,gt as osIcon,_t as showDesktopApp}from"./menus-B1iPYY_y-mwsewi0r.js";

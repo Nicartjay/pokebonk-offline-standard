@@ -2,11 +2,12 @@ import "./transport.js";
 import {OfflineBackend} from "./backend.js";
 import {installOfflineUI} from "./ui.js";
 import {boot} from "./bindings.js";
-import {installAndroidSafeArea} from "./android-ui.js";
+import {installAndroidSafeArea, installAndroidStarterLayout} from "./android-ui.js";
 import config from "./config.js";
 globalThis.PokeBonkOfflineBackend = OfflineBackend;
 installAndroidSafeArea();
-installOfflineUI({});
+installAndroidStarterLayout();
+installOfflineUI(config);
 const checkpoint = () => {
   const app = globalThis.PokeBonkNativeApp;
   const result = app?.run?.autosave?.(true);

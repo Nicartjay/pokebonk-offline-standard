@@ -46,7 +46,27 @@ test("creates a local player without authentication or an official API", async (
   assert.equal(account.guest, false);
   assert.equal(account.token, undefined);
   assert.equal(f.disk.profile.starter, 0);
+  assert.equal(f.disk.profile.stardust, 10000);
+  assert.equal(f.disk.profile.totalStardust, 10000);
+  for (const key of ["league", "unlocked", "seen"]) assert.deepEqual(f.disk.profile[key], []);
   assert.ok(f.writes.length > 0);
+});
+
+test("the new-game allowance never tops up a loaded or imported save", async () => {
+  const f = fixture();
+  await f.backend.restore();
+  await f.backend.change(profile => { profile.stardust = 137; });
+  const next = new OfflineBackend(f.runtime);
+  assert.equal((await next.loadProfile()).stardust, 137);
+  const backup = await next.exportSave();
+  backup.profile.stardust = 0;
+  backup.profile.totalStardust = 0;
+  await next.importSave(backup);
+  const restarted = new OfflineBackend(f.runtime);
+  const profile = await restarted.loadProfile();
+  assert.equal(profile.stardust, 0);
+  assert.equal(profile.totalStardust, 0);
+  assert.deepEqual(profile.league, []);
 });
 
 test("starter choices and progress survive a new backend instance", async () => {
@@ -60,6 +80,44 @@ test("starter choices and progress survive a new backend instance", async () => 
   await assert.rejects(next.chooseStarter(account, 1), /available starter/);
   assert.equal((await next.chooseStarter(account, 155)).starterJ, 155);
 });
+test("first-use guide marker is durable and idempotent without granting any progression", async () => {
+  const f = fixture(); await f.backend.restore();
+  const before = structuredClone(f.backend.state.profile);
+  const claims = await Promise.all([f.backend.claimFirstGuide(), f.backend.claimFirstGuide()]);
+  assert.deepEqual(claims, [true, false]);
+  assert.deepEqual(f.backend.state.profile, before);
+  const next = new OfflineBackend(f.runtime); await next.restore();
+  assert.equal(next.state.onboarding.trainerGuide, 1);
+  assert.equal(await next.claimFirstGuide(), false);
+  assert.deepEqual(next.state.profile.league, []);
+  assert.equal(next.state.profile.stardust, 10000);
+});
+test("a failed guide-marker commit rolls back and can be retried", async () => {
+  const f = fixture(); await f.backend.restore();
+  const save = f.runtime.transport.save;
+  f.runtime.transport.save = async () => { throw new Error("interrupted write"); };
+  await assert.rejects(f.backend.claimFirstGuide(), /interrupted/);
+  assert.equal(f.backend.state.onboarding, undefined);
+  assert.equal(f.disk.onboarding, undefined);
+  f.runtime.transport.save = save;
+  assert.equal(await f.backend.claimFirstGuide(), true);
+});
+test("initial player name and its completion marker persist atomically without changing progression", async () => {
+  const f = fixture(); await f.backend.restore(); await f.backend.claimFirstGuide();
+  const before = structuredClone(f.backend.state.profile);
+  await assert.rejects(f.backend.renameLocal(" \n "), /player name/);
+  assert.equal(f.backend.state.onboarding.playerName, undefined);
+  const save = f.runtime.transport.save;
+  f.runtime.transport.save = async () => { throw new Error("disk full"); };
+  await assert.rejects(f.backend.renameLocal("My Trainer"), /disk full/);
+  assert.equal(f.backend.state.profile.name, "Player");
+  assert.equal(f.backend.state.onboarding.playerName, undefined);
+  f.runtime.transport.save = save;
+  await f.backend.renameLocal("  My\u0000 Trainer  ");
+  const restarted = new OfflineBackend(f.runtime); await restarted.restore();
+  assert.deepEqual(restarted.state.profile, {...before, name: "My Trainer"});
+  assert.deepEqual(restarted.state.onboarding, {trainerGuide: 1, playerName: 1});
+});
 
 test("preference saves do not accept client balance changes", async () => {
   const f = fixture();
@@ -67,7 +125,7 @@ test("preference saves do not accept client balance changes", async () => {
   await f.backend.savePrefs(account, { settings: { music: 0.4 }, stardust: 9999999, lastBiome: "forest" });
   const profile = await f.backend.loadProfile();
   assert.equal(profile.settings.music, 0.4);
-  assert.equal(profile.stardust, 0);
+  assert.equal(profile.stardust, 10000);
 });
 
 test("local actions are serialized and failed actions roll back", async () => {
@@ -91,11 +149,12 @@ test("run tickets are local and an end result is applied only once", async () =>
   assert.ok(ticket.id.startsWith("offline-"));
   assert.equal(ticket.offline, false);
   assert.equal(f.backend.state.profile.bag["rare-candy"], 1);
-  await f.backend.finishRun(account, ticket, { kills: 4, time: 60 });
-  await f.backend.finishRun(account, ticket, { kills: 4, time: 60 });
+  const result = {mode: "standard", species: 4, biome: "forest", tier: 0, kills: 4, time: 60};
+  await f.backend.finishRun(account, ticket, result);
+  await f.backend.finishRun(account, ticket, result);
   const profile = await f.backend.loadProfile();
   assert.equal(profile.counters.runs, 1);
-  assert.equal(profile.stardust, 25);
+  assert.equal(profile.stardust, 10025);
   assert.equal(profile.runs.length, 1);
 });
 
@@ -103,7 +162,7 @@ test("online and server-managed modes cannot start", async () => {
   const f = fixture();
   const account = await f.backend.restore();
   await f.backend.chooseStarter(account, 4);
-  for (const mode of ["duel", "coop", "expedition", "bossrush"]) {
+  for (const mode of ["duel", "coop", "expedition", "unknown"]) {
     await assert.rejects(f.backend.startRun(account, { species: 4, mode }), /local single-player/);
   }
 });
@@ -156,5 +215,5 @@ test("a retired or forged run ticket cannot claim additional rewards", async () 
   const f = fixture(), account = await f.backend.restore();
   await f.backend.chooseStarter(account, 4);
   await assert.rejects(f.backend.finishRun(account, {id: "offline-forged"}, {kills: 1, time: 60}), /active local run/);
-  assert.equal(f.backend.state.profile.stardust, 0);
+  assert.equal(f.backend.state.profile.stardust, 10000);
 });

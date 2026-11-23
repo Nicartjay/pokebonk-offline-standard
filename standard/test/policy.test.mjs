@@ -31,6 +31,38 @@ test("release publication cannot substitute packaging/CI for actual device and l
   for (const key of ["physicalAndroidGameplay", "windowsGameplay", "linuxGameplay", "licensingReviewed", "upgradePreservesIdentityAndProgress"]) assert.throws(() => requireAcceptance({...template, [key]: false}, manifest()), /required/);
   assert.throws(() => requireAcceptance({...template, gameDigest: "f".repeat(64)}, manifest()), /exact release/);
 });
+test("stable owner waiver is explicit, exact, truthful and cannot waive automated or corrupt-update checks", () => {
+  const receipt = {version: "0.2.0", sourceCommit: "b".repeat(40), gameDigest: "d".repeat(64),
+    approvedBy: "Nicartjay", approvedAt: "2026-11-23T03:00:00Z",
+    automatedTests: true, corruptUpdatesRejected: true, macArm64Gameplay: false, macIntelGameplay: false,
+    windowsGameplay: false, linuxGameplay: false, physicalAndroidGameplay: false, offlineGameplay: false,
+    fullscreenInputAudioTouch: false, saveExportImportRestart: false, backgroundProcessDeath: false,
+    upgradePreservesIdentityAndProgress: false, licensingReviewed: false};
+  receipt.maintainerWaiver = {version: 1, approveStable: true, approvedBy: receipt.approvedBy,
+    approvedAt: receipt.approvedAt, checks: Object.keys(receipt).filter(key => receipt[key] === false),
+    reason: "The owner explicitly authorizes stable publication while retaining these checks as incomplete."};
+  const options = {actor: "Nicartjay", allowWaiver: true};
+  requireAcceptance(receipt, manifest(), options);
+  assert.equal(receipt.windowsGameplay, false);
+  assert.throws(() => requireAcceptance(receipt, manifest(), {...options, allowWaiver: false}), /required/);
+  assert.throws(() => requireAcceptance(receipt, manifest(), {...options, actor: "another-user"}), /owner/);
+  for (const key of ["automatedTests", "corruptUpdatesRejected"]) {
+    const bad = structuredClone(receipt); bad[key] = false; bad.maintainerWaiver.checks.push(key);
+    assert.throws(() => requireAcceptance(bad, manifest(), options), /required/);
+  }
+  for (const change of [
+    value => value.maintainerWaiver.checks.pop(),
+    value => value.maintainerWaiver.checks.push("madeUpCheck"),
+    value => value.maintainerWaiver.approvedBy = "another-user",
+    value => value.maintainerWaiver.approvedAt = "2026-11-22T03:00:00Z",
+    value => value.maintainerWaiver.approveStable = false,
+    value => value.licensingReviewed = undefined,
+  ]) {
+    const bad = structuredClone(receipt); change(bad);
+    assert.throws(() => requireAcceptance(bad, manifest(), options), /owner/);
+  }
+  assert.throws(() => requireAcceptance({...receipt, gameDigest: "f".repeat(64)}, manifest(), options), /exact release/);
+});
 test("shared Java DER interoperability fixture is also valid in Node", async () => {
   const root = new URL("./fixtures/", import.meta.url);
   assert.equal(verify("sha256", await readFile(new URL("ecdsa-payload.txt", root)), await readFile(new URL("ecdsa-public.pem", root)),

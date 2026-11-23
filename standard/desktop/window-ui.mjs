@@ -14,6 +14,14 @@ export function windowChrome(platform) {
   return {};
 }
 
+// This is a standalone game, not a document app. Closing its last window quits
+// on macOS too. Let already-accepted atomic native writes finish first.
+export function quitAfterLastWindow(app, {pendingWrites = () => Promise.resolve(), onError = console.error} = {}) {
+  app.on("window-all-closed", () => {
+    void Promise.resolve().then(pendingWrites).catch(onError).finally(() => app.quit());
+  });
+}
+
 export function connectWindowUI(window, platform = process.platform) {
   const sendState = () => {
     if (!window.isDestroyed() && !window.webContents.isDestroyed()) {

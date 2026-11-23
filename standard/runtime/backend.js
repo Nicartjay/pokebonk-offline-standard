@@ -1,6 +1,9 @@
 // Local-only replacement for the published game's HTTP backend.
 // No official account, API, leaderboard, or multiplayer service is contacted.
 import {validateState} from "../common/state.mjs";
+import {isEventMode, localEvents} from "./modes.js";
+import {addRecord, ensureRecords, personalRecords} from "./records.js";
+import {EVENT_POLICY, applyEventProgress, claimTrack, claimMission} from "./event-rewards.js";
 const STATE_KEY = "dev.nicartjay.pokebonk.offline.standard.state.v1";
 const PREFS = ["settings", "lastSpecies", "lastBiome", "avatar", "frame", "title", "banner", "skins", "team"];
 const copy = value => structuredClone(value);
@@ -10,13 +13,14 @@ const jsonCopy = value => JSON.parse(JSON.stringify(value));
 const randomId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 export class OfflineBackend {
-  constructor({ data, rules, config, cosmetics, storage, transport, now } = {}) {
+  constructor({ data, rules, config, cosmetics, modes, storage, transport, now } = {}) {
     this.kind = "local";
     this.clockSkew = 0;
     this.data = data;
     this.rules = rules;
     this.config = config;
     this.cosmetics = cosmetics;
+    this.modes = modes ?? {};
     this.storage = storage ?? globalThis.localStorage;
     this.now = now ?? (() => Date.now());
     this.transport = transport ?? globalThis.PokeBonkStandardTransport;
@@ -37,7 +41,9 @@ export class OfflineBackend {
       version: 1,
       playerId: `offline-${randomId()}`,
       updatedAt: this.now(),
-      profile: this.normalize({ name, starter: 0, starterJ: 0 }),
+      // New-game allowance only. Loading/importing a profile never tops up,
+      // resets or retroactively changes its existing balance.
+      profile: this.normalize({ name, starter: 0, starterJ: 0, stardust: 10000, totalStardust: 10000 }),
       stash: {},
       activeRun: null,
       suspended: null,
@@ -60,6 +66,7 @@ export class OfflineBackend {
       this.state.finished ??= {};
       this.state.spins ??= {};
       this.state.playerId ||= `offline-${randomId()}`;
+      ensureRecords(this.state, this.modes.recordMetrics);
       // Always establish the local file save before entering the game.
       await this.persist();
     })();
@@ -103,8 +110,32 @@ export class OfflineBackend {
     const calendar = typeof this.config?.Wn === "function" ? this.config.Wn(this.now()) : { n: 3 };
     return { ...calendar, live: false, ranked: false, maps: [], name: "Local play" };
   }
-  events() { return []; }
+  events() { return localEvents(); }
+  dailyChallenge() {
+    if (typeof this.modes.dailyMutation !== "function") throw new Error("This build has no reviewed Daily Mutation rules.");
+    return jsonCopy(this.modes.dailyMutation(this.now()));
+  }
+  recordsLocal(tab = "kos") { return copy(personalRecords(this.state, tab, this.modes.recordMetrics)); }
+  claimEventTrack(account, id, index) {
+    return this.change(profile => {
+      claimTrack(profile, this.modes.eventDefinitions, id, index);
+      return this.profile();
+    });
+  }
+  claimEventQuest(account, id, mission) {
+    return this.change(profile => {
+      claimMission(profile, this.modes.eventDefinitions, id, mission);
+      return this.profile();
+    });
+  }
   async loadProfile() { await this.init(); await this.queue.catch(() => {}); return this.profile(); }
+  claimFirstGuide() {
+    return this.change(() => {
+      if (this.state.onboarding?.trainerGuide === 1) return false;
+      this.state.onboarding = {...this.state.onboarding, trainerGuide: 1};
+      return true;
+    });
+  }
   async savePrefs(account, profile) {
     return this.change(saved => {
       for (const key of PREFS) if (profile[key] !== undefined) saved[key] = copy(profile[key]);
@@ -191,16 +222,35 @@ export class OfflineBackend {
   async startRun(account, config) {
     return this.change(profile => {
       if (this.state.activeRun || this.state.suspended) throw new Error("An unfinished run is preserved. Continue it, or explicitly end it in Player & saves before starting another.");
-      if (!["standard", "endless", "relay"].includes(config.mode ?? "standard")) throw new Error("This mode is not part of the local single-player edition.");
+      const mode = config.mode ?? "standard";
+      if (!["standard", "endless", "relay", "mutation", "bossrush", "tower"].includes(mode)) throw new Error("This mode is not part of the local single-player edition.");
       if (!profile.league.includes(config.species)) throw new Error("Choose a Pokémon in your League.");
-      const boosts = [...new Set(config.boosts ?? [])].filter(id => (profile.bag[id] ?? 0) > 0);
+      if (config.party || config.coop || config.duel || config.competitive || config.scav) throw new Error("Only local single-player runs are supported.");
+      let daily;
+      config = {...config, mode};
+      if (mode === "mutation") {
+        daily = this.dailyChallenge();
+        if (config.biome !== daily.biome || config.tier !== daily.mutation.tier) {
+          throw new Error("The local Daily Mutation changed. Reopen its Pokémon selection.");
+        }
+        config.mutation = daily.mutation.id;
+        config.mutationDay = daily.day;
+      }
+      if (isEventMode(mode)) {
+        const event = this.events().find(event => event.mode === mode);
+        config = {...config, biome: event.biome, tier: 0};
+      }
+      // Event challenges, Relay and Mutation never consume backpack items.
+      const boosts = ["standard", "endless"].includes(mode) ?
+        [...new Set(config.boosts ?? [])].filter(id => (profile.bag[id] ?? 0) > 0) : [];
       for (const id of boosts) if (--profile.bag[id] <= 0) delete profile.bag[id];
       const values = new Uint32Array(1);
       globalThis.crypto?.getRandomValues?.(values);
       const ticket = {
-        id: `offline-${randomId()}`, seed: values[0] || Math.floor(Math.random() * 2147483647),
+        id: `offline-${randomId()}`, seed: daily?.seed ?? (values[0] || Math.floor(Math.random() * 2147483647)),
         local: true, ranked: true, clean: true, offline: false, started: this.now(),
-        boosts, config: copy(config),
+        boosts, config: copy(config), ...(daily ? {mutation: daily.mutation.id} : {}),
+        ...(isEventMode(mode) ? {eventPolicy: EVENT_POLICY} : {}),
       };
       this.state.activeRun = { ticket, status: "running" };
       this.state.suspended = null;
@@ -209,30 +259,75 @@ export class OfflineBackend {
   }
   async finishRun(account, ticket, result) {
     return this.change(profile => {
-      if (this.state.finished[ticket.id]) return { profile: this.profile(), ...copy(this.state.finished[ticket.id]), local: true, ranked: true };
+      if (this.state.finished[ticket.id]) {
+        const info = copy(this.state.finished[ticket.id]);
+        return {profile: this.profile(), ...info, local: true, ranked: !info.offlineChallenge};
+      }
       if (!ticket.id?.startsWith("offline-")) throw new Error("This is not a local game.");
       if (this.state.activeRun?.ticket.id !== ticket.id) throw new Error("This run is not the active local run.");
       ticket = this.state.activeRun.ticket;
+      const runConfig = ticket.config ?? {}, hasConfig = Number.isInteger(runConfig.species);
+      const mode = runConfig.mode ?? (!hasConfig ? result.mode : undefined) ?? "standard";
+      // Some compatible legacy schema-1 tickets retained only id/seed. They
+      // predate offline events: accept only an owned Pokémon in an original
+      // progression mode, rather than breaking settlement or inventing an
+      // event/mutation ruleset that was never recorded.
+      if (!hasConfig && (!["standard", "endless", "relay"].includes(mode) || !profile.league.includes(result.species))) {
+        throw new Error("This unfinished run needs its original app version; its configuration is preserved.");
+      }
+      if ((result.mode ?? "standard") !== mode || hasConfig && result.species !== runConfig.species ||
+          runConfig.biome && result.biome !== runConfig.biome) throw new Error("The result does not match the active local run.");
+      if (mode === "mutation" && result.mutation !== runConfig.mutation) throw new Error("The Daily Mutation rules do not match this ticket.");
       const normalized = {
         ...result,
         progress: { counters: {}, research: {}, seen: [], league: [], shinies: [], classics: [], forms: [], ...result.progress },
       };
-      const info = this.rules.Ut(profile, normalized, this.data(), {
+      if (isEventMode(mode) && ticket.eventPolicy != null && ticket.eventPolicy !== EVENT_POLICY) {
+        throw new Error("This unfinished event run needs its original app version. It is preserved.");
+      }
+      const legacyEvent = isEventMode(mode) && ticket.eventPolicy !== EVENT_POLICY;
+      const previousEvents = copy(profile.events ?? {});
+      const info = legacyEvent ? {
+        // 0.1.3 tickets promised records-only settlement. Never silently turn
+        // an imported/unfinished old challenge into a reward-bearing run.
+        offlineChallenge: true, ranked: false,
+        record: jsonCopy({...normalized, progress: undefined, id: ticket.id, seed: ticket.seed, date: this.now()}),
+        stardust: 0, runDust: 0, shinyDust: 0, medal: 0, medalDust: 0,
+        joined: [], forms: [], bonk: 0, tasks: [], events: [],
+      } : this.rules.Ut(profile, normalized, this.data(), {
         ...ticket, uid: this.state.playerId, now: this.now(), clean: true, ranked: true, coop: false,
       });
+      if (!legacyEvent && Array.isArray(this.modes.eventDefinitions)) {
+        // The shared upstream settlement also has calendar-gated event logic.
+        // Replace ONLY that accounting with the permanent local formulas so
+        // a run cannot earn the same points twice while its event is "live".
+        profile.events = previousEvents;
+        info.events = applyEventProgress(profile, normalized, this.modes.eventDefinitions);
+        if (isEventMode(mode)) {
+          info.localEventRewards = true;
+          // Upstream's compact recent-run record omits event-specific detail.
+          // Keep it for local bests, exports and future compatibility backfill.
+          for (const key of ["rush", "tower"]) if (normalized[key]) info.record[key] = copy(normalized[key]);
+        }
+      }
+      const records = ensureRecords(this.state, this.modes.recordMetrics);
+      addRecord(records, {...normalized, ...info.record,
+        ...(runConfig.mutationDay != null ? {mutationDay: runConfig.mutationDay} : {})}, this.modes.recordMetrics);
       this.state.finished[ticket.id] = copy(info);
       for (const id of Object.keys(this.state.finished).slice(0, -100)) delete this.state.finished[id];
       this.state.activeRun = null;
       this.state.suspended = null;
       // "ranked" is the original client's progression-eligibility flag here;
       // this local result is never submitted to a leaderboard.
-      return { profile: this.profile(), ...info, local: true, ranked: true };
+      return { profile: this.profile(), ...info, local: true, ranked: !info.offlineChallenge };
     });
   }
-  checkpoint() {}
-  $14ligir(account, ticket, result) {
-    if (this.state?.activeRun?.ticket.id === ticket.id) this.state.activeRun.lastResult = copy(result);
+  checkpoint(account, ticket, result) {
+    if (ticket && result && this.state?.activeRun?.ticket.id === ticket.id) this.state.activeRun.lastResult = copy(result);
   }
+  // Compatibility for the original offline integration. New adapters resolve
+  // the current client's checkpoint method structurally and bind checkpoint().
+  $14ligir(account, ticket, result) { this.checkpoint(account, ticket, result); }
   async suspendRun(account, ticket) {
     return this.change(() => {
       if (this.state.activeRun?.ticket.id !== ticket.id) throw new Error("Unknown suspended run.");
@@ -281,6 +376,7 @@ export class OfflineBackend {
       name = String(name).replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 24);
       if (!name) throw new Error("Enter a player name.");
       profile.name = name;
+      this.state.onboarding = {...this.state.onboarding, playerName: 1};
       return this.profile();
     });
   }
@@ -298,6 +394,7 @@ export class OfflineBackend {
       this.state.finished ??= {};
       this.state.spins ??= {};
       this.state.playerId ||= `offline-${randomId()}`;
+      ensureRecords(this.state, this.modes.recordMetrics);
     });
   }
 }

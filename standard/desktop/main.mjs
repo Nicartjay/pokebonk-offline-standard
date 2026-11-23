@@ -1,5 +1,5 @@
-import {app, BrowserWindow, Menu, dialog, protocol, session, ipcMain, shell} from "electron";
-import {createReadStream, existsSync} from "node:fs";
+import {app, BrowserWindow, Menu, dialog, protocol, session, ipcMain, shell, screen, powerSaveBlocker} from "electron";
+import {createReadStream, existsSync, readFileSync} from "node:fs";
 import {readFile, stat, realpath, writeFile} from "node:fs/promises";
 import {Readable} from "node:stream";
 import path from "node:path";
@@ -8,10 +8,14 @@ import {StateStore} from "../common/store.mjs";
 import {importEnvelope, MAX_STATE_BYTES} from "../common/state.mjs";
 import {StandardUpdater} from "./updater.mjs";
 import {ORIGIN, CSP, MIME, isGameURL, resolveAsset, byteRange} from "./protocol.mjs";
-import {windowChrome, connectWindowUI} from "./window-ui.mjs";
+import {windowChrome, connectWindowUI, quitAfterLastWindow} from "./window-ui.mjs";
 import {updateDistribution, installationInstructions} from "./distribution.mjs";
+import {issueFormURL} from "./report.mjs";
+import {DesktopPreferences, graphicsSwitches, restoreBounds} from "./preferences.mjs";
+import {createDesktopControls} from "./desktop-controls.mjs";
 const root = path.dirname(fileURLToPath(import.meta.url));
-const config = JSON.parse(await readFile(path.join(root, "../config.json"), "utf8"));
+// Graphics switches must be selected before Electron initializes Chromium.
+const config = JSON.parse(readFileSync(path.join(root, "../config.json"), "utf8"));
 app.setName(config.productName);
 app.setAppUserModelId(config.applicationId);
 if (process.platform === "linux") app.setDesktopName(`${config.applicationId}.desktop`);
@@ -19,6 +23,19 @@ const dataDirectory = !app.isPackaged && process.env.POKEBONK_STANDARD_USER_DATA
   ? path.resolve(process.env.POKEBONK_STANDARD_USER_DATA)
   : path.join(app.getPath("appData"), config.applicationId);
 app.setPath("userData", dataDirectory);
+const primaryInstance = app.requestSingleInstanceLock();
+const preferences = new DesktopPreferences(dataDirectory, process.platform);
+let launchBackend = preferences.state.backend;
+if (primaryInstance) {
+  try { launchBackend = preferences.beginGraphicsLaunch(); }
+  catch (error) {
+    // If a trial cannot be recorded durably, do not risk an unrecoverable
+    // alternate-backend launch. This changes no save/profile data.
+    launchBackend = "auto"; preferences.state.backend = "auto"; preferences.state.trial = null;
+    console.warn("Using Auto graphics because native preferences could not be saved:", error.message);
+  }
+}
+for (const [key, value] of graphicsSwitches(launchBackend, process.platform)) app.commandLine.appendSwitch(key, value);
 protocol.registerSchemesAsPrivileged([{scheme: "pokebonk-standard",
   privileges: {standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true}}]);
 const store = new StateStore(path.join(dataDirectory, "saves"), config);
@@ -28,7 +45,7 @@ const updater = new StandardUpdater({config, directory: dataDirectory,
   distribution: updateDistribution({platform: process.platform, arch: process.arch, packaged: app.isPackaged,
     env: process.env, nsisInstalled: app.isPackaged && existsSync(path.join(path.dirname(process.execPath), ".pokebonk-offline-nsis"))}),
   loadSave: () => store.loadState()});
-let window, pendingMessage, presentedVersion, showing = false, verifiedDownload;
+let window, desktopControls, pendingMessage, presentedVersion, showing = false, verifiedDownload;
 
 async function idle() {
   if (!window || window.isDestroyed() || !window.isFocused() || window.webContents.isLoading()) return false;
@@ -113,20 +130,35 @@ function menus() {
       {label: "Show saves folder", click: () => { void shell.openPath(store.directory); }}]},
     {role: "editMenu"},
     {label: "View", submenu: [{label: "Toggle Full Screen", accelerator: process.platform === "darwin" ? "Control+Command+F" : "F11",
-      click: () => window?.setFullScreen(!window.isFullScreen())}]},
+      click: () => window?.setFullScreen(!window.isFullScreen())},
+      {label: "Display & graphics…", click: () => void desktopControls?.perform("settings")},
+      {type: "separator"},
+      {label: "Reset graphics to Auto on next launch", click: () => {
+        void desktopControls.resetGraphics().then(() => {
+          pendingMessage = "Auto graphics will be used the next time you open the app. Your current game was not restarted.";
+          return showPending();
+        }).catch(error => { pendingMessage = `Could not save graphics preferences: ${error.message}`; });
+      }}]},
     {role: "windowMenu"},
   ]));
 }
 async function createWindow() {
-  window = new BrowserWindow({width: 1280, height: 720, minWidth: 960, minHeight: 540,
+  const restoreMaximized = preferences.state.window?.maximized;
+  const restoreFullscreen = preferences.state.window?.fullscreen;
+  const restored = restoreBounds(preferences.state.window, screen.getAllDisplays(), screen.getPrimaryDisplay());
+  const area = screen.getDisplayMatching(restored).workArea;
+  window = new BrowserWindow({...restored, minWidth: Math.min(960, area.width), minHeight: Math.min(540, area.height),
     title: config.productName, backgroundColor: "#151022", show: false, autoHideMenuBar: false,
     ...windowChrome(process.platform),
     icon: path.join(game, "icons/icon-512.png"),
     webPreferences: {preload: path.join(root, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true,
       webSecurity: true, allowRunningInsecureContent: false, devTools: !app.isPackaged}});
   connectWindowUI(window);
+  desktopControls.connect(window);
   window.webContents.setWindowOpenHandler(() => ({action: "deny"}));
-  window.webContents.on("will-navigate", event => { if (!isGameURL(event.url)) event.preventDefault(); });
+  window.webContents.on("will-navigate", event => {
+    if (!isGameURL(event.url) || new URL(event.url).pathname.startsWith("/__native__/")) event.preventDefault();
+  });
   window.webContents.on("will-redirect", event => { if (!isGameURL(event.url)) event.preventDefault(); });
   window.webContents.on("will-attach-webview", event => event.preventDefault());
   window.webContents.on("will-prevent-unload", event => {
@@ -135,17 +167,33 @@ async function createWindow() {
       buttons: ["Keep playing", "Close"], defaultId: 0, cancelId: 0});
     if (result === 1) event.preventDefault();
   });
-  window.once("ready-to-show", () => window.show());
+  window.once("ready-to-show", () => {
+    if (restoreMaximized) window.maximize();
+    window.show();
+    if (restoreFullscreen) window.setFullScreen(true);
+  });
+  window.webContents.on("render-process-gone", async (_event, details) => {
+    if (window.isDestroyed() || details.reason === "clean-exit") return;
+    const choice = await dialog.showMessageBox(window, {type: "warning", message: "The game renderer stopped",
+      detail: "Your last durable checkpoint and earned progress remain on disk. Reloading may lose only changes since that checkpoint. If this repeats, reset graphics to Auto from View.",
+      buttons: ["Close app", "Reload saved game"], defaultId: 0, cancelId: 0});
+    if (window.isDestroyed()) return;
+    if (choice.response === 1) window.webContents.reload();
+    else window.close();
+  });
   window.on("focus", () => { void checkUpdates(); });
   window.webContents.on("did-finish-load", () => { void checkUpdates(); });
   await window.loadURL(`${ORIGIN}/index.html?lang=en`);
 }
 
-if (!app.requestSingleInstanceLock()) app.quit();
+if (!primaryInstance) app.quit();
 else {
   app.on("second-instance", () => { window?.show(); window?.focus(); });
   app.whenReady().then(async () => {
     await stat(path.join(game, "index.html"));
+    await preferences.save().catch(error => console.warn("Native presentation preferences:", error.message));
+    desktopControls = createDesktopControls({app, screen, powerSaveBlocker, dialog, preferences, config,
+      getWindow: () => window, idle, notify: message => { pendingMessage = message; }});
     const offline = session.defaultSession;
     offline.webRequest.onBeforeRequest({urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*", "ftp://*/*"]},
       (_request, callback) => callback({cancel: true}));
@@ -181,6 +229,34 @@ else {
     });
     ipcMain.handle("standard:load-state", async event => { sender(event); return store.loadState(); });
     ipcMain.handle("standard:save-state", async (event, value) => { sender(event); return store.saveState(value); });
+    ipcMain.on("standard:check-updates", (event, ...args) => {
+      try {
+        sender(event);
+        if (args.length) return;
+        void idle().then(ok => { if (ok) return checkUpdates(true); }).catch(console.error);
+      } catch { /* Untrusted frames cannot use native update networking. */ }
+    });
+    ipcMain.on("standard:report-bug", (event, ...args) => {
+      try {
+        sender(event);
+        if (args.length) return;
+        void idle().then(ok => {
+          if (ok) return shell.openExternal(issueFormURL(config, process.platform));
+        }).catch(console.error);
+      } catch { /* No renderer-supplied URL or issue content is accepted. */ }
+    });
+    ipcMain.on("standard:toggle-fullscreen", (event, ...args) => {
+      try { sender(event); if (!args.length) window.setFullScreen(!window.isFullScreen()); }
+      catch { /* Only our main game frame can request the fixed window action. */ }
+    });
+    ipcMain.on("standard:desktop-action", (event, action, value, ...extra) => {
+      try {
+        sender(event);
+        if (!extra.length) void desktopControls.perform(action, value).catch(error => {
+          pendingMessage = `Could not change presentation settings: ${error.message}`;
+        });
+      } catch { /* No arbitrary commands or preference keys are accepted. */ }
+    });
     app.setAboutPanelOptions({applicationName: config.productName, applicationVersion: config.version,
       iconPath: path.join(game, "icons/icon-512.png"), copyright: "Original game: Charcher. Shell: VdustR. Offline integration: Nicartjay."});
     menus();
@@ -188,5 +264,16 @@ else {
     setInterval(() => void showPending().catch(console.error), 2000).unref();
   }).catch(error => { console.error(error); dialog.showErrorBox(`${config.productName} could not start`, error.message); app.exit(1); });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });
-  app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+  quitAfterLastWindow(app, {pendingWrites: () => Promise.all([store.queue, preferences.save()])});
+  // Cmd+Q/File→Quit also waits, not just the last window's close button.
+  // At will-quit, all windows are gone and no renderer can enqueue new writes.
+  let quitFlushed = false, quitFlush;
+  app.on("will-quit", event => {
+    if (quitFlushed) return;
+    event.preventDefault();
+    quitFlush ??= Promise.all([store.queue, preferences.save()]).catch(console.error).finally(() => {
+      quitFlushed = true;
+      app.quit();
+    });
+  });
 }

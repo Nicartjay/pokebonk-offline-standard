@@ -22,6 +22,22 @@ test("native commits preserve a previous-file backup and restart without Web Sto
   assert.deepEqual(await new StateStore(directory, config).loadState(), next);
   assert.ok(!(await readdir(directory)).some(name => name.endsWith(".tmp")));
 });
+test("a supported upstream upgrade preserves the original checkpoint as the previous-file backup", async t => {
+  const {directory} = await fixture(t), previous = save(), ticket = {id: "offline-upgrade-fixture", seed: 42};
+  // This tests the configured compatibility boundary, not the engine. Prior
+  // production builds must be added only after actual checkpoint replay.
+  const reader = {...config, compatibleRunBuilds: [...config.compatibleRunBuilds, "mwqb4pwz"]};
+  const store = new StateStore(directory, reader);
+  previous.upstream = {version: "0.10.20", build: "mwqb4pwz"};
+  previous.state.activeRun = {ticket, status: "suspended"};
+  previous.state.suspended = {ticket, text: '{"v":1,"fixture":true}', hash: "fixture", at: 123};
+  assert.equal(validateEnvelope(previous, reader), previous);
+  await store.saveState(previous);
+  const updated = envelope(structuredClone(previous.state), config);
+  await store.saveState(updated);
+  assert.deepEqual(await new StateStore(directory, reader).loadState(), updated);
+  assert.deepEqual(JSON.parse(await readFile(path.join(directory, "previous.json"))), previous);
+});
 test("separate OS process reloads committed saves", async t => {
   const {directory, store} = await fixture(t); await store.saveState(save());
   const code = `import {StateStore} from ${JSON.stringify(new URL("../common/store.mjs", import.meta.url).href)};

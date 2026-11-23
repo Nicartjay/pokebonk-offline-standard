@@ -2,11 +2,14 @@
 
 Unofficial, fully bundled **normal-progression** PokéBonk for desktop and Android.
 No Python server, separate browser, game account, live website loading, or automatic
-unlocks. Classic, Endless, Relay and Practice are retained; server-dependent modes
-and services are excluded.
+unlocks. Classic, Endless, Relay, Practice and Daily Mutation are retained.
+Mewtwo Strikes Back (Boss Rush) and Lavender Tower are permanent offline event
+replays with locally earned pass/mission rewards, without competitive prizes or leaderboards. Server-dependent modes and services
+are excluded.
 
-The reviewed game snapshot is **0.10.20 / `mwqb4pwz`**. This is a pinned baseline,
-not a claim that it is the newest online game.
+**Version 1.0.0** bundles **PokéBonk 0.10.26 / `mwsewi0r`**.
+This is a pinned offline snapshot, not a live website wrapper or a claim that
+every future online update has already been adapted.
 
 ## Downloads and app identity
 
@@ -27,8 +30,58 @@ update URLs and receipt files use the same naming. `darwin` remains an internal
 Electron platform ID, not a download filename.
 
 Android keeps the normal edge-to-edge game layout, with HUD and touch controls
-scaled 10% smaller without modifying saved size preferences. Only the native
-app-menu button reserves its own space; no extra rounded-corner border is added.
+scaled 10% smaller without modifying saved size preferences. There is no extra
+rounded-corner border and no native three-dot overlay/reserved slot. **Player &
+saves** includes update checks, native document-picker backup import/export and
+bug reporting, in the game's own theme. Back retains a startup-recovery path if
+the game cannot initialize.
+Android has no redundant fullscreen controls, its minimap slider supports
+60–200%, and battery saver caps actual game rendering at 30 FPS even when a
+higher FPS option was selected. Tablet card headers explicitly stretch to keep
+starter pictures and upgrade artwork visible.
+
+Desktop menu hover uses the same selection animation as keyboard focus, with the
+upstream button styling and a matching colored Relay tile. Closing the last
+macOS window quits the game after pending native save writes finish.
+The native desktop shell now remembers window/maximized/fullscreen state, fits
+off-screen windows back onto a connected monitor and offers **Display & graphics**
+from Player & saves or View. It has logical-pixel size/monitor controls, foreground
+keep-awake and GPU diagnostics. Graphics choices apply after an explicit restart:
+Auto/Metal/OpenGL on macOS; Auto/Direct3D 11/OpenGL/Vulkan on Windows;
+Auto/OpenGL/Vulkan on Linux. Auto is recommended and Vulkan is experimental.
+An unsuccessful alternate-backend launch restores Auto next time. Alternative
+graphics backends depend on the device and driver; Auto remains recommended.
+
+The illustrated offline Guide opens once on the homepage after starter selection,
+then offers initial player-name setup. Existing names and progress are preserved.
+The Guide also remains manually available. Startup waits for the real menu BGM to decode (not for an autoplay
+permission), honors muted settings and continues automatically after at most
+twelve seconds if audio is unavailable. There is no loading-screen button.
+Android title outlines use behind-the-fill shadows to avoid broken paint-order
+rendering on tablet WebViews; forced OEM darkening is disabled.
+
+The homepage keeps Play beside stacked Endless/Relay buttons, website-style
+Event/Tasks tiles, four collection/build tiles and an inline Personal Records
+table. Relay uses portraits from your own League, like the website. New profiles
+start with **10,000 Stardust**; existing or imported balances are never topped up.
+
+**Personal Records** has KOs, Survival and Time Attack tables with mode/map/
+difficulty filters. These are only this save's results, never an online board.
+Best rows persist independently of the upstream 30-run recent-history limit.
+Compatible older saves are backfilled from their retained data; missing original
+details are not invented. Challenge rotations are kept separate.
+
+Boss Rush and Tower retain earned local progression, event points, Challenge
+Passes and Missions. Competitive leaderboard/clan prizes are excluded. Older
+records-only tickets keep their original no-reward policy. They are one-session
+modes, as is Relay. Daily Mutation uses the game's on-device daily rules/seed,
+retains earned progression and has no server ranking. **The Great Expedition is
+only a disabled visual preview**, not a playable offline mode. Duels and co-op
+remain excluded rather than simulated with fake server responses.
+
+Click the original-style **OFFLINE v1.0.0** badge for bundled offline version
+history and the corresponding upstream game version/build for each entry.
+The app version is not the upstream game version.
 
 All platforms display **PokéBonk Offline** and use the bundled PokéBonk icon.
 The internal edition remains `standard`, and the application ID remains
@@ -118,9 +171,17 @@ pnpm exec playwright-core install chromium --only-shell
 pnpm check:layout
 CHECK_PLATFORM=win32 pnpm check:layout
 CHECK_PLATFORM=android pnpm check:layout
+node standard/scripts/check-platform-fixes.mjs
+node standard/scripts/check-offline-content.mjs
 ```
 
 These use temporary, in-memory save bridges, not your installed progress.
+The platform-fix checks also use the preserved previous prepared payload at
+`build/compat-game-0.10.20/` for real suspended-run replay tests; this local fixture
+must be captured from the previous app before preparing its replacement.
+Offline-content checks exercise the real event/mutation entry points, result
+settlement, tabbed records and version history with synthetic local saves. They
+are not a substitute for physical Android/Windows gameplay checks.
 
 ## Saves
 

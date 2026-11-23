@@ -64,13 +64,15 @@ test("all installer jobs reuse one prepared payload and cannot publish publicly"
   assert.equal(cleanup.permissions.contents, "read");
   assert.ok(cleanup.steps.some(s => s.run === "node standard/scripts/prune-artifacts.mjs --apply"));
 });
-test("stable publication requires manual dispatch, full acceptance and a separate protected environment", async () => {
+test("stable publication requires manual dispatch, explicit acceptance and a separate protected environment", async () => {
   const w = await document(".github/workflows/publish-release.yml");
   assert.deepEqual(Object.keys(w.on), ["workflow_dispatch"]);
   assert.equal(w.on.workflow_dispatch.inputs.acceptance_json.required, true);
   assert.equal(w.jobs.publish.environment, "release-publication");
   const stable = w.jobs.publish.steps.find(s => s.run?.includes("--approve-publication"));
   assert.equal(stable.if, "${{ !inputs.prerelease }}");
+  assert.equal(w.on.workflow_dispatch.inputs.accept_maintainer_waiver.default, false);
+  assert.match(stable.run, /--accept-maintainer-waiver/);
   const checks = await document(".github/workflows/checks.yml");
   assert.doesNotMatch(JSON.stringify(checks), /secrets\.|release-signing|contents":"write"/);
 });

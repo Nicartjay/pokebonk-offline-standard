@@ -1,11 +1,11 @@
 /* Additions are local and do not load any fonts, scripts, or styles remotely. */
 .offline-label{padding:6px 12px;border-radius:99px;background:#daf7e5;color:#145c39;font:800 12px system-ui,sans-serif;letter-spacing:.03em;white-space:nowrap}
 .offline-local-button{font-size:13px!important}
-.offline-menu .mm-tiles{grid-template-columns:repeat(3,minmax(0,1fr))}
+.offline-menu .mm-tiles{grid-template-columns:repeat(4,minmax(0,1fr))}
 .offline-menu .mm-small{flex-wrap:wrap}
 .offline-menu .mm-foot{font-size:12px;gap:14px}
 .offline-menu .trainer{gap:12px}
-.offline-modal{position:fixed;inset:0;z-index:20000;display:flex;align-items:center;justify-content:center;background:#151022c9;padding:24px;backdrop-filter:blur(5px)}
+.offline-modal{position:fixed;inset:0;z-index:20000;display:flex;align-items:center;justify-content:center;background:#151022c9;padding:calc(20px + var(--standard-titlebar-height,0px)) 24px 20px;backdrop-filter:blur(5px)}
 .offline-card{width:min(700px,100%);max-height:85vh;overflow:auto;padding:24px;color:var(--ink,#231c37)}
 .offline-card-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:16px}
 .offline-card-head h2{margin:0;font-size:24px}
@@ -113,7 +113,7 @@
 .screen.mm.offline-menu .mm-left {
   position: relative;
   inset: auto;
-  width: min(100%, 1100px);
+  width: min(100%, 1420px);
   min-width: 0;
   flex: none;
   align-self: flex-start;
@@ -141,42 +141,88 @@
   max-width: 100%;
   min-height: 32px;
   margin: 0;
-  padding: 6px 14px;
+  gap: 8px;
+  padding: 5px 14px 5px 5px;
   font-size: clamp(12px, 1.5vw, 17px);
   line-height: 1.2;
   text-align: center;
   transform: rotate(-3deg);
 }
+.screen.mm.offline-menu .logo.hero > button.logo-ver:hover,
+.screen.mm.offline-menu .logo.hero > button.logo-ver:focus-visible {
+  transform: rotate(-3deg) scale(1.06);
+}
+.screen.mm.offline-menu .logo.hero .offline-version b { padding: 4px 10px; font-size: .8em; }
+.screen.mm.offline-menu .mm-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(175px, 19vw, 270px);
+  align-items: stretch;
+  gap: clamp(20px, 3vw, 44px);
+  min-width: 0;
+  width: 100%;
+}
 .screen.mm.offline-menu .mm-nav { width: 100%; gap: 16px; }
 .screen.mm.offline-menu .mm-modes {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
   align-items: stretch;
   gap: 14px;
   height: auto;
 }
+.screen.mm.offline-menu .mm-pair {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
 .screen.mm.offline-menu .mm-item {
   min-width: 0;
   container-type: normal;
-  transform: none;
+  transform: skew(-6deg);
 }
-.screen.mm.offline-menu .mm-item > * { transform: none; }
-.screen.mm.offline-menu .mm-item.focus { transform: translateY(-2px); }
-.screen.mm.offline-menu .mm-item:active { transform: translateY(1px); }
-.screen.mm.offline-menu .mm-modes > .mm-item {
+.screen.mm.offline-menu .mm-item > * { transform: skew(6deg); }
+/* Keep the live game's skew, focus lift, cursor and icon animations. Mouse
+   hover and keyboard navigation select the same .focus state. */
+.screen.mm.offline-menu .mm-item.focus { transform: skew(-6deg) translateY(-4px); }
+.screen.mm.offline-menu .mm-item:active { transform: skew(-6deg) translateY(-1px) scale(.97); }
+.screen.mm.offline-menu .mm-item.relay {
+  color: #fff;
+  background: radial-gradient(circle at 70% 18%, #ffffff47, transparent 38%), var(--stripes),
+    linear-gradient(160deg, #fb7eaa, #e0306a 50%, #76153c);
+  box-shadow: 0 6px #5e1030, 0 12px 26px #a5215866;
+}
+.screen.mm.offline-menu .mm-item.relay.focus {
+  box-shadow: 0 0 0 4px var(--paper), 0 8px 0 #5e1030, var(--shadow);
+}
+.screen.mm.offline-menu .mm-modes .mm-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-content: center;
   align-items: center;
   justify-content: start;
   gap: 12px;
-  min-height: 120px;
+  min-height: 88px;
   height: auto;
-  padding: 18px;
+  padding: 12px 16px;
   text-align: left;
 }
-.screen.mm.offline-menu .mm-modes .mm-ic { width: 50px; height: 50px; margin: 0; }
+.screen.mm.offline-menu .mm-modes > .mm-item.play { min-height: 180px; }
+.screen.mm.offline-menu .mm-modes .mm-ic { width: 44px; height: 44px; margin: 0; }
 .screen.mm.offline-menu .mm-modes .mm-ic img { width: 36px; height: 36px; }
+.screen.mm.offline-menu .mm-modes .play .mm-ic { width: 62px; height: 62px; }
+.screen.mm.offline-menu .mm-modes .play .mm-ic img { width: 46px; height: 46px; }
+.screen.mm.offline-menu .mm-pair .mm-item .mm-ic .rv-hubic { width: 44px; height: 44px; }
+/* Same portrait cluster as the website's Relay option. Its original stylesheet
+   is normally lazy-loaded only after opening the online modes hub. */
+.offline-menu .rv-hubic { display: block; width: 100%; height: 100%; position: relative; }
+.screen.mm.offline-menu .rv-hubic img {
+  position: absolute; width: 58%; height: 58%; border-radius: 50%;
+  background: var(--paper); box-shadow: 0 0 0 2px #fff; image-rendering: pixelated;
+}
+.offline-menu .rv-hubic img:first-child { top: 30%; left: 2%; }
+.offline-menu .rv-hubic img:nth-child(2) { top: 4%; left: 21%; z-index: 1; }
+.offline-menu .rv-hubic img:nth-child(3) { top: 30%; left: 40%; z-index: 2; }
+.offline-menu .rv-hubic.n1 img { top: 21%; left: 21%; }
 .screen.mm.offline-menu .mm-modes .mm-tx { align-items: flex-start; gap: 5px; }
 .screen.mm.offline-menu .mm-tx {
   display: flex;
@@ -194,18 +240,37 @@
   overflow-wrap: anywhere;
   -webkit-line-clamp: unset;
 }
-.screen.mm.offline-menu .mm-modes .mm-tx b { font-size: clamp(20px, 2.3vw, 29px); line-height: 1.1; }
-.screen.mm.offline-menu .mm-modes .mm-tx small { font-size: 13px; line-height: 1.35; margin: 0; }
+.screen.mm.offline-menu .mm-modes .mm-tx b { font-size: clamp(20px, 2vw, 26px); line-height: 1.1; }
+.screen.mm.offline-menu .mm-modes .play .mm-tx b { font-size: clamp(28px, 3vw, 40px); }
+.screen.mm.offline-menu .mm-modes .mm-tx small { font-size: 12px; line-height: 1.35; margin: 0; }
 .screen.mm.offline-menu .mm-modes .mm-partner { display: none; }
+.screen.mm.offline-menu .mm-today {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 14px;
+  min-height: 76px;
+}
+.screen.mm.offline-menu .mm-today .mm-item { min-width: 0; min-height: 76px; }
+.screen.mm.offline-menu .mm-today .event b { display: block; font-size: 16px; line-height: 1.15; }
+.screen.mm.offline-menu .mm-today .mm-ic { flex: none; }
+.screen.mm.offline-menu .mm-today .mm-tx { gap: 2px; }
+.screen.mm.offline-menu .mm-today small { font-size: 11px; line-height: 1.25; }
+.screen.mm.offline-menu .mm-pips { flex-shrink: 0; }
 .screen.mm.offline-menu .mm-tiles {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 .screen.mm.offline-menu .mm-item.tile { gap: 5px; min-height: 104px; padding: 12px 10px; }
 .screen.mm.offline-menu .mm-item.tile .mm-tx { align-items: center; }
 .screen.mm.offline-menu .mm-item.tile b { font-size: 16px; line-height: 1.2; }
 .screen.mm.offline-menu .mm-item.tile small { display: block; font-size: 12px; line-height: 1.3; }
+.screen.mm.offline-menu .mm-item.mm-record-card { gap: 18px; padding: 28px 20px; }
+.screen.mm.offline-menu .mm-record-card .mm-ic { width: 88px; height: 88px; margin-bottom: 8px; border-radius: 28px; }
+.screen.mm.offline-menu .mm-record-card .mm-ic img { width: 64px; height: 64px; }
+.screen.mm.offline-menu .mm-record-card .mm-tx { gap: 12px; }
+.screen.mm.offline-menu .mm-record-card .mm-tx b { font: 800 clamp(22px, 2.1vw, 29px)/1.2 var(--font); }
+.screen.mm.offline-menu .mm-record-card .mm-tx small { font-size: 15px; line-height: 1.5; }
 .screen.mm.offline-menu .mm-small { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 2px; }
 .screen.mm.offline-menu .mm-item.mini { min-height: 42px; }
 .screen.mm.offline-menu .mm-item.mini b { font-size: 14px; }
@@ -265,10 +330,31 @@
 #ui .screen.sp .sp-foot { width: min(100%, 560px); margin-bottom: auto; gap: 8px; }
 #ui .screen.sp .sp-go { min-width: 0; width: min(100%, 380px); max-width: 100%; padding: 12px 18px; font-size: 22px; white-space: normal; }
 
+/* Some Android tablet WebViews give button flex containers start alignment.
+   Auto-width art then collapses to zero (starter portraits) or the icon's
+   intrinsic width (level-up card headers). Do not rely on button UA defaults. */
+#ui .sp-card,
+#ui .card { align-items: stretch; }
+#ui .sp-card > .sp-show,
+#ui .card > .top { width: 100%; align-self: stretch; flex-shrink: 0; box-sizing: border-box; }
+@supports not (background: color-mix(in srgb, red, blue)) {
+  #ui .ls-show {
+    background: radial-gradient(circle at 50% 62%, #ffffff66, transparent 65%),
+      linear-gradient(140deg, var(--c, #e83c4e), var(--c2, #503c90));
+  }
+}
+
 @media (max-width: 860px) {
-  .screen.mm.offline-menu .mm-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .screen.mm.offline-menu .mm-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .screen.mm.offline-menu .mm-modes > .mm-item { display: flex; flex-direction: column; align-items: flex-start; padding: 14px; }
+  .screen.mm.offline-menu .mm-dashboard { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .screen.mm.offline-menu .mm-item.mm-record-card {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); min-height: 76px;
+    justify-content: start; gap: 14px; padding: 12px 18px; text-align: left;
+  }
+  .screen.mm.offline-menu .mm-record-card .mm-ic { width: 44px; height: 44px; margin: 0; border-radius: 14px; }
+  .screen.mm.offline-menu .mm-record-card .mm-ic img { width: 34px; height: 34px; }
+  .screen.mm.offline-menu .mm-record-card .mm-tx { align-items: flex-start; gap: 4px; }
+  .screen.mm.offline-menu .mm-record-card .mm-tx b { font-size: 20px; }
+  .screen.mm.offline-menu .mm-record-card .mm-tx small { font-size: 12px; }
   .screen.mm.offline-menu .mm-top .offline-label { order: 4; margin-left: 0; }
 }
 @media (max-height: 800px) {
@@ -291,24 +377,82 @@
   .screen.mm.offline-menu .mm-left { gap: 10px; }
   .screen.mm.offline-menu .logo.hero .logo-word { font-size: 44px; }
   .screen.mm.offline-menu .mm-nav { gap: 10px; }
-  .screen.mm.offline-menu .mm-modes > .mm-item { min-height: 100px; padding: 14px; }
-  .screen.mm.offline-menu .mm-modes .mm-tx b { font-size: 24px; }
+  .screen.mm.offline-menu .mm-modes .mm-item { min-height: 70px; padding: 10px 12px; gap: 8px; }
+  .screen.mm.offline-menu .mm-modes > .mm-item.play { min-height: 150px; }
+  .screen.mm.offline-menu .mm-modes .mm-tx b { font-size: 22px; }
   .screen.mm.offline-menu .mm-modes .mm-tx small { font-size: 12px; }
-  .screen.mm.offline-menu .mm-item.tile { gap: 4px; min-height: 92px; padding: 10px 8px; }
-  .screen.mm.offline-menu .mm-item.tile .mm-ic { width: 34px; height: 34px; }
-  .screen.mm.offline-menu .mm-item.tile .mm-ic img { width: 26px; height: 26px; }
-  .screen.mm.offline-menu .mm-item.tile b { font-size: 14px; }
-  .screen.mm.offline-menu .mm-item.tile small { font-size: 11px; }
+  .screen.mm.offline-menu .mm-tiles .mm-item.tile { gap: 4px; min-height: 92px; padding: 10px 8px; }
+  .screen.mm.offline-menu .mm-tiles .mm-item.tile .mm-ic { width: 34px; height: 34px; }
+  .screen.mm.offline-menu .mm-tiles .mm-item.tile .mm-ic img { width: 26px; height: 26px; }
+  .screen.mm.offline-menu .mm-tiles .mm-item.tile b { font-size: 14px; }
+  .screen.mm.offline-menu .mm-tiles .mm-item.tile small { font-size: 11px; }
 }
 @media (max-width: 640px) {
   .screen.mm.offline-menu { padding-inline: 16px; }
   .screen.mm.offline-menu .mm-modes { gap: 10px; }
-  .screen.mm.offline-menu .mm-modes > .mm-item { padding: 12px 10px; gap: 8px; }
+  .screen.mm.offline-menu .mm-modes .mm-item { padding: 12px 10px; gap: 8px; }
   .screen.mm.offline-menu .mm-modes .mm-tx b { font-size: 19px; }
   .screen.mm.offline-menu .mm-modes .mm-tx small { font-size: 12px; }
   .screen.mm.offline-menu .mm-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .screen.mm.offline-menu .mm-today { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   #ui .screen.sp { padding-inline: 16px; }
   #ui .screen.sp .sp-row { gap: 12px; }
+}
+
+/* Tables, archive information and release history are fully bundled. Each
+   dialog owns its own scroll area; wide records tables scroll internally. */
+.offline-records-card, .offline-challenge-card { width: min(1120px, 100%); max-height: 100%; }
+.offline-history-card { width: min(880px, 100%); max-height: 100%; }
+.offline-record-tabs, .offline-challenge-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 16px 0; }
+.offline-record-filters { display: flex; flex-wrap: wrap; gap: 12px; margin: 12px 0 16px; }
+.offline-record-filters label { display: flex; flex: 1 1 160px; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 800; }
+.offline-record-filters select { width: 100%; min-width: 0; }
+.offline-record-caption { margin: 12px 0; font-size: 13px; line-height: 1.45; color: var(--ink-2); }
+.offline-table-scroll { overflow: auto; border-radius: 12px; border: 1px solid #8c79a344; max-height: min(48dvh, 520px); }
+.offline-record-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+.offline-record-table caption { padding: 10px 14px; font-size: 12px; color: var(--ink-2); text-align: left; background: var(--paper-2); }
+.offline-record-table th { position: sticky; top: 0; background: var(--paper-2); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; z-index: 1; }
+.offline-record-table :is(td, th) { padding: 12px 10px; border-bottom: 1px solid #8c79a32b; vertical-align: middle; }
+.offline-record-table td { white-space: nowrap; }
+.offline-record-table tbody tr:hover { background: var(--paper-2); }
+.offline-record-table .offline-record-pokemon { min-width: 155px; }
+.offline-record-pokemon img { width: 34px; height: 34px; object-fit: contain; image-rendering: pixelated; vertical-align: middle; margin-right: 8px; }
+.offline-record-table td small { display: block; font-size: 11px; color: var(--ink-2); margin-top: 3px; }
+.offline-metric { font-variant-numeric: tabular-nums; font-weight: 900; }
+.offline-rank { color: var(--purple); font-weight: 900; }
+.offline-legacy-note { font-size: 12px; margin-top: 14px; }
+.offline-empty { padding: 28px 18px; text-align: center; background: var(--paper-2); border-radius: 14px; line-height: 1.6; }
+.offline-challenge-hero { display: flex; gap: 24px; align-items: center; min-height: 190px; padding: 28px; border-radius: 18px; background-size: cover; background-position: center; color: #fff; }
+.offline-challenge-hero > img { width: 80px; height: 80px; object-fit: contain; flex: none; image-rendering: pixelated; filter: drop-shadow(0 5px 0 #15102277); }
+.offline-challenge-hero h3 { margin: 8px 0; font-size: clamp(24px, 3vw, 36px); color: #fff; line-height: 1.1; }
+.offline-challenge-hero small { color: #ffd88a; font-size: 11px; font-weight: 900; letter-spacing: .05em; }
+.offline-challenge-hero p { max-width: 66ch; margin: 0; font-size: 14px; line-height: 1.5; }
+.offline-challenge-rules { padding-left: 25px; margin: 20px 0; line-height: 1.7; }
+.offline-challenge-note { padding: 14px 18px; border-left: 4px solid var(--challenge-color, #8a3aff); border-radius: 8px; background: var(--paper-2); font-size: 13px; line-height: 1.6; }
+.offline-challenge-content .offline-row { justify-content: space-between; }
+.offline-challenge-result { width: min(760px, 100%); max-height: 100%; overflow: auto; padding: 28px; }
+.offline-challenge-result > small { color: var(--purple); font-weight: 900; letter-spacing: .08em; }
+.offline-challenge-result .offline-record-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.offline-challenge-result-modal { padding-top: calc(20px + var(--standard-titlebar-height, 0px)); }
+.offline-version-current { padding: 12px 16px; border-radius: 12px; background: var(--paper-2); font-weight: 800; }
+.offline-history { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
+.offline-history-entry { padding: 16px 18px; border: 1px solid #8c79a344; border-left: 5px solid var(--purple); border-radius: 12px; }
+.offline-history-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.offline-history-head h3 { margin: 0; font-size: 20px; }
+.offline-history-head time, .offline-history-status { font-size: 12px; color: var(--ink-2); }
+.offline-history-status { margin: 8px 0 4px; font-weight: 800; }
+.offline-history-upstream { margin: 4px 0 10px; color: var(--purple); font-size: 13px; font-weight: 800; }
+.offline-history-entry ul { padding-left: 20px; margin: 10px 0 0; font-size: 13px; line-height: 1.65; }
+@media (max-width: 700px), (max-height: 480px) {
+  .offline-modal { padding-right: 12px; padding-left: 12px; padding-bottom: 12px; }
+  .offline-card-head h2 { font-size: 20px; }
+  .offline-challenge-hero { gap: 14px; padding: 18px; min-height: 145px; }
+  .offline-challenge-hero > img { width: 52px; height: 52px; }
+  .offline-record-summary { gap: 6px; margin: 12px 0; }
+  .offline-record-summary > div { padding: 8px; }
+  .offline-record-summary strong { font-size: 20px; }
+  .offline-record-filters { gap: 8px; }
+  .offline-record-filters label { flex-basis: 130px; }
 }
 @media (max-width: 640px) and (orientation: portrait) {
   #ui .screen.sp .sp-row { grid-template-columns: minmax(0, 360px); }
@@ -374,11 +518,13 @@
    corner buffer, whole-screen padding or HUD translation. Gameplay scale is
    reduced through the game's own settings handler, not by zooming the canvas. */
 :root[data-standard-platform="android"] .screen.offline-menu .mm-top {
-  /* Reserve only the native ⋮ menu's own slot, not a border around the game. */
   box-sizing: border-box;
-  padding-right: calc(var(--standard-android-safe-right, 0px) + var(--standard-android-menu-size, 48px) + var(--standard-android-menu-gap, 8px));
+  padding-right: 0; /* All native actions moved into Player & saves. */
 }
 :root[data-standard-platform="android"] .tc .tc-sm {
   /* Upstream deliberately excludes the small toolbar buttons from touchScale. */
   zoom: var(--standard-android-ui-scale, .9);
+}
+:root[data-standard-platform="android"] :is(.offline-fullscreen, .fs-btn, .tc-fs) {
+  display: none !important;
 }

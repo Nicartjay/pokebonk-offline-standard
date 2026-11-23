@@ -12,7 +12,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.Gravity;
 import android.view.RoundedCorner;
 import android.view.View;
 import android.view.WindowInsets;
@@ -25,7 +24,6 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 import android.window.OnBackInvokedDispatcher;
 import org.json.JSONObject;
@@ -42,20 +40,19 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private FrameLayout root;
-    private TextView menu;
     private WebView web;
     private GameSafeArea safeArea;
     private NativeSaveStore saves;
     private RepositoryUpdater updater;
-    private boolean resumed, dialogOpen;
+    private boolean resumed, dialogOpen, recoveryMode;
+    private String pendingRecoveryAction;
     private byte[] pendingExport;
     private ValueCallback<Uri[]> fileCallback;
     private static final String IDLE = "!globalThis.PokeBonkNativeApp?.run && Boolean(document.querySelector('.offline-menu,.offline-card,.offline-boot-error'))";
     private final Runnable poll = new Runnable() {
         @Override public void run() {
-            if (resumed && hasWindowFocus() && web != null) web.evaluateJavascript(IDLE, value -> {
+            if (resumed && hasWindowFocus() && web != null) web.evaluateJavascript(recoveryMode ? "!globalThis.PokeBonkNativeApp?.run" : IDLE, value -> {
                 boolean idle = "true".equals(value);
-                menu.setVisibility(idle ? View.VISIBLE : View.GONE);
                 if (idle && !dialogOpen) presentUpdate();
             });
             handler.postDelayed(this, 2000);
@@ -85,11 +82,17 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setBlockNetworkLoads(true); settings.setSafeBrowsingEnabled(true);
         settings.setMediaPlaybackRequiresUserGesture(false);
+        // The game owns its light/dark palette. Some tablet WebViews otherwise
+        // recolor title fills independently of the outlined text.
+        if (Build.VERSION.SDK_INT >= 33) settings.setAlgorithmicDarkeningAllowed(false);
+        if (Build.VERSION.SDK_INT >= 29) settings.setForceDark(WebSettings.FORCE_DARK_OFF);
         settings.setUseWideViewPort(true); settings.setLoadWithOverviewMode(true);
         settings.setSupportZoom(false); settings.setSupportMultipleWindows(false);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE); // Bundled assets must follow the installed APK, including fixed offline/*.js paths.
         CookieManager.getInstance().setAcceptCookie(false);
         web.addJavascriptInterface(new StorageBridge(), "PokeBonkStandardAndroid");
-        web.setWebViewClient(new OfflineAssetWebViewClient(getAssets(), () -> applySafeArea(root.getRootWindowInsets())));
+        web.setWebViewClient(new OfflineAssetWebViewClient(getAssets(),
+            () -> { recoveryMode = false; applySafeArea(root.getRootWindowInsets()); }, this::nativeMenuAction));
         web.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) publishSafeArea();
         });
@@ -102,19 +105,14 @@ public final class MainActivity extends Activity {
             }
         });
         web.setDownloadListener((url, userAgent, disposition, mime, size) ->
-            Toast.makeText(this, "Use the native ⋮ menu → Export backup.", Toast.LENGTH_LONG).show());
+            Toast.makeText(this, "Use Player & saves → Export save backup.", Toast.LENGTH_LONG).show());
         root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
         // Match the game's physical canvas coordinates regardless of the
         // Android locale. Native dialogs still use the system layout direction.
         root.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
-        menu = new TextView(this); menu.setText("⋮"); menu.setTextSize(26); menu.setTextColor(Color.WHITE);
-        menu.setBackgroundColor(0xAA231C37); menu.setGravity(Gravity.CENTER); menu.setContentDescription("PokéBonk Offline app menu");
-        // Physical right matches the game's CSS coordinates, including on an
-        // RTL device. Never put this native button in a cutout/rounded corner.
-        FrameLayout.LayoutParams position = new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.TOP | Gravity.END);
-        menu.setVisibility(View.GONE); menu.setOnClickListener(view -> whenIdle(this::showNativeMenu));
-        root.addView(menu, position);
+        // No overlay/three-dot button. Fixed native actions now live inside
+        // the game's Player & saves dialog, with real document-picker backups.
         root.setOnApplyWindowInsetsListener((view, insets) -> {
             applySafeArea(insets);
             return insets;
@@ -152,10 +150,6 @@ public final class MainActivity extends Activity {
             }
         }
         safeArea = GameSafeArea.calculate(dp(GameSafeArea.MINIMUM_DP), dp(GameSafeArea.GAP_DP), blocked, radii);
-        FrameLayout.LayoutParams position = (FrameLayout.LayoutParams) menu.getLayoutParams();
-        position.topMargin = safeArea.top + dp(GameSafeArea.MENU_GAP_DP);
-        position.setMarginEnd(safeArea.right + dp(GameSafeArea.MENU_GAP_DP));
-        menu.setLayoutParams(position);
         publishSafeArea();
     }
     private void publishSafeArea() {
@@ -164,38 +158,68 @@ public final class MainActivity extends Activity {
         // The renderer still has exactly two callable native storage methods.
         web.evaluateJavascript("dispatchEvent(new CustomEvent('standard:android-insets',{detail:{left:" + safeArea.left +
             ",top:" + safeArea.top + ",right:" + safeArea.right + ",bottom:" + safeArea.bottom +
-            ",menuSize:" + dp(48) + ",menuGap:" + dp(GameSafeArea.MENU_GAP_DP) +
+            ",menuSize:0,menuGap:0" +
             ",width:" + web.getWidth() + ",height:" + web.getHeight() + "}}))", null);
     }
     @SuppressLint("NewApi")
     private void registerBack() { getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::back); }
     @Override @SuppressLint("GestureBackNavigation") public void onBackPressed() { back(); }
     private void back() {
-        web.evaluateJavascript("if(globalThis.PokeBonkNativeApp?.run?.state==='play')globalThis.PokeBonkNativeApp.run.pause()", null);
         if (dialogOpen) return;
-        showDialog(new AlertDialog.Builder(this).setTitle(R.string.exit_dialog_title)
-            .setMessage(R.string.exit_dialog_message)
-            .setNegativeButton("Keep playing", null).setPositiveButton(R.string.exit_dialog_confirm, (dialog, which) -> finishAndRemoveTask()));
+        web.evaluateJavascript("(()=>{const a=globalThis.PokeBonkNativeApp;if(a?.run?.state==='play')a.run.pause();" +
+            "return !a?.run&&(!a?.r||Boolean(document.querySelector('.offline-startup-recovery,.offline-boot-error')))})()", failed -> {
+                if ("true".equals(failed)) { recoveryMode = true; showRecoveryMenu(); }
+                else showDialog(new AlertDialog.Builder(this).setTitle(R.string.exit_dialog_title)
+                    .setMessage(R.string.exit_dialog_message)
+                    .setNegativeButton("Keep playing", null).setPositiveButton(R.string.exit_dialog_confirm, (dialog, which) -> finishAndRemoveTask()));
+            });
     }
     void whenIdle(Runnable action) {
         if (isFinishing() || isDestroyed() || !resumed || !hasWindowFocus()) return;
-        web.evaluateJavascript(IDLE, value -> { if ("true".equals(value) && !isFinishing() && resumed) action.run(); });
+        String allowed = recoveryMode ? "!globalThis.PokeBonkNativeApp?.run" : IDLE;
+        web.evaluateJavascript(allowed, value -> { if ("true".equals(value) && !isFinishing() && resumed) action.run(); });
     }
     private void showDialog(AlertDialog.Builder builder) {
         if (isFinishing() || isDestroyed() || dialogOpen) return;
         dialogOpen = true;
         AlertDialog dialog = builder.create();
-        dialog.setOnDismissListener(ignored -> { dialogOpen = false; hideBars(); });
+        dialog.setOnDismissListener(ignored -> { dialogOpen = false; hideBars(); dispatchRecoveryWhenFocused(); });
         dialog.show();
     }
-    private void showNativeMenu() {
-        showDialog(new AlertDialog.Builder(this).setTitle(getString(R.string.app_name))
-            .setItems(new String[]{"Check for updates", "Export backup", "Import backup"}, (dialog, which) -> {
-                if (which == 0) updater.check(true);
-                if (which == 1) exportSave();
-                if (which == 2) startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
-                    .addCategory(Intent.CATEGORY_OPENABLE).setType("application/json"), IMPORT);
-            }).setNegativeButton("Close", null));
+    private void showRecoveryMenu() {
+        // Back offers recovery only when the game cannot boot. It is not a
+        // second everyday app menu and never exposes filesystem paths to JS.
+        showDialog(new AlertDialog.Builder(this).setTitle("Startup recovery")
+            .setItems(new String[]{"Check for updates", "Export backup", "Import backup", "Close app"}, (dialog, which) -> {
+                if (which == 3) finishAndRemoveTask();
+                else pendingRecoveryAction = new String[]{"check-for-updates", "export-backup", "import-backup"}[which];
+            }).setNegativeButton("Cancel", null));
+    }
+    private void dispatchRecoveryWhenFocused() {
+        // AlertDialog owns focus while its item callback runs. Defer the fixed
+        // action until dismissal/focus restoration rather than silently losing it.
+        if (pendingRecoveryAction == null || isFinishing() || isDestroyed() ||
+            !NativeMenuAction.recoveryReady(resumed, hasWindowFocus(), dialogOpen)) return;
+        String action = pendingRecoveryAction; pendingRecoveryAction = null;
+        nativeMenuAction(action);
+    }
+    private void nativeMenuAction(String action) {
+        whenIdle(() -> {
+            if ("check-for-updates".equals(action)) updater.check(true);
+            else if ("export-backup".equals(action)) exportSave();
+            else if ("import-backup".equals(action)) startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE).setType("application/json"), IMPORT);
+            else if ("report-bug".equals(action)) {
+                Uri issue = Uri.parse("https://github.com/" + RepositoryUpdater.REPOSITORY + "/issues/new").buildUpon()
+                    .appendQueryParameter("title", "[Bug] PokéBonk Offline v" + BuildConfig.VERSION_NAME)
+                    .appendQueryParameter("body", "Offline app: v" + BuildConfig.VERSION_NAME +
+                        "\nBundled game: v" + BuildConfig.UPSTREAM_VERSION + " (" + BuildConfig.UPSTREAM_BUILD + ")" +
+                        "\nPlatform: Android\n\n## What happened?\n\n## Steps to reproduce\n1. \n\n## What did you expect?\n\n## Screenshots (optional)\n\nDo not attach private information unless you choose to share it.")
+                    .build();
+                try { startActivity(new Intent(Intent.ACTION_VIEW, issue).addCategory(Intent.CATEGORY_BROWSABLE)); }
+                catch (android.content.ActivityNotFoundException error) { notice("No browser is available to open GitHub Issues."); }
+            }
+        });
     }
     private void presentUpdate() {
         String event = updater.takeEvent();
@@ -264,6 +288,7 @@ public final class MainActivity extends Activity {
         super.onResume(); resumed = true; hideBars();
         if (web != null) web.onResume();
         if (updater != null) updater.check(false);
+        dispatchRecoveryWhenFocused();
     }
     @Override protected void onPause() {
         resumed = false;
@@ -275,7 +300,7 @@ public final class MainActivity extends Activity {
     }
     @Override public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
-        if (focus) { hideBars(); if (resumed && updater != null) updater.check(false); }
+        if (focus) { hideBars(); if (resumed && updater != null) updater.check(false); dispatchRecoveryWhenFocused(); }
     }
     @Override public void onConfigurationChanged(Configuration config) { super.onConfigurationChanged(config); root.requestApplyInsets(); hideBars(); }
     private void hideBars() {

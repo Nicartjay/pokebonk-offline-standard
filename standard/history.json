@@ -1,0 +1,90 @@
+[
+  {
+    "version": "1.0.0",
+    "date": "2026-11-23",
+    "status": "Stable release",
+    "upstream": {"version": "0.10.26", "build": "mwsewi0r"},
+    "changes": [
+      "Refreshed the pinned game source to 0.10.26, including the eleven new Maximum-form sprite sheets, Korean-name correction and upstream fixes from 0.10.24–0.10.26.",
+      "Added desktop window-state restoration, DPI-aware monitor/size selection, foreground keep-awake, native fullscreen, graphics diagnostics and restart-required alternate ANGLE backends. Auto remains the default; failed alternate launches restore Auto.",
+      "The original illustrated Guide opens once after reaching the homepage, never over either starter-selection screen. It follows the upstream 1.2-second delay and waits for other dialogs; preserved unfinished runs are never interrupted.",
+      "After finishing or skipping the first Guide, new players choose a local trainer name in a game-styled setup dialog. The name and completion marker save atomically, and existing custom names are preserved.",
+      "Android homepage logo outlines render behind the letters on older tablet WebViews. The animated shine inherits the same font metrics and letter spacing instead of appearing as offset duplicate text.",
+      "Startup waits for the actual menu BGM to be decoded and respects muted preferences. No loading-screen button is needed: after at most twelve seconds it continues automatically without music if audio is unavailable.",
+      "Removed Android's three-dot overlay and its reserved space. Native backup export/import, update checks and bug reporting now share the game-styled Player & saves dialog.",
+      "Android outlined titles use behind-the-fill shadow outlines rather than WebView-dependent text strokes; the app also disables OEM automatic darkening. New APKs use their own bundled runtime rather than a stale WebView HTTP cache.",
+      "Classic and Endless checkpoints from 0.10.20 and 0.10.23 were replayed in the new engine with their original tickets, balance, time and gold retained. Unknown unfinished-run builds are still preserved and rejected rather than reset.",
+      "The homepage dock is compact and slightly wider than the logo/version, with grouped upper-left controls, a taller personal-records table, and centered Relay/Game Modes artwork.",
+      "Added the offline creator beside Credits and the Android menu version, preserved the full Credits logo, and added starter-card confirmation spacing without increasing the screen height.",
+      "The player counter now uses the actual Play-screen catalog and ownership gate to show usable Pokémon.",
+      "New profiles start with 10,000 Stardust; loading or importing an existing save never changes its balance.",
+      "Restored the original illustrated Guide, excluding co-op, community, rankings and other unavailable online information.",
+      "Report a bug opens the project’s fixed GitHub issue form through trusted native code, without exposing renderer networking or uploading saves.",
+      "Android’s Player & saves header is full-bleed. Starter selection keeps roomy artwork when space permits, compacts only when needed, and gives all three Pokémon equal-height image panels.",
+      "Bundled the missing Clover Sweet event-reward icon discovered during offline checks, without altering earlier pristine captures.",
+      "Corrected homepage keyboard focus order and contained the Daily Mutation backdrop while keeping its Back control below the desktop title bar.",
+      "The Great Expedition replaces Practice in Game Modes as a clearly marked visual draft. Its local inventory/extraction backend is not implemented or enabled yet; no working gameplay is claimed."
+    ]
+  },
+  {
+    "version": "0.1.4",
+    "date": "2026-11-22",
+    "status": "Earlier design preview — not published",
+    "upstream": {"version": "0.10.23", "build": "mwro88g3"},
+    "changes": [
+      "Compact homepage controls leave more of the background visible, with an inline Personal Records table and Game Modes beside Endless and Relay.",
+      "The player row shows the actual Pokédex seen/total count; the extra OFFLINE · LOCAL SAVES label is removed.",
+      "Boss Rush and Lavender Tower restore the original challenge, pass and mission screens, with permanently available, locally earned rewards and no online leaderboard or competitive prizes.",
+      "Reward claims are atomic and cannot be collected twice. Earlier records-only event tickets retain their original rules and finished runs are not retroactively rewarded.",
+      "Daily Mutation has its original dedicated poster, rules and milestone rewards without the online ranking panel.",
+      "Player & saves includes a native-owned update check. Android’s app menu now uses the actual game fonts, theme and buttons instead of a system list."
+    ]
+  },
+  {
+    "version": "0.1.3",
+    "date": "2026-11-22",
+    "status": "Earlier local test build — not published",
+    "upstream": {"version": "0.10.23", "build": "mwro88g3"},
+    "changes": [
+      "Mewtwo Strikes Back and Lavender Tower are permanently available as offline challenges, without event prizes or leaderboards.",
+      "Daily Mutation runs locally, with earned progression and no server ranking.",
+      "Homepage layout follows the website-style Play, Endless, Relay, Event and Tasks buttons; Relay uses Pokémon portraits.",
+      "Personal Records has persistent KOs, Survival and Time Attack tables containing only this save’s results.",
+      "The OFFLINE version badge opens this bundled history and identifies the associated upstream game."
+    ]
+  },
+  {
+    "version": "0.1.2",
+    "date": "2026-11-22",
+    "status": "Earlier local test build — not published",
+    "upstream": {"version": "0.10.23", "build": "mwro88g3"},
+    "changes": [
+      "Updated the reviewed game payload from 0.10.20 to 0.10.23, preserving compatible Classic and Endless checkpoints.",
+      "Fixed tablet starter portraits and upgrade-card artwork, Android minimap scaling and the 30 FPS battery-saver cap.",
+      "Restyled the Android app menu and enlarged its launcher artwork; removed redundant fullscreen controls.",
+      "Restored desktop mouse-hover animations; closing the last macOS window now quits after pending saves finish."
+    ]
+  },
+  {
+    "version": "0.1.1",
+    "date": "2026-11-22",
+    "status": "Published prerelease",
+    "upstream": {"version": "0.10.20", "build": "mwqb4pwz"},
+    "changes": [
+      "Corrected Unicode normalization in macOS app/helper names to prevent startup crashes.",
+      "Restored normal Android screen edges and slightly reduced HUD/touch-control size.",
+      "Prepared the macOS, Windows, Linux and signed Android distributions."
+    ]
+  },
+  {
+    "version": "0.1.0",
+    "date": "2026-11-22",
+    "status": "Initial local build — not a public release",
+    "upstream": {"version": "0.10.20", "build": "mwqb4pwz"},
+    "changes": [
+      "Established the native Standard edition with normal progression rather than automatic unlocks.",
+      "Added atomic application-data saves, explicit backup import/export and signed native update discovery.",
+      "Bundled Classic, Endless, Relay and Practice without online accounts, multiplayer or game-server connections."
+    ]
+  }
+]

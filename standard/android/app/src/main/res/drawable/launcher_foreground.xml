@@ -1,3 +1,5 @@
-<inset xmlns:android="http://schemas.android.com/apk/res/android" android:inset="21dp">
+<!-- The source artwork already includes a border. 10dp fills the launcher's
+     mask with its striped background while keeping the ball in the safe zone. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android" android:inset="10dp">
     <bitmap android:src="@drawable/pokebonk_logo" android:gravity="fill" />
 </inset>

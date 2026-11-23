@@ -7,6 +7,7 @@ import path from "node:path";
 import assert from "node:assert/strict";
 import {MIME} from "../desktop/protocol.mjs";
 const root = path.resolve("build/standard-game");
+const gameDigest = JSON.parse(await readFile(path.join(root, "asset-manifest.json"), "utf8")).gameDigest;
 const platform = process.env.CHECK_PLATFORM ?? "darwin";
 assert.ok(["darwin", "win32", "android"].includes(platform), "Unsupported CHECK_PLATFORM.");
 const output = path.resolve("evidence/standard-layout", platform);
@@ -60,6 +61,7 @@ try {
     }, {once: true});
   }, platform);
   const page = await context.newPage();
+  const activate = locator => platform === "android" ? locator.tap() : locator.click();
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(origin + "/index.html?lang=en");
   await page.locator(".screen.sp .sp-go").waitFor();
@@ -69,7 +71,7 @@ try {
     globalThis.PokeBonkNativeApp.halted = true;
     document.querySelector("canvas#game").style.visibility = "hidden";
   });
-  const sizes = platform === "android" ? [[800, 360], [960, 432], [1024, 600], [640, 360]]
+  const sizes = platform === "android" ? [[800, 360], [960, 432], [1024, 600], [1280, 800], [1600, 1000], [640, 360]]
     : [[960, 540], [1100, 650], [1280, 720], [1440, 900], [1920, 1080], [640, 360]];
   async function setSize(size) {
     await page.setViewportSize({width: size[0], height: size[1]});
@@ -77,7 +79,7 @@ try {
       // Simulate the one-way native message, not a new callable native API.
       dispatchEvent(new CustomEvent("standard:android-insets", {detail: {
         width: width * 3, height: height * 3,
-        menuSize: 48 * 3, menuGap: 8 * 3,
+        menuSize: 0, menuGap: 0,
         ...Object.fromEntries(Object.entries(insets).map(([side, value]) => [side, value * 3])),
       }}));
     }, {insets: androidInsets, width: size[0], height: size[1]});
@@ -85,6 +87,21 @@ try {
   async function measure(screen, size, phase = screen.includes(".sp") ? "starters" : "menu") {
     await setSize(size);
     await page.waitForTimeout(600); // Wait for the game's resize/entry animation.
+    if (platform === "android") {
+      // Touch code deliberately changes the virtual viewport on short phones.
+      // Under CPU load the resize can finish after a fixed 600 ms sleep. Wait
+      // for its required fit condition, keeping the same hard assertions below.
+      await page.waitForFunction(selector => {
+        const root=document.querySelector(selector);
+        return root && root.scrollWidth<=root.clientWidth+2 &&
+          (!root.classList.contains("sp") || root.scrollHeight<=root.clientHeight+1);
+      }, screen, {timeout:10000});
+    }
+    await page.locator(screen).evaluate(async root => {
+      await Promise.all(root.getAnimations({subtree: true})
+        .filter(animation => Number.isFinite(animation.effect.getComputedTiming().endTime))
+        .map(animation => animation.finished.catch(() => {})));
+    });
     const geometry = await page.locator(screen).evaluate(root => {
       const outer = root.getBoundingClientRect();
       const boxes = [...root.querySelectorAll(root.classList.contains("sp")
@@ -101,7 +118,14 @@ try {
         padding: getComputedStyle(root).padding,
         safeLeft: getComputedStyle(document.documentElement).getPropertyValue("--standard-android-safe-left"),
         clientHeight: root.clientHeight, scrollHeight: root.scrollHeight, scrollWidth: root.scrollWidth, clientWidth: root.clientWidth,
+        overflowElements: [...root.querySelectorAll("*")].filter(node => {
+          const rect = node.getBoundingClientRect();
+          return rect.width && (rect.left < outer.left - 1 || rect.right > outer.right + 1);
+        }).slice(0, 12).map(node => ({className: node.className, text: node.textContent.slice(0, 60),
+          left: node.getBoundingClientRect().left, right: node.getBoundingClientRect().right})),
         boxes, nativeSaveBridgeOnly: Object.keys(window.PokeBonkStandard ?? window.PokeBonkStandardAndroid),
+        starterCompact: root.classList.contains("standard-starter-compact"),
+        artHeights: [...root.querySelectorAll(".sp-show")].map(node => node.getBoundingClientRect().height),
         starterNames: [...root.querySelectorAll(".sp-show .ls-plate h1")].map(node => ({
           text: node.textContent, lines: node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight),
           scrollWidth: node.scrollWidth, clientWidth: node.clientWidth,
@@ -129,10 +153,30 @@ try {
     });
     // Upstream deliberately scales the mobile layout viewport to fit short
     // phones. DOM geometry is in layout CSS pixels, not screen/device pixels.
-    // Native geometry now locates only the app's ⋮ button. It must not add a
-    // rounded-corner border or shift the game's normal content inward.
+    // Native geometry must not add margins or reserve a removed ⋮ button.
     const safe = {left: 0, top: 0, right: 0, bottom: 0};
-    assert.ok(geometry.scrollWidth <= geometry.clientWidth + 2, `${screen} has horizontal overflow at ${size}`);
+    if (geometry.scrollWidth > geometry.clientWidth + 2) {
+      await writeFile(path.join(output, "layout-failure.json"), JSON.stringify({screen, size, geometry}, null, 2));
+      await page.screenshot({path: path.join(output, "layout-failure.png")});
+    }
+    assert.ok(geometry.scrollWidth <= geometry.clientWidth + 2,
+      `${screen} has horizontal overflow at ${size}: ${JSON.stringify(geometry.overflowElements)}`);
+    if (platform === "android" && geometry.artHeights.length) {
+      if (geometry.scrollHeight > geometry.clientHeight + 1) {
+        await writeFile(path.join(output, "layout-failure.json"), JSON.stringify({screen,size,geometry},null,2));
+        await page.screenshot({path:path.join(output,"layout-failure.png")});
+      }
+      assert.equal(geometry.artHeights.length, 3);
+      assert.ok(Math.max(...geometry.artHeights) - Math.min(...geometry.artHeights) <= 1,
+        `Starter image containers have different heights at ${size}: ${geometry.artHeights}`);
+      assert.ok(geometry.scrollHeight <= geometry.clientHeight + 1,
+        `Android starter selection needs vertical scrolling at ${size}.`);
+      for (const box of geometry.boxes) assert.ok(box.top >= -1 && box.bottom <= geometry.viewport.height + 1,
+        `Starter content leaves the viewport at ${size}: ${JSON.stringify(box)}`);
+      if (size[1] >= 800) assert.equal(geometry.starterCompact, false, "A roomy tablet must retain the full layout.");
+      if (!geometry.starterCompact) assert.ok(Math.min(...geometry.artHeights) >= 219,
+        "Roomy mode was selected without enough artwork space.");
+    }
     for (const sprite of geometry.sprites) assert.ok(sprite.alphaBounds.hiddenFraction <= .05,
       `Character pixels are clipped/covered at ${size}: ${JSON.stringify(sprite)}`);
     for (const name of geometry.starterNames) assert.ok(name.lines <= 1.1 && name.scrollWidth <= name.clientWidth + 1,
@@ -169,8 +213,8 @@ try {
   for (const size of sizes) await measure(".screen.sp", size);
   await setSize([1280, 720]);
   for (const name of ["Charmander", "Cyndaquil"]) {
-    await page.locator(".sp-go").click();
-    await page.getByRole("button", {name: `Yes, I choose ${name}`, exact: true}).click();
+    await activate(page.locator(".sp-go"));
+    await activate(page.getByRole("button", {name: `Yes, I choose ${name}`, exact: true}));
     if (name === "Charmander") {
       await page.getByRole("heading", {name: "Choose your Johto partner!"}).waitFor();
       await measure(".screen.sp", [960, 540], "johto-starters");
@@ -178,18 +222,30 @@ try {
     }
   }
   await page.locator(".screen.offline-menu").waitFor();
-  if (platform === "android") await page.evaluate(() => {
-    const menu = document.createElement("div");
-    menu.id = "test-native-android-menu";
-    menu.textContent = "⋮";
-    menu.setAttribute("aria-hidden", "true");
-    Object.assign(menu.style, {position: "fixed", zIndex: 50000, display: "grid", placeItems: "center",
-      pointerEvents: "none", background: "#231c37aa", color: "white", fontSize: "26px",
-      top: "calc(var(--standard-android-safe-top) + var(--standard-android-menu-gap))",
-      right: "calc(var(--standard-android-safe-right) + var(--standard-android-menu-gap))",
-      width: "var(--standard-android-menu-size)", height: "var(--standard-android-menu-size)"});
-    document.body.append(menu);
-  });
+  await page.locator(".pb-guide .g-skip").waitFor({timeout: 30000});
+  await activate(page.locator(".pb-guide .g-skip"));
+  await page.locator(".pb-guide").waitFor({state: "detached"});
+  await page.locator(".offline-name-setup").waitFor();
+  await page.getByLabel("Player name", {exact: true}).fill("Test Trainer");
+  await activate(page.getByRole("button", {name: "Start adventure", exact: true}));
+  await page.locator(".offline-name-setup").waitFor({state: "detached"});
+  if (platform !== "android") {
+    await page.locator(".mm-item.endless:not(.relay)").hover();
+    assert.equal(await page.locator(".mm-item.endless:not(.relay)").evaluate(node => node.classList.contains("focus")), true,
+      "Mouse hover must select the same animated focus state as the keyboard.");
+    await page.mouse.move(0, 0);
+    await page.locator(".mm-item.endless:not(.relay)").focus();
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await page.locator(".mm-item.relay").evaluate(node => node.classList.contains("focus")), true);
+    const relay = await page.locator(".mm-item.relay").evaluate(node => ({
+      modeStyle: node.classList.contains("endless"), background: getComputedStyle(node).backgroundImage,
+    }));
+    assert.equal(relay.modeStyle, true, "Relay must use the same decorated mode-button design.");
+    assert.ok(relay.background.includes("gradient"), "Relay still looks like an unstyled white utility button.");
+    await page.mouse.move(0, 0);
+  } else assert.equal(await page.locator(".offline-fullscreen").count(), 0, "Android still creates a fullscreen menu control.");
+  if (platform === "android") assert.equal(await page.locator(".offline-menu .mm-top").evaluate(node =>
+    getComputedStyle(node).paddingRight), "0px", "The removed Android overlay still reserves a slot.");
   for (const size of sizes) await measure(".screen.offline-menu", size);
   const backdrop = await page.locator(".screen.offline-menu").evaluate(node => {
     const style = getComputedStyle(node, "::before");
@@ -203,10 +259,10 @@ try {
   results.push({phase: "full-bleed-menu-backdrop", backdrop});
 
   await setSize([1280, 720]);
-  await page.getByRole("button", {name: "Appearance", exact: true}).click();
+  await activate(page.getByRole("button", {name: "Appearance", exact: true}));
   const appearance = page.locator(".offline-appearance .lk-card");
   await appearance.waitFor();
-  await appearance.locator(":scope > .seg").getByRole("button", {name: "Pokémon", exact: true}).click();
+  await activate(appearance.locator(":scope > .seg").getByRole("button", {name: "Pokémon", exact: true}));
   for (const size of platform === "android" ? [[800, 360], [1024, 600]] : [[960, 540], [1280, 720], [1920, 1080]]) {
     await setSize(size);
     await page.waitForTimeout(450);
@@ -244,10 +300,10 @@ try {
     await page.screenshot({path: path.join(output, `appearance-footer-${size[0]}x${size[1]}.png`)});
     console.log(`Checked appearance footer at ${size[0]}x${size[1]}`);
   }
-  await appearance.getByRole("button", {name: "Cancel", exact: true}).click();
-  for (const [phase, button] of [["settings-background", "Settings"], ["play-background", "Play Classic single-player · local progress"]]) {
+  await activate(appearance.getByRole("button", {name: "Cancel", exact: true}));
+  for (const [phase, button] of [["settings-background", "Settings"], ["play-background", null]]) {
     await setSize([1280, 720]);
-    await page.getByRole("button", {name: button, exact: true}).click();
+    await activate(button ? page.getByRole("button", {name: button, exact: true}) : page.locator(".mm-modes > .play"));
     const scene = page.locator("#ui > .screen").last();
     await scene.locator(".back-btn").waitFor();
     for (const size of platform === "android" ? [[800, 360]] : [[960, 540], [1280, 720]]) {
@@ -282,7 +338,7 @@ try {
       results.push({phase, size, bounds});
       console.log(`Checked ${phase} at ${size[0]}x${size[1]}`);
     }
-    await scene.locator(".back-btn").click();
+    await activate(scene.locator(".back-btn"));
     await page.locator(".screen.offline-menu").waitFor();
   }
   await setSize(sizes.at(-1));
@@ -310,16 +366,8 @@ try {
   assert.equal(await page.locator("#standard-titlebar").isVisible(), false);
   } else {
     await setSize([800, 360]);
-    const overlap = await page.evaluate(() => {
-      const menu = document.getElementById("test-native-android-menu"), r = menu.getBoundingClientRect();
-      const overlaps = [...document.querySelectorAll(".mm-top button,.mm-top .trainer")].filter(node => {
-        const b = node.getBoundingClientRect();
-        return b.width && b.height && b.left < r.right && b.right > r.left && b.top < r.bottom && b.bottom > r.top;
-      }).map(node => node.textContent);
-      menu.remove(); // Native menu is hidden during gameplay.
-      return overlaps;
-    });
-    assert.deepEqual(overlap, [], "Native Android menu covers game controls.");
+    assert.equal(await page.locator("#test-native-android-menu,.offline-app-menu-card").count(),0,
+      "The removed Android menu overlay must not be recreated.");
     // Real upstream touch-control and HUD CSS, with isolated geometry fixtures.
     // Do not create a run or mutate the user's profile just to inspect padding.
     const controls = await page.evaluate(insets => {
@@ -368,7 +416,7 @@ try {
   assert.deepEqual(errors, []);
   assert.deepEqual(requests, []);
   await writeFile(path.join(output, "checks.json"), JSON.stringify({
-    observedAt: new Date().toISOString(), browser: "isolated headless Chromium", platform, nativeOSFullscreenTested: false,
+    observedAt: new Date().toISOString(), gameDigest, browser: "isolated headless Chromium", platform, nativeOSFullscreenTested: false,
     fullscreenPresentationAndBothIconStatesTested: platform !== "android", physicalAndroidTested: false,
     background3DRenderingPaused: true,
     saveBackend: "in-memory test fixture only", results, errors, externalRequests: requests,

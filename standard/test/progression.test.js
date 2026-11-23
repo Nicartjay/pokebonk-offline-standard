@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { OfflineBackend } from "../runtime/backend.js";
 import {validateState} from "../common/state.mjs";
+import {readFile} from "node:fs/promises";
 
 // Only browser-environment probes are stubbed. These tests execute the
 // published client's real normalization/reward functions, not mocked rules.
@@ -15,9 +16,13 @@ Object.assign(globalThis, {
   removeEventListener() {},
   matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
 });
-const rules = await import("../../build/standard-game/assets/buildshare-Dad4qqsr-mwqb4pwz.js");
-const config = await import("../../build/standard-game/assets/assets-BEbT5z0g-mwqb4pwz.js");
-const cosmetics = await import("../../build/standard-game/assets/cosmetics-DR7yHN4A-mwqb4pwz.js");
+const metadata = JSON.parse(await readFile(new URL("../../build/standard-game/offline-build.json", import.meta.url), "utf8"));
+const gameModule = (compatibility, original) => import(new URL("../../build/standard-game/" +
+  (metadata.modules[compatibility] ?? "assets/" + metadata.modules[original]), import.meta.url));
+const rules = await gameModule("backendRules", "rules");
+const config = await gameModule("backendConfig", "config");
+const cosmetics = await gameModule("backendCosmetics", "cosmetics");
+const gameConfig = await import(new URL("../../build/standard-game/assets/" + metadata.modules.config, import.meta.url));
 
 async function fixture() {
   let disk = null;
@@ -57,10 +62,12 @@ function result(mode = "standard", extra = {}) {
 for (const mode of ["standard", "endless", "relay"]) {
   test(`real ${mode} progression records a local run and rewards exactly once`, async () => {
     const f = await fixture();
+    const initialDust = f.disk.profile.stardust;
     const ticket = await f.backend.startRun(f.account, { species: 4, biome: "forest", tier: 0, mode });
     const info = await f.backend.finishRun(f.account, ticket, result(mode));
     const dust = f.disk.profile.stardust;
-    assert.ok(dust > 0);
+    assert.ok(dust > initialDust);
+    assert.equal(dust - initialDust, info.stardust);
     assert.equal(info.local, true);
     assert.equal(f.disk.profile.counters.runs, 1);
     assert.equal(f.disk.profile.runs.length, 1);
@@ -104,18 +111,27 @@ test("native treasure prizes are awarded locally and retries do not charge twice
 
 test("real Lab purchases enforce funds, deduct earned currency, and cannot buy past max", async () => {
   const f = await fixture();
-  const upgrade = config.Z.find(upgrade => upgrade.id === "slot-move");
+  const catalog = Object.values(gameConfig).find(value => Array.isArray(value) && value.some(item => item?.id === "slot-move"));
+  const upgrade = catalog.find(upgrade => upgrade.id === "slot-move");
+  await f.backend.change(profile => { profile.stardust = upgrade.cost(0) - 1; });
+  const insufficient = structuredClone(f.disk);
   await assert.rejects(f.backend.buyLab(f.account, upgrade.id), /not available/);
+  assert.deepEqual(f.disk, insufficient);
   f.backend.state.profile.stardust = upgrade.cost(0);
   await f.backend.buyLab(f.account, upgrade.id);
   assert.equal(f.disk.profile.stardust, 0);
   assert.equal(f.disk.profile.lab[upgrade.id], 1);
+  f.backend.state.profile.stardust = upgrade.cost(1) * 2;
+  const balance = f.backend.state.profile.stardust;
   await assert.rejects(f.backend.buyLab(f.account, upgrade.id), /not available/);
-  assert.equal(f.disk.profile.lab[upgrade.id], 1);
+  assert.equal(f.backend.state.profile.stardust, balance);
+  assert.equal(f.disk.profile.lab[upgrade.id], upgrade.max);
 });
 test("real achievement claims cannot mint currency twice", async () => {
   const f = await fixture();
-  const quest = config.rt.find(q => q.counter === "wins" && q.goal === 1);
+  const catalog = Object.values(gameConfig).find(value => Array.isArray(value) &&
+    value.some(item => item?.counter === "wins" && item?.goal === 1));
+  const quest = catalog.find(q => q.counter === "wins" && q.goal === 1);
   await assert.rejects(f.backend.claimQuest(f.account, quest.id), /not available/);
   const ticket = await f.backend.startRun(f.account, {species: 4, biome: "forest", tier: 0, mode: "standard"});
   await f.backend.finishRun(f.account, ticket, result("standard", {victory: true, stage: 4, time: 600, splits: [180, 180, 180], kills: 300, bosses: 3}));

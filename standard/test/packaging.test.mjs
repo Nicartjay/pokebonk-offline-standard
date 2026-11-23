@@ -47,6 +47,8 @@ test("every platform uses the approved PokéBonk name and artwork without changi
   assert.equal(c.win.signAndEditExecutable, true); // false would leave Electron's icon.
   assert.equal(c.publish, null);
   const gradle = await readFile("standard/android/app/build.gradle.kts", "utf8");
+  assert.match(gradle, /providers\.fileContents\(/);
+  assert.match(gradle, /layout\.projectDirectory\.file\("\.\.\/config\.json"\)/);
   assert.match(gradle, /resValue\("string", "app_name", standard\["productName"\]/);
   assert.match(gradle, /applicationId = standard\["applicationId"\]/);
   assert.match(gradle, /this\.storePassword = signingStorePassword/);

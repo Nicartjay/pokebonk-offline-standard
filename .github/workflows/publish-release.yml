@@ -7,7 +7,7 @@ on:
         type: string
         required: true
       acceptance_json:
-        description: "Exact review receipt: true only for completed checks (see template)"
+        description: "Exact review receipt: true only for completed checks; optional explicit owner waiver"
         type: string
         required: true
       prerelease:
@@ -16,6 +16,10 @@ on:
         default: false
       first_release:
         description: "Stable publication only: permit creating a previously missing update channel"
+        type: boolean
+        default: false
+      accept_maintainer_waiver:
+        description: "Stable only: owner explicitly accepts the receipt's remaining checks without marking them passed"
         type: boolean
         default: false
 permissions:
@@ -48,16 +52,18 @@ jobs:
       - name: Record the explicit human review without inventing test outcomes
         run: node --input-type=module -e 'import {writeFile} from "node:fs/promises"; const r=JSON.parse(process.env.ACCEPTANCE_JSON); await writeFile("standard/release/acceptance.json",JSON.stringify(r),{mode:0o600});'
         env: {ACCEPTANCE_JSON: "${{ inputs.acceptance_json }}"}
-      - name: Publish stable only after device, save-compatibility and licensing approval
+      - name: Publish the explicitly approved stable release
         if: ${{ !inputs.prerelease }}
         shell: bash
         run: |
           args=(--approve-publication)
           if [ "$FIRST_RELEASE" = "true" ]; then args+=(--first-release); fi
+          if [ "$ACCEPT_MAINTAINER_WAIVER" = "true" ]; then args+=(--accept-maintainer-waiver); fi
           node standard/scripts/publish.mjs "${args[@]}"
         env:
           GH_TOKEN: ${{ github.token }}
           FIRST_RELEASE: ${{ inputs.first_release }}
+          ACCEPT_MAINTAINER_WAIVER: ${{ inputs.accept_maintainer_waiver }}
       - name: Publish an explicitly approved prerelease without changing the stable channel
         if: ${{ inputs.prerelease }}
         shell: bash
