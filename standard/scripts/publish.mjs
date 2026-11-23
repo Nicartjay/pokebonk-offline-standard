@@ -59,6 +59,22 @@ export function findRelease(capture, repository, tag) {
     return undefined;
   }
 }
+export function requirePublishingRepository(repo, config, env = process.env) {
+  if (config.repository !== "Nicartjay/pokebonk-offline-standard" ||
+      repo.nameWithOwner !== config.repository || repo.visibility !== "PUBLIC") {
+    throw new Error("Verified public publishing fork is required.");
+  }
+  // Installation tokens do not necessarily have a human GraphQL repository
+  // role. The exact protected owner-dispatched workflow declares contents:write;
+  // GitHub still enforces that token's permissions on every mutation.
+  const trustedWorkflow = env.GITHUB_ACTIONS === "true" && env.GITHUB_REPOSITORY === config.repository &&
+    env.GITHUB_REF === "refs/heads/main" && env.GITHUB_ACTOR === config.repository.split("/")[0] &&
+    env.GITHUB_WORKFLOW_REF === `${config.repository}/.github/workflows/publish-release.yml@refs/heads/main` &&
+    typeof env.GH_TOKEN === "string" && env.GH_TOKEN.length > 0;
+  if (!["ADMIN", "MAINTAIN", "WRITE"].includes(repo.viewerPermission) && !trustedWorkflow) {
+    throw new Error("Publishing needs repository write access or its exact protected owner workflow.");
+  }
+}
 async function publish() {
   const draftOnly = process.argv.includes("--prepare-draft"), approved = process.argv.includes("--approve-publication");
   const allowWaiver = process.argv.includes("--accept-maintainer-waiver");
@@ -70,8 +86,7 @@ async function publish() {
   const head = capture("git", ["rev-parse", "HEAD"]);
   if (capture("git", ["status", "--porcelain"]) || head !== manifest.source.commit || manifest.version !== config.version) throw new Error("Publish source must be the exact clean accepted commit.");
   const repo = JSON.parse(capture("gh", ["repo", "view", config.repository, "--json", "nameWithOwner,visibility,viewerPermission"]));
-  if (repo.nameWithOwner !== "Nicartjay/pokebonk-offline-standard" || repo.nameWithOwner !== config.repository || repo.visibility !== "PUBLIC" ||
-      !["ADMIN", "MAINTAIN", "WRITE"].includes(repo.viewerPermission)) throw new Error("Verified public publishing fork is required.");
+  requirePublishingRepository(repo, config);
   if (!draftOnly) {
     const actor = process.env.GITHUB_ACTIONS === "true" ? process.env.GITHUB_ACTOR : capture("gh", ["api", "user", "--jq", ".login"]);
     requireAcceptance(JSON.parse(await readFile(path.join(directory, "acceptance.json"), "utf8")), manifest, {actor, allowWaiver});

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {verify} from "node:crypto";
 import path from "node:path";
-import {requireAcceptance, findRelease} from "../scripts/publish.mjs";
+import {requireAcceptance, findRelease, requirePublishingRepository} from "../scripts/publish.mjs";
 import {manifest, config} from "./fixtures.mjs";
 import {resolveAsset, byteRange, isGameURL, CSP} from "../desktop/protocol.mjs";
 test("native asset protocol cannot escape root or open remote/file origins", () => {
@@ -78,6 +78,23 @@ test("draft release discovery uses authenticated CLI lookup without recreating o
   const unavailable = Object.assign(new Error("network"), {stderr: "connection timed out"});
   assert.throws(() => findRelease(() => {throw unavailable;}, repo, tag), error => error === unavailable);
   assert.throws(() => findRelease(() => JSON.stringify({isDraft:true, tagName:"another-tag"}), repo, tag), /another tag/);
+});
+test("publication supports the exact protected installation-token workflow without relaxing repository identity", () => {
+  const c = {repository: "Nicartjay/pokebonk-offline-standard"};
+  const repo = {nameWithOwner: c.repository, visibility: "PUBLIC", viewerPermission: null};
+  const env = {GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: c.repository, GITHUB_REF: "refs/heads/main",
+    GITHUB_ACTOR: "Nicartjay", GH_TOKEN: "synthetic-test-token",
+    GITHUB_WORKFLOW_REF: `${c.repository}/.github/workflows/publish-release.yml@refs/heads/main`};
+  requirePublishingRepository(repo, c, env);
+  requirePublishingRepository({...repo, viewerPermission: "ADMIN"}, c, {});
+  assert.throws(() => requirePublishingRepository(repo, c, {}), /write access/);
+  for (const [key, value] of [["GITHUB_ACTIONS", "false"], ["GITHUB_REPOSITORY", "other/repository"],
+    ["GITHUB_REF", "refs/heads/other"], ["GITHUB_ACTOR", "another-user"], ["GH_TOKEN", ""],
+    ["GITHUB_WORKFLOW_REF", `${c.repository}/.github/workflows/another.yml@refs/heads/main`]]) {
+    assert.throws(() => requirePublishingRepository(repo, c, {...env, [key]: value}), /write access/);
+  }
+  assert.throws(() => requirePublishingRepository({...repo, visibility: "PRIVATE"}, c, env), /public publishing/);
+  assert.throws(() => requirePublishingRepository({...repo, nameWithOwner: "other/repository"}, c, env), /public publishing/);
 });
 test("shared Java DER interoperability fixture is also valid in Node", async () => {
   const root = new URL("./fixtures/", import.meta.url);
