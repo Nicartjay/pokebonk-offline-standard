@@ -204,11 +204,14 @@ test("record settlement is atomic with native progress and survives restart/expo
   await assert.rejects(other.backend.importSave(corrupt), /record/);
   assert.deepEqual(other.disk, original, "Malformed display metadata must be rejected before replacing a save.");
 });
-test("Daily Mutation rejects a changed ruleset and all runs reject server-dependent flags", async () => {
+test("Daily Mutation rejects changed rules and solo runs reject unprepared co-op/server flags", async () => {
   const f = await fixture(), daily = f.backend.dailyChallenge();
+  const initial = structuredClone(f.disk);
   await assert.rejects(f.backend.startRun(f.account, {species: 4, mode: "mutation", biome: "wrong", tier: 0}), /changed/);
   for (const extra of [{party: "remote"}, {coop: true}, {competitive: true}, {duel: "x"}, {scav: true}]) {
-    await assert.rejects(f.backend.startRun(f.account, {species: 4, mode: "standard", ...extra}), /local single-player/);
+    await assert.rejects(f.backend.startRun(f.account, {species: 4, mode: "standard", ...extra}),
+      extra.party ? /No matching, durably prepared local co-op run/ : /local single-player/);
+    assert.deepEqual(f.disk, initial, "Rejected flags must not create a run or change progress.");
   }
   f.now = Date.UTC(2026, 10, 24, 12);
   assert.notEqual(f.backend.dailyChallenge().day, daily.day);

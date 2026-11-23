@@ -6,6 +6,7 @@ import path from "node:path";
 import {requireAcceptance, findRelease, requirePublishingRepository} from "../scripts/publish.mjs";
 import {manifest, config} from "./fixtures.mjs";
 import {resolveAsset, byteRange, isGameURL, CSP} from "../desktop/protocol.mjs";
+import {androidBridgeMethods} from "./bridge-fixtures.mjs";
 test("native asset protocol cannot escape root or open remote/file origins", () => {
   const root = path.resolve("game-fixture");
   assert.equal(resolveAsset(root, "pokebonk-standard://game/"), path.join(root, "index.html"));
@@ -101,11 +102,21 @@ test("shared Java DER interoperability fixture is also valid in Node", async () 
   assert.equal(verify("sha256", await readFile(new URL("ecdsa-payload.txt", root)), await readFile(new URL("ecdsa-public.pem", root)),
     Buffer.from(await readFile(new URL("ecdsa-signature.txt", root), "utf8"), "base64")), true);
 });
-test("only validated storage, not updater/fs/shell APIs, is exposed to the game", async () => {
+test("storage and LAN bridges remain separate, narrow and exclude updater/fs/shell APIs", async () => {
   const preload = await readFile("standard/desktop/preload.cjs", "utf8");
   assert.deepEqual([...preload.matchAll(/ipcRenderer\.invoke\("([^"]+)"/g)].map(m => m[1]), ["standard:load-state", "standard:save-state"]);
   const java = await readFile("standard/android/app/src/main/java/dev/nicartjay/pokebonk/offline/standard/MainActivity.java", "utf8");
-  assert.deepEqual([...java.matchAll(/@JavascriptInterface public String (\w+)/g)].map(m => m[1]), ["loadState", "saveState"]);
+  assert.deepEqual(androidBridgeMethods(java, "StorageBridge"), ["loadState", "saveState"]);
+  assert.deepEqual(androidBridgeMethods(java, "LanBridge"), ["state", "send"]);
+  assert.deepEqual(androidBridgeMethods(java, "BrokerBridge"), ["emit"]);
+  assert.deepEqual([...java.matchAll(/\b(web|lanBroker)\.addJavascriptInterface\(new (\w+)\(\),\s*"([^"]+)"\)/g)]
+    .map(match => match.slice(1)), [
+    ["web", "StorageBridge", "PokeBonkStandardAndroid"],
+    ["web", "LanBridge", "PokeBonkLANAndroid"],
+    ["lanBroker", "BrokerBridge", "PokeBonkLanBrokerNative"],
+  ]);
+  assert.match(java, /channel\.matches\("ctl\|snap\|prepared\|failed\|leave\|refresh\|cancel-find\|room-ready\|room-start\|room-pick\|room-chat"\)/);
+  assert.match(java, /text\.length\(\)>48000/);
   const transport = await readFile("standard/runtime/transport.js", "utf8");
   assert.doesNotMatch(transport, /fetch\(|http:|https:|node:|checkUpdates|installUpdate/);
   assert.equal(config.applicationId, "dev.nicartjay.pokebonk.offline.standard");

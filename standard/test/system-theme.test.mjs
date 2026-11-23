@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import vm from "node:vm";
 import {nodesOf, ast, maybeName} from "../../scripts/source.ts";
+import {androidBridgeMethods} from "./bridge-fixtures.mjs";
 const guard = await readFile("standard/runtime/guard.js", "utf8");
 function context() {
   const listeners = new Map(), storage = new Map();
@@ -32,7 +33,7 @@ test("Android one-way system theme metadata is boolean-only and never overrides 
   assert.match(java, /onResume\(\)[\s\S]*?publishSystemTheme/);
   assert.match(java, /setAlgorithmicDarkeningAllowed\(false\)/);
   assert.match(java, /setForceDark\(WebSettings.FORCE_DARK_OFF\)/);
-  assert.deepEqual([...java.matchAll(/@JavascriptInterface public String (\w+)/g)].map(m => m[1]), ["loadState", "saveState"]);
+  assert.deepEqual(androidBridgeMethods(java, "StorageBridge"), ["loadState", "saveState"]);
   assert.match(await readFile("standard/android/app/src/main/res/values-night/styles.xml", "utf8"), /Theme\.Material\.NoActionBar/);
 });
 test("the adapted game's original auto/light/dark resolver uses native system metadata", async () => {

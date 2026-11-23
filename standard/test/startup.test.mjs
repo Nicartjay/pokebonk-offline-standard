@@ -70,7 +70,8 @@ test("first-use Guide waits for the homepage, opens once after 1.2 seconds and a
   t.mock.timers.enable({apis:["setTimeout"]});
   globalThis.window={};
   let blocked=false, manualGuide=false;
-  globalThis.document={documentElement:{dataset:{}},querySelector:selector=>selector===".pb-guide"?manualGuide:blocked};
+  globalThis.document=Object.assign(new EventTarget(),{
+    documentElement:{dataset:{}},querySelector:selector=>selector===".pb-guide"?manualGuide:blocked});
   globalThis.addEventListener=()=>{};
   installOfflineUI({});
   const ui=window.PokeBonkOfflineUI; let opens=0,claims=0;

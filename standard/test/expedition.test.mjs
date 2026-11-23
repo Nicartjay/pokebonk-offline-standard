@@ -52,7 +52,9 @@ test("Expedition initializes once without unlocking Pokémon or equipment, and r
   assert.deepEqual(f.disk.profile.exp, initial.profile.exp);
   for (const biome of ["forest", "wrong"]) await assert.rejects(start(f, biome), /Wild Valley or Safari/);
   for (const flag of ["scav", "competitive", "coop", "party", "duel"]) {
-    await assert.rejects(f.backend.startRun(f.account, {species: 4, mode: "expedition", biome: "wilds", tier: 0, [flag]: true}), /single-player/);
+    await assert.rejects(f.backend.startRun(f.account, {species: 4, mode: "expedition", biome: "wilds", tier: 0, [flag]: true}),
+      flag === "party" ? /No matching, durably prepared local co-op run/ : /single-player/);
+    assert.deepEqual(f.disk, initial, "Rejected co-op/server flags must not change Expedition progress.");
   }
   const withoutRules = new OfflineBackend({...f.runtime, expedition: undefined});
   await withoutRules.restore();

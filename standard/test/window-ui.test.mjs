@@ -39,7 +39,7 @@ test("Windows overlays native caption buttons on a transparent title bar, withou
   assert.equal(windowChrome("win32").transparent, undefined);
   assert.equal(windowChrome("win32").frame, undefined);
 });
-test("the actual sandboxed preload creates presentation chrome on Mac/Windows but exposes only saves", async () => {
+test("the sandboxed preload creates presentation chrome and keeps saves separate from LAN", async () => {
   const source = await readFile("standard/desktop/preload.cjs", "utf8");
   for (const platform of ["darwin", "win32", "linux"]) {
     const docEvents = new EventEmitter(), ipc = new EventEmitter(), exposed = new Map(), elements = [];
@@ -58,6 +58,8 @@ test("the actual sandboxed preload creates presentation chrome on Mac/Windows bu
     assert.equal(doc.documentElement.dataset.standardPlatform, platform);
     assert.equal(elements.length, platform === "linux" ? 0 : 1);
     assert.deepEqual(Object.keys(exposed.get("PokeBonkStandard")), ["loadState", "saveState"]);
+    assert.deepEqual([...exposed.keys()], ["PokeBonkStandard", "PokeBonkLAN"]);
+    assert.deepEqual(Object.keys(exposed.get("PokeBonkLAN")), ["state", "send"]);
     ipc.emit("standard:window-state", {}, {fullscreen: "true"});
     assert.equal(doc.documentElement.dataset.standardFullscreen, "false");
     ipc.emit("standard:window-state", {}, {fullscreen: true});
@@ -101,7 +103,7 @@ test("desktop-control clicks validate exact scopes, verbs and enum URLs without 
   let click;const sent=[],bridges=[];
   vm.runInNewContext(await readFile("standard/desktop/preload.cjs","utf8"),{
     document:{addEventListener(_type,fn){click=fn;}},window:{addEventListener(){}},
-    require:()=>({contextBridge:{exposeInMainWorld:(_name,value)=>bridges.push(Object.keys(value))},
+    require:()=>({contextBridge:{exposeInMainWorld:(name,value)=>bridges.push([name,Object.keys(value)])},
       ipcRenderer:{on(){},send:(...args)=>sent.push(args)}}),
   });
   const fire=(action,value,{trusted=true,scope=true,href=`/__native__/desktop/${action}${value?"/"+value:""}`}={})=>{
@@ -121,7 +123,30 @@ test("desktop-control clicks validate exact scopes, verbs and enum URLs without 
   }
   for(const [action,value]of [["exec","cmd"],["backend","--no-sandbox"],["resolution","99999x99999"],["monitor","1/../2"]])
     assert.equal(fire(action,value),false);
-  assert.deepEqual(bridges,[["loadState","saveState"]]);
+  assert.deepEqual(bridges,[["PokeBonkStandard",["loadState","saveState"]],["PokeBonkLAN",["state","send"]]]);
+});
+test("the LAN bridge allows only bounded game messages and never exposes transport or filesystem commands", async () => {
+  const bridges = new Map(), sent = [];
+  vm.runInNewContext(await readFile("standard/desktop/preload.cjs", "utf8"), {
+    structuredClone,
+    document: {addEventListener() {}}, window: {addEventListener() {}},
+    require: () => ({contextBridge: {exposeInMainWorld: (name, value) => bridges.set(name, value)},
+      ipcRenderer: {on() {}, send: (...args) => sent.push(args)}}),
+  });
+  const lan = bridges.get("PokeBonkLAN");
+  assert.equal(Object.isFrozen(lan), true);
+  const snapshot = lan.state(); snapshot.phase = "forged";
+  assert.equal(lan.state().phase, "idle");
+  const channels = ["ctl", "snap", "prepared", "failed", "leave", "refresh", "cancel-find",
+    "room-ready", "room-start", "room-pick", "room-chat"];
+  for (const channel of channels) {
+    lan.send(channel, {test: true});
+    assert.deepEqual(sent.at(-1), ["standard:lan-game", channel, {test: true}]);
+  }
+  for (const channel of ["host", "connect", "exec", "readFile", "check-updates", "standard:lan-action"])
+    lan.send(channel, {});
+  lan.send("room-chat", "x".repeat(48001));
+  assert.equal(sent.length, channels.length);
 });
 test("preload routes only a real fullscreen click to the native window and stops HTML fullscreen", async () => {
   let click;const sent=[];

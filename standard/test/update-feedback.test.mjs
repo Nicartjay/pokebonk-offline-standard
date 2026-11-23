@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {updateFeedbackView} from "../common/update-feedback.mjs";
+import {androidBridgeMethods} from "./bridge-fixtures.mjs";
 
 const config = {version: "1.1.0", upstream: {version: "0.10.26", build: "mwsewi0r"}};
 test("checking feedback explains the operation, shows versions, and never invents a percentage", () => {
@@ -49,7 +50,7 @@ test("manual update networking remains native-only and UI feedback adds no calla
   assert.match(desktop, /showPending\(\)/);
   assert.match(desktop, /if \(showing \|\| !await idle\(\)\) return/);
   assert.match(android, /presentUpdateFeedback\(updater\.feedback\(\)\)/);
-  assert.deepEqual([...android.matchAll(/@JavascriptInterface public String (\w+)/g)].map(m => m[1]), ["loadState", "saveState"]);
+  assert.deepEqual(androidBridgeMethods(android, "StorageBridge"), ["loadState", "saveState"]);
   assert.deepEqual([...bridge.matchAll(/ipcRenderer\.invoke\("([^"]+)"/g)].map(m => m[1]), ["standard:load-state", "standard:save-state"]);
   const ui = await readFile("standard/runtime/ui.js", "utf8");
   assert.match(ui, /setAttribute\("role", "progressbar"\)/);
