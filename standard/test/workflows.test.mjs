@@ -57,7 +57,8 @@ test("all installer jobs reuse one prepared payload and cannot publish publicly"
   assert.equal(w.jobs.draft, undefined);
   assert.ok(w.jobs.android.steps.some(s => s.run?.endsWith("--unsigned-candidate")));
   assert.ok(w.jobs["verify-candidates"].steps.some(s => s.run?.endsWith("verify-candidates.mjs")));
-  assert.doesNotMatch(JSON.stringify(w), /secrets\.|--approve-publication|assemble-release\.mjs|--prepare-draft|release-signing/);
+  // Audit filenames are safe; reject actual GitHub secret-expression access.
+  assert.doesNotMatch(JSON.stringify(w), /\$\{\{[^}]*\bsecrets\s*(?:\.|\[)|--approve-publication|assemble-release\.mjs|--prepare-draft|release-signing/);
   const cleanup = w.jobs["prune-artifacts"];
   assert.deepEqual(cleanup.needs, ["shared", "verify-candidates"]);
   assert.equal(cleanup.permissions.actions, "write");
