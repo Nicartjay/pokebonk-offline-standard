@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -40,10 +41,11 @@ final class LanNetwork implements AutoCloseable {
     private volatile long epoch;
     private final AtomicInteger pending=new AtomicInteger();
     private volatile String current="{\"phase\":\"idle\",\"members\":[],\"linked\":false}",phase="idle";
-    private volatile boolean disposed;
+    private volatile boolean disposed,starting;
     private final AtomicInteger findSerial=new AtomicInteger();
     private volatile boolean finding;
     private volatile String findState="{\"status\":\"idle\",\"rooms\":0}";
+    private volatile String listingState="{\"status\":\"idle\",\"rooms\":[]}",findingKind="find";
     LanNetwork(Context context,String identity,Profile profile,Consumer<JSONObject> broker,Consumer<JSONObject> event){
         this.identity=identity;this.profile=profile;this.broker=broker;this.event=event;
         discovery=new LanDiscovery(context,identity);publish();
@@ -57,7 +59,9 @@ final class LanNetwork implements AutoCloseable {
         }}catch(Exception ignored){}return result;
     }
     String state(){
-        try{JSONObject value=LanPolicy.parse(current,24000);JSONArray list=new JSONArray();for(Network n:networks())if(list.length()<32)list.put(new JSONObject().put("label",n.label).put("address",n.address));return value.put("interfaces",list).put("discovery",new JSONObject(findState)).toString();}
+        try{JSONObject value=LanPolicy.parse(current,24000);value.remove("invitation");
+            JSONArray list=new JSONArray();for(Network n:networks())if(list.length()<32)list.put(new JSONObject().put("label",n.label).put("address",n.address));
+            return value.put("interfaces",list).put("discovery",new JSONObject(findState)).put("roomListing",LanPolicy.listing(new JSONObject(listingState),"lan")).toString();}
         catch(Exception error){return "{\"phase\":\"error\",\"members\":[],\"interfaces\":[],\"linked\":false}";}
     }
     void publish(){try{event.accept(new JSONObject().put("type","state").put("value",new JSONObject(state())));}catch(Exception ignored){}}
@@ -71,10 +75,16 @@ final class LanNetwork implements AutoCloseable {
         }catch(Exception ignored){}
     }
     private void cancelFind(boolean notify){
+        if("code".equals(findingKind)&&"connecting".equals(phase)&&server==null&&wires.isEmpty()){
+            epoch++;Socket pendingSocket=connecting;connecting=null;if(pendingSocket!=null)try{pendingSocket.close();}catch(Exception ignored){}
+            try{input(new JSONObject().put("type","reset"));}catch(Exception ignored){}
+            phase="idle";current="{\"phase\":\"idle\",\"members\":[],\"linked\":false}";
+        }
         findSerial.incrementAndGet();finding=false;discovery.cancel();
-        findState="{\"status\":\"idle\",\"rooms\":0}";if(notify)publish();
+        findState="{\"status\":\"idle\",\"rooms\":0}";listingState="{\"status\":\"idle\",\"rooms\":[]}";if(notify)publish();
     }
-    private void find(JSONObject data,int serial){
+    boolean busy(){return starting||finding||phase.matches("hosting|connecting|lobby|preparing|playing");}
+    private void find(JSONObject data,int serial,String kind,String code){
       try{
         if(disposed||serial!=findSerial.get())return;
         LanPolicy.require(server==null&&wires.isEmpty()&&!phase.matches("hosting|connecting|lobby|preparing|playing"),
@@ -84,17 +94,44 @@ final class LanNetwork implements AutoCloseable {
         LanPolicy.require(!p.getBoolean("unfinished"),"Finish or explicitly end your preserved run before finding a local room.");
         LanPolicy.require(owned(p,species),"Choose an owned Pokémon.");
         LanPolicy.require(!networks().isEmpty(),"Connect to a private Wi-Fi or local hotspot first.");
-        findStatus("searching",0,null);
-        discovery.find(count->{if(serial==findSerial.get())findStatus("searching",count,null);},
+        phase="code".equals(kind)?"connecting":"idle";
+        current=new JSONObject().put("phase",phase).put("members",new JSONArray()).put("linked",false).toString();
+        if("browse".equals(kind))listingState="{\"status\":\"loading\",\"rooms\":[]}";
+        findStatus("find".equals(kind)?"searching":"code".equals(kind)?"joining":"idle",0,null);
+        discovery.find(count->{if(serial==findSerial.get()&&"find".equals(kind))findStatus("searching",count,null);},
             rooms->{
                 if(disposed||serial!=findSerial.get())return;
                 finding=false;
-                if(rooms.isEmpty()){findStatus("empty",0,null);return;}
-                findStatus("joining",rooms.size(),null);
-                try{command("join",new JSONObject().put("species",species).put("invitation",rooms.get(0).getString("invitation")),serial);}
-                catch(Exception error){if(serial==findSerial.get())findStatus("error",0,error.getMessage());}
-            },message->{if(serial==findSerial.get()){finding=false;findStatus("error",0,message);}});
-      }catch(Exception error){if(serial==findSerial.get()){finding=false;findStatus("error",0,error.getMessage());}}
+                try{
+                    if("browse".equals(kind)){
+                        Map<String,Integer> counts=new HashMap<>();
+                        for(JSONObject room:rooms){String key=CoopCodes.lan(room.getString("id"));counts.put(key,counts.getOrDefault(key,0)+1);}
+                        JSONArray listed=new JSONArray();
+                        for(JSONObject room:rooms){String key=CoopCodes.lan(room.getString("id"));if(counts.get(key)==1)
+                            listed.put(new JSONObject().put("code",key).put("name",room.getString("name")).put("players",room.getInt("count")));}
+                        listingState=LanPolicy.listing(new JSONObject().put("status",listed.length()>0?"ready":"empty").put("rooms",listed),"lan").toString();publish();return;
+                    }
+                    List<JSONObject> candidates=new ArrayList<>();
+                    for(JSONObject room:rooms)if(!"code".equals(kind)||CoopCodes.lan(room.getString("id")).equals(code))candidates.add(room);
+                    if("code".equals(kind))LanPolicy.require(candidates.size()==1,candidates.isEmpty()?
+                        "No compatible LAN room has that code. Check the host and Wi-Fi.":"More than one host has that code. Ask them to create a new room.");
+                    if(candidates.isEmpty()){findStatus("empty",0,null);return;}
+                    findStatus("joining",rooms.size(),null);
+                    if("code".equals(kind)){phase="idle";current="{\"phase\":\"idle\",\"members\":[],\"linked\":false}";}
+                    command("join",new JSONObject().put("species",species).put("invitation",candidates.get(0).getString("invitation")),serial);
+                }catch(Exception error){searchFailure(serial,kind,error.getMessage());}
+            },message->searchFailure(serial,kind,message));
+      }catch(Exception error){searchFailure(serial,kind,error.getMessage());}
+    }
+    private void searchFailure(int serial,String kind,String message){
+        if(serial!=findSerial.get())return;
+        finding=false;
+        if("browse".equals(kind))listingState="{\"status\":\"error\",\"rooms\":[]}";
+        if("code".equals(kind)){
+            phase="error";
+            try{current=new JSONObject().put("phase",phase).put("members",new JSONArray()).put("linked",false).put("error",message).toString();}catch(Exception ignored){}
+        }
+        findStatus("error",0,message);
     }
     synchronized void stop(String reason,boolean error){
         cancelFind(false);discovery.advertise(null);
@@ -108,26 +145,42 @@ final class LanNetwork implements AutoCloseable {
             input(new JSONObject().put("type","reset").put("reason",reason==null?"":reason).put("error",error));
         }catch(Exception ignored){}
     }
-    void command(String action,JSONObject data){
-        if("find".equals(action)){
-            if(disposed||finding)return;
-            int serial=findSerial.incrementAndGet();finding=true;commands.execute(()->find(data,serial));return;
+    synchronized void command(String action,JSONObject data){
+        if("host".equals(action)||"join".equals(action)||"find".equals(action)||"browse".equals(action)){
+            try{LanPolicy.requireLanConnectionMode(data);}catch(Exception error){notice(error);return;}
+        }
+        String code=data.optString("invitation").trim().toUpperCase(java.util.Locale.ROOT);
+        boolean byCode="join".equals(action)&&CoopCodes.valid(code,"lan");
+        if("find".equals(action)||"browse".equals(action)||byCode){
+            if(disposed||busy())return;
+            int serial=findSerial.incrementAndGet();finding=true;
+            String kind=byCode?"code":action;findingKind=kind;commands.execute(()->find(data,serial,kind,code));return;
+        }
+        if("host".equals(action)||"join".equals(action)){
+            if(disposed||busy())return;
+            starting=true;
         }
         command(action,data,-1);
     }
     private void command(String action,JSONObject data,int expectedSearch){
         if("cancel-find".equals(action)){cancelFind(true);return;}
+        final long requestedEpoch=epoch;
+        starting=true;
         commands.execute(()->{
+        long operationEpoch=requestedEpoch;
         try{
+            if(disposed||requestedEpoch!=epoch)return;
             if(expectedSearch>=0&&expectedSearch!=findSerial.get())return;
             if("leave".equals(action)){stop("",false);return;}
             LanPolicy.require(!disposed&&("host".equals(action)||"join".equals(action)),"Unknown local action.");
             LanPolicy.require(server==null&&wires.isEmpty()&&!phase.matches("hosting|connecting|lobby|preparing|playing"),"Leave the current local room first.");
-            JSONObject p=profile.get();LanPolicy.require(!p.getBoolean("unfinished"),"Finish or explicitly end your preserved run before joining local co-op.");
+            JSONObject p=profile.get();if(disposed||requestedEpoch!=epoch)return;
+            if(expectedSearch>=0&&expectedSearch!=findSerial.get())return;
+            LanPolicy.require(!p.getBoolean("unfinished"),"Finish or explicitly end your preserved run before joining local co-op.");
             int species=data.getInt("species");LanPolicy.require(owned(p,species),"Choose an owned Pokémon.");
             String name=p.optString("name").replaceAll("[\\x00-\\x1f\\x7f]","");if(name.length()>24)name=name.substring(0,24);
             JSONObject member=new JSONObject().put("id","lan-"+UUID.randomUUID()).put("name",name).put("species",species);
-            stop("",false);phase="connecting";
+            stop("",false);operationEpoch=epoch;phase="connecting";
             if("host".equals(action)){
                 String address=data.optString("address");Network selected=null;for(Network n:networks())if(n.address.equals(address))selected=n;
                 LanPolicy.require(selected!=null,"Choose a private local network interface.");
@@ -146,7 +199,8 @@ final class LanNetwork implements AutoCloseable {
                 try{socket.connect(new InetSocketAddress(address,port),10000);attach(socket,false,secret,generation);}
                 catch(Exception error){try{socket.close();}catch(Exception ignored){}throw error;}finally{if(connecting==socket)connecting=null;}
             }
-        }catch(Exception error){if("find".equals(action)){finding=false;findStatus("error",0,error.getMessage());}else fail(error);}
+        }catch(Exception error){if("find".equals(action)){finding=false;findStatus("error",0,error.getMessage());}else if(operationEpoch==epoch)fail(error);}
+        finally{starting=false;}
     });}
     private void accept(ServerSocket listening,Network network,String secret,long generation){
         try{while(!disposed&&server==listening){

@@ -64,4 +64,8 @@ android {
             "MonochromeLauncherIcon", "ObsoleteSdkInt", "OldTargetApi")
     }
 }
-dependencies { testImplementation("junit:junit:4.13.2") }
+dependencies {
+    testImplementation("junit:junit:4.13.2")
+    // Real JSON validation in JVM tests; this is NOT packaged in the APK.
+    testImplementation("org.json:json:20240303")
+}

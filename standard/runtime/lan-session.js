@@ -1,6 +1,7 @@
 // Trusted native-owned broker only. One room state machine on every platform.
 // No HTTP, discovery scan, account, save path, or public signaling service.
 import {lanDescription} from '../common/lan-policy.mjs';
+import {lanRoomCode} from '../common/coop-mode.mjs';
 const copy = value => structuredClone(value);
 const idOK = id => typeof id === 'string' && /^lan-[\w-]{1,80}$/.test(id);
 const clean = text => String(text ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 24);
@@ -28,7 +29,7 @@ export class LanSession {
   enter(role, mine, invitation) {
     this.reset(); const me=player(mine);me.slot=0;me.ready=role==='host';
     this.value={phase:role==='host'?'hosting':'connecting',role,me:me.id,members:[me],linked:false,chat:[],disconnected:[],
-      ...(invitation?{invitation,code:invitation.split('#')[1].slice(0,4).toUpperCase()}:{})};this.publish();
+      ...(invitation?{invitation,code:lanRoomCode(me.id)}:{})};this.publish();
   }
   opened(connection) {
     this.connections.set(connection,null);

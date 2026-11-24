@@ -65,11 +65,14 @@ document.addEventListener("click", event => {
   const lanLink=event.target.closest?.("a[data-standard-lan-action]");
   if(lanLink&&lanLink.closest(".offline-lan-card,.offline-lan-home,.offline-lan-room")){
     const action=lanLink.dataset.standardLanAction;
-    if(!["host","join","leave","copy","find","cancel-find"].includes(action)||lanLink.getAttribute("href")!=="/__native__/lan/"+action)return;
+    if(!["host","join","leave","copy","find","browse","cancel-find"].includes(action))return;
     const root=lanLink.closest(".offline-lan-card,.offline-lan-home,.offline-lan-room");
     const field=name=>root.querySelector('[data-lan-field="'+name+'"]')?.value??"";
+    const mode=field("connection-mode")||"lan",code=lanLink.dataset.lanRoomCode;
+    if(code!==undefined&&(action!=="join"||!(mode==="lan"?/^[A-Z0-9]{4}$/:/^[A-Z0-9]{6}$/).test(code)))return;
+    if(lanLink.getAttribute("href")!=="/__native__/lan/"+action+(code!==undefined?"/"+code:""))return;
     event.preventDefault();
-    ipcRenderer.send("standard:lan-action",action,{species:Number(field("species")),address:field("address"),invitation:field("invitation")});
+    ipcRenderer.send("standard:lan-action",action,{species:Number(field("species")),address:field("address"),invitation:code??field("invitation"),connectionMode:mode});
     return;
   }
   if (event.target.closest?.("button.offline-fullscreen")) {

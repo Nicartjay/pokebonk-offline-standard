@@ -2,7 +2,7 @@
 
 Unofficial offline PokéBonk for **macOS, Windows, Linux, and Android**. Play with normal progression and local saves—no online account or automatic unlocks.
 
-**App v1.1.0 · Bundled game v0.10.26**
+**App v1.2.0 · Bundled game v0.10.26**
 
 [Download the latest release](https://github.com/Nicartjay/pokebonk-offline-standard/releases/latest) · [Report a bug](https://github.com/Nicartjay/pokebonk-offline-standard/issues)
 
@@ -11,10 +11,10 @@ Unofficial offline PokéBonk for **macOS, Windows, Linux, and Android**. Play wi
 - Classic, Endless, Relay, Practice, and Daily Mutation.
 - Offline Boss Rush and Lavender Tower, including earned Challenge Pass rewards and missions.
 - Solo Great Expedition with local loot, extraction, inventory, shop and earned pass rewards.
-- Experimental 2–4-player LAN co-op with local room discovery (Classic · Viridian Forest · Normal). See the [LAN guide](standard/docs/local-coop.md).
+- Experimental 2–4-player co-op: LAN, STUN-only Internet connections, or direct-first TURN fallback (Classic · Viridian Forest · Normal). Browse rooms, find a random match, or join by code. See the [co-op guide](standard/docs/internet-coop.md).
 - Personal Records, JSON save backups, desktop graphics options, and Android touch controls.
 
-No public matchmaking, online leaderboards or competitive prizes.
+LAN and solo play need no Internet. Internet co-op uses a separate signaling service; there are no online accounts, leaderboards or competitive prizes.
 
 ## Install
 
@@ -43,6 +43,8 @@ pnpm dev
 ```
 
 See the [maintenance guide](standard/docs/maintenance.md) for builds, signing, and releases. Successful full builds automatically remove older Actions artifacts while preserving published releases.
+
+The optional [co-op gateway](services/coop-gateway/README.md) keeps permanent TURN credentials server-side.
 
 ## Credits
 

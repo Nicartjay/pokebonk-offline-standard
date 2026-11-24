@@ -21,6 +21,12 @@ final class LanPolicy {
     }
     static void require(boolean condition,String reason)throws IOException {if(!condition)throw new IOException(reason);}
     static boolean id(String value){return value!=null&&value.matches("lan-[\\w-]{1,80}");}
+    static void requireLanConnectionMode(JSONObject data)throws Exception {
+        Object value=data.opt("connectionMode");
+        String mode=value==null?"lan":value instanceof String?(String)value:"";
+        require(mode.matches("lan|stun-only|turn-fallback"),"Invalid co-op connection mode.");
+        require("lan".equals(mode),"Internet co-op is not connected to the app yet. LAN was not started.");
+    }
     static JSONObject parse(String value,int max)throws Exception {
         require(value!=null&&value.length()<=max,"Oversized LAN message.");int depth=0;boolean string=false,escape=false;
         for(int i=0;i<value.length();i++){char c=value.charAt(i);if(string){if(escape)escape=false;else if(c=='\\')escape=true;else if(c=='"')string=false;}
@@ -47,6 +53,20 @@ final class LanPolicy {
     static boolean frame(String channel,Object value){
         if("ctl".equals(channel)&&value instanceof JSONObject){JSONObject data=(JSONObject)value;return data.opt("t") instanceof String&&data.optString("t").length()<=40&&data.toString().length()<=32768;}
         return "snap".equals(channel)&&value instanceof String&&((String)value).length()<=21856&&((String)value).matches("[A-Za-z0-9+/]*={0,2}");
+    }
+    static JSONObject listing(JSONObject source,String mode)throws Exception {
+        require(source!=null&&source.optString("status").matches("idle|loading|ready|empty|error"),"Invalid room listing.");
+        JSONArray incoming=source.getJSONArray("rooms"),rooms=new JSONArray();Set<String> codes=new HashSet<>();
+        require(incoming.length()<=("lan".equals(mode)?32:8),"Oversized room listing.");
+        for(int i=0;i<incoming.length();i++){
+            JSONObject room=incoming.getJSONObject(i);String code=room.getString("code"),name=room.getString("name");int players=room.getInt("players");
+            require(CoopCodes.valid(code,mode)&&codes.add(code)&&name.length()<=24&&!name.matches("(?s).*[\\x00-\\x1f\\x7f].*")&&
+                room.opt("players") instanceof Number&&((Number)room.get("players")).doubleValue()==players&&players>=1&&players<4,"Invalid listed room.");
+            rooms.put(new JSONObject().put("code",code).put("name",name).put("players",players));
+        }
+        JSONObject out=new JSONObject().put("status",source.getString("status")).put("rooms",rooms);
+        if(source.opt("message") instanceof String){String message=source.getString("message");out.put("message",message.substring(0,Math.min(160,message.length())));}
+        return out;
     }
     static JSONObject state(JSONObject value)throws Exception {
         require(value.toString().length()<=24000&&value.optString("phase").matches("idle|hosting|connecting|lobby|preparing|playing|closed|error"),"Invalid local room state.");

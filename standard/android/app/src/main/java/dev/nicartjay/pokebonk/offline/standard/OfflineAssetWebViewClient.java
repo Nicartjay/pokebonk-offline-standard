@@ -27,15 +27,20 @@ final class OfflineAssetWebViewClient extends WebViewClient {
     private final Runnable pageReady;
     private final Consumer<String> nativeAction;
     private final boolean broker;
+    private final String gateway;
 
     OfflineAssetWebViewClient(AssetManager assetManager, Runnable pageReady, Consumer<String> nativeAction) {
         this(assetManager,pageReady,nativeAction,false);
     }
     OfflineAssetWebViewClient(AssetManager assetManager, Runnable pageReady, Consumer<String> nativeAction, boolean broker) {
+        this(assetManager,pageReady,nativeAction,broker,null);
+    }
+    OfflineAssetWebViewClient(AssetManager assetManager, Runnable pageReady, Consumer<String> nativeAction, boolean broker, String gateway) {
         this.assetManager = assetManager;
         this.pageReady = pageReady;
         this.nativeAction = nativeAction;
         this.broker = broker;
+        this.gateway = broker?gateway:null;
     }
 
     @Override
@@ -61,6 +66,7 @@ final class OfflineAssetWebViewClient extends WebViewClient {
     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
         Uri uri = request.getUrl();
         if (NativeMenuAction.reserved(uri.toString())) return errorResponse(403, "Navigation only");
+        if(broker&&!request.isForMainFrame()&&InternetPolicy.request(uri.toString(),gateway))return null;
         if (!"https".equals(uri.getScheme()) || !APP_HOST.equals(uri.getHost()) || uri.getPort() != -1 ||
             (!"GET".equals(request.getMethod()) && !"HEAD".equals(request.getMethod()))) {
             return errorResponse(403, "Blocked");
@@ -85,6 +91,8 @@ final class OfflineAssetWebViewClient extends WebViewClient {
             headers.put("Cache-Control", "no-store");
             headers.put("X-Content-Type-Options", "nosniff");
             headers.put("Content-Security-Policy", "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' blob: data:; worker-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'");
+            if(broker&&gateway!=null)headers.put("Content-Security-Policy",headers.get("Content-Security-Policy").replace(
+                "connect-src 'self' blob: data:","connect-src 'self' blob: data: "+gateway+" "+gateway.replace("https:","wss:")));
             return new WebResourceResponse(mimeType(assetPath), null, 200, "OK", headers, stream);
         } catch (IOException error) {
             return errorResponse(404, "Not found");

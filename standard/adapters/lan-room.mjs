@@ -23,6 +23,23 @@ export function patchLanRoom(source) {
     .filter(node => node?.type === "ArrowFunctionExpression");
   const callsMethod = (node, name) => nodesOf(node, "CallExpression", call =>
     maybeName(call.callee.property) === name).length > 0;
+  // Back/Esc and the explicit Leave control share confirmation. Preserve the
+  // upstream leave/cleanup routine, and keep Lab's non-leaving navigation intact.
+  const leaveRoutine=one(nodesOf(owner,"VariableDeclarator",node=>
+    node.init?.type==="ArrowFunctionExpression"&&node.init.async&&callsMethod(node.init,"leave")),
+  "original room leave routine");
+  const roomScreen=one(nodesOf(owner,"CallExpression",node=>
+    node.arguments.some(argument=>literal(argument)==="cp lobby")),"original room navigation");
+  replace(roomScreen.arguments[4],`()=>globalThis.PokeBonkOfflineUI.confirmLanLeave(${room},()=>void ${leaveRoutine.id.name}(true))`);
+  const leaveButton=one(nodesOf(owner,"CallExpression",node=>
+    node.arguments[0]&&literal(node.arguments[0])==="button"&&node.arguments[1]?.type==="ObjectExpression"&&
+    node.arguments[1].properties.some(p=>maybeName(p.key)==="class"&&literal(p.value)==="btn small ghost")&&
+    node.arguments[1].properties.some(p=>maybeName(p.key)==="onclick"&&
+      nodesOf(p.value,"CallExpression",call=>maybeName(call.callee)===leaveRoutine.id.name).length)),
+  "original explicit leave control");
+  replace(property(leaveButton,"onclick").value,`()=>globalThis.PokeBonkOfflineUI.confirmLanLeave(${room},()=>void ${leaveRoutine.id.name}())`);
+  replace({start:owner.body.end-1,end:owner.body.end-1},
+    `;globalThis.PokeBonkOfflineUI.bindLanBack(${room},()=>void ${leaveRoutine.id.name}(true));`);
   // Remove all server-owned room services. Preserve the original four-seat
   // layout; a UI preview is never a claim that networking is complete.
   replace(one(arrows.filter(node => callsMethod(node, "friends") && callsMethod(node, "clanMates")),
@@ -144,10 +161,10 @@ export function patchLanRoom(source) {
   replace(disabled, `${room}.preview||(${source.slice(disabled.start, disabled.end)})`);
   const subtitle = one(nodesOf(owner, "TemplateLiteral", n => literal(n) === "Cooperativo · BETA"),
     "original room subtitle");
-  replace(subtitle, `${room}.preview?"PREVIEW · NOT CONNECTED":"Local co-op · LAN"`);
+  replace(subtitle, `globalThis.PokeBonkOfflineUI.lanRoomSubtitle(${room})`);
   for (const text of nodesOf(owner, "TemplateElement")) {
     const value = text.value.raw;
-    const updated = value.replace("Código de la sala", "Local invitation").replace("Copiar enlace", "Copy invitation")
+    const updated = value.replace("Código de la sala", "Room code").replace("Copiar enlace", "Copy room code")
       .replace("Sala ", "Room ");
     if (updated !== value) replace(text, updated);
   }
@@ -190,7 +207,7 @@ export function patchLanLanding(source) {
   const finderName=one(nodesOf(owner,'VariableDeclarator',n=>n.init===finder),'original Find a match card').id.name;
   replace(call('cp-find-opts'),'null');
   const findText=call('cp-find-tx');
-  replace({start:findText.end-1,end:findText.end-1},`,globalThis.PokeBonkOfflineUI.lanCancelSearch()`);
+  replace({start:findText.end-1,end:findText.end-1},`,globalThis.PokeBonkOfflineUI.lanPickRoomsButton(),globalThis.PokeBonkOfflineUI.lanCancelSearch()`);
   const search=call('btn big red cp-search');
   replace(search.arguments.at(-1),'globalThis.PokeBonkOfflineUI.lanFindLabel()');
   replace(call('cp-seek-n'),'globalThis.PokeBonkOfflineUI.lanFindStatus()');
@@ -216,9 +233,9 @@ export function patchLanLanding(source) {
   }
   const translations=new Map([
     ['Eliges el mapa y la dificultad, e invitas a tus amigos o a tu clan','Classic · Forest · Normal. Devices on this private network can find your open room.'],
-    ['Buscar partida','Find a match'],
+    ['Buscar partida','Find a random match'],
     ['Te juntamos con otros entrenadores que también buscan equipo','Automatically join a compatible open room on your Wi-Fi or hotspot.'],
-    ['Te lo pasa quien ha creado la sala','Paste the complete invitation shared by the host.'],['Únete con un código','Join a local room'],
+    ['Te lo pasa quien ha creado la sala','Enter the room code shared by the host.'],['Únete con un código','Join a local room'],
     ['Con amigos','On your local network'],['Juega con tus amigos · BETA','Offline · 2–4 trainers'],['Cooperativo','Local co-op'],
     ['Crea una sala','Host a room'],['Crear sala','Create room'],['Unirse','Join room'],
   ]);

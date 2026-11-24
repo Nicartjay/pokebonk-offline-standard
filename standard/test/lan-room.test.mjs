@@ -39,8 +39,7 @@ test("removes server-only room services and destructive solo-save clearing", () 
   assert.ok(patched.change.text.includes('.filter(mode=>mode==="classic")'));
   assert.ok(patched.change.text.includes("/4"));
   assert.ok(!patched.change.text.includes("/2"));
-  assert.ok(patched.change.text.includes("Local co-op · LAN"));
-  assert.ok(patched.change.text.includes("PREVIEW · NOT CONNECTED"));
+  assert.match(patched.change.text,/globalThis\.PokeBonkOfflineUI\.lanRoomSubtitle\(\w+\)/);
   assert.ok(patched.change.text.includes("disabled:t.preview"));
 });
 test("fails closed if the upstream room contract is absent", () => {
@@ -101,11 +100,12 @@ test("adapted original landing retains the fixed native Host/Join attributes at 
   const help=one(nodesOf(tree(landing),"CallExpression",node=>maybeName(node.callee.property)==="lanConnectionHelp"),"blue help column");
   assert.equal(help.arguments.length,1,"Find a match must not be inside the help section.");
   assert.ok(landing.includes('globalThis.PokeBonkOfflineUI.cancelLanSearch()'));
-  assert.ok(landing.includes('"Find a match"'));
+  assert.ok(landing.includes('"Find a random match"'));
+  assert.ok(landing.includes('globalThis.PokeBonkOfflineUI.lanPickRoomsButton()'));
   assert.ok(landing.includes('globalThis.PokeBonkOfflineUI.lanFindStatus()'));
 });
 
-const session = () => ({phase: "lobby", role: "host", me: "lan-me", linked: true,
+const session = () => ({phase: "lobby", role: "host", me: "lan-me", linked: true,code:"ABCD",
   invitation: "192.168.1.10:48123#abcdef0123456789abcdef0123456789",
   members: [{id: "lan-me", slot: 0, species: 155, ready: true, name: "Host"},
     {id: "lan-peer", slot: 1, species: 4, ready: false, name: "Friend"}]});

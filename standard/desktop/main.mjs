@@ -7,14 +7,16 @@ import {fileURLToPath} from "node:url";
 import {StateStore} from "../common/store.mjs";
 import {importEnvelope, MAX_STATE_BYTES} from "../common/state.mjs";
 import {StandardUpdater} from "./updater.mjs";
-import {ORIGIN, CSP, MIME, isGameURL, resolveAsset, byteRange,allowLanBrokerPermission,endsLanSessionForNavigation} from "./protocol.mjs";
+import {ORIGIN, CSP, MIME, isGameURL, resolveAsset, byteRange,endsLanSessionForNavigation} from "./protocol.mjs";
 import {windowChrome, connectWindowUI, quitAfterLastWindow} from "./window-ui.mjs";
 import {updateDistribution, installationInstructions} from "./distribution.mjs";
 import {issueFormURL} from "./report.mjs";
 import {DesktopPreferences, graphicsSwitches, restoreBounds} from "./preferences.mjs";
 import {createDesktopControls} from "./desktop-controls.mjs";
 import {updateFeedbackView} from "../common/update-feedback.mjs";
-import {NativeLan} from "./lan.mjs";
+import {NativeCoop} from "./coop.mjs";
+import {gatewayOrigin} from "../common/internet-coop.mjs";
+import {configureBrokerSession} from "./coop-session.mjs";
 import {lanIdentity} from "../common/lan-policy.mjs";
 const root = path.dirname(fileURLToPath(import.meta.url));
 // Graphics switches must be selected before Electron initializes Chromium.
@@ -49,7 +51,7 @@ const updater = new StandardUpdater({config, directory: dataDirectory,
     env: process.env, nsisInstalled: app.isPackaged && existsSync(path.join(path.dirname(process.execPath), ".pokebonk-offline-nsis"))}),
   loadSave: () => store.loadState()});
 let window, desktopControls, pendingMessage, pendingFeedback, presentedVersion, showing = false, verifiedDownload;
-let lan, brokerWindow, brokerReady, brokerResolve, brokerReject;
+let lan, brokerWindow, brokerReady, brokerResolve, brokerReject,brokerSession;
 const BROKER_URL = `${ORIGIN}/offline/lan-broker.html`;
 async function brokerInput(value) {
   if(value.type==="reset"&&(!brokerWindow||brokerWindow.isDestroyed()))return;
@@ -57,7 +59,7 @@ async function brokerInput(value) {
     brokerReady=new Promise((resolve,reject)=>{brokerResolve=resolve;brokerReject=reject;});
     brokerWindow=new BrowserWindow({show:false,width:32,height:32,skipTaskbar:true,
       webPreferences:{preload:path.join(root,"lan-broker-preload.cjs"),sandbox:true,contextIsolation:true,nodeIntegration:false,
-        webSecurity:true,backgroundThrottling:false,devTools:!app.isPackaged}});
+        session:brokerSession,webSecurity:true,backgroundThrottling:false,devTools:!app.isPackaged}});
     brokerWindow.webContents.setWindowOpenHandler(()=>({action:"deny"}));
     brokerWindow.webContents.on("will-navigate",event=>event.preventDefault());
     brokerWindow.webContents.on("will-redirect",event=>event.preventDefault());
@@ -262,25 +264,24 @@ else {
     desktopControls = createDesktopControls({app, screen, powerSaveBlocker, dialog, preferences, config,
       getWindow: () => window, idle, notify: message => { pendingMessage = message; }});
     const offline = session.defaultSession;
+    brokerSession=session.fromPartition("pokebonk-standard-native-coop");
     const assetIdentity=JSON.parse(await readFile(path.join(game,"asset-manifest.json"),"utf8")).gameDigest;
-    lan=new NativeLan({identity:lanIdentity(config,assetIdentity),profile:lanProfile,emit:lanEvent,broker:brokerInput});
+    lan=new NativeCoop({config,identity:lanIdentity(config,assetIdentity),profile:lanProfile,emit:lanEvent,broker:brokerInput});
     offline.webRequest.onBeforeRequest({urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*", "ftp://*/*"]},
-      (_request, callback) => callback({cancel: true}));
+      (_request, callback) => callback({cancel:true}));
+    configureBrokerSession(brokerSession,{gateway:gatewayOrigin(config),phase:()=>lan.value.phase,
+      trusted:contents=>Boolean(brokerWindow&&!brokerWindow.isDestroyed()&&contents===brokerWindow.webContents&&contents.getURL()===BROKER_URL)});
     offline.setPermissionCheckHandler((contents, permission, origin, details) =>
       (contents === window?.webContents && details.isMainFrame && isGameURL(origin) &&
-      ["pointerLock", "fullscreen"].includes(permission))||
-      allowLanBrokerPermission(permission,origin,{isMainFrame:details.isMainFrame,phase:lan.value.phase,
-        trusted:Boolean(brokerWindow&&!brokerWindow.isDestroyed()&&contents===brokerWindow.webContents&&contents.getURL()===BROKER_URL)}));
+      ["pointerLock", "fullscreen"].includes(permission)));
     offline.setPermissionRequestHandler((contents, permission, callback, details) =>
       callback((contents === window?.webContents && details.isMainFrame &&
-        isGameURL(details.requestingUrl) && ["pointerLock", "fullscreen"].includes(permission))||
-        allowLanBrokerPermission(permission,details.requestingUrl,{isMainFrame:details.isMainFrame,phase:lan.value.phase,
-          trusted:Boolean(brokerWindow&&!brokerWindow.isDestroyed()&&contents===brokerWindow.webContents&&contents.getURL()===BROKER_URL)})));
+        isGameURL(details.requestingUrl) && ["pointerLock", "fullscreen"].includes(permission))));
     offline.on("will-download", (_event, item) => {
       if (!item.getURL().startsWith(`blob:${ORIGIN}/`)) { item.cancel(); return; }
       item.setSaveDialogOptions({title: "Export local backup", defaultPath: "pokebonk-offline-save.json"});
     });
-    offline.protocol.handle("pokebonk-standard", async request => {
+    const assetResponse=async request => {
       try {
         if (!["GET", "HEAD"].includes(request.method)) return new Response(null, {status: 405});
         const file = resolveAsset(game, request.url);
@@ -293,27 +294,36 @@ else {
         catch { return new Response(null, {status: 416, headers: {"Content-Range": `bytes */${info.size}`}}); }
         const start = range?.start ?? 0, end = range?.end ?? info.size - 1;
         const headers = {"Content-Type": MIME[path.extname(file)] ?? "application/octet-stream",
-          "Content-Security-Policy": CSP, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
+          "Content-Security-Policy": new URL(request.url).pathname==="/offline/lan-broker.html"&&gatewayOrigin(config)?
+            CSP.replace("connect-src 'self' blob: data:",`connect-src 'self' blob: data: ${gatewayOrigin(config)} ${gatewayOrigin(config).replace("https:","wss:")}`):CSP,
+          "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
           "Accept-Ranges": "bytes", "Content-Length": String(Math.max(0, end - start + 1))};
         if (range) headers["Content-Range"] = `bytes ${start}-${end}/${info.size}`;
         return new Response(request.method === "HEAD" || !info.size ? null : Readable.toWeb(createReadStream(actual, {start, end})),
           {status: range ? 206 : 200, headers});
       } catch { return new Response("Local asset not found", {status: 404}); }
-    });
+    };
+    offline.protocol.handle("pokebonk-standard",assetResponse);
+    brokerSession.protocol.handle("pokebonk-standard",assetResponse);
     ipcMain.handle("standard:load-state", async event => { sender(event); return store.loadState(); });
     ipcMain.handle("standard:save-state", async (event, value) => { sender(event); return store.saveState(value); });
     let lanCommands=Promise.resolve(),lanSearchRequest=0;
     ipcMain.on("standard:lan-action",(event,action,data,...extra)=>{
       try{
         sender(event);
-        if(extra.length||!["host","join","leave","copy","find","cancel-find"].includes(action)||!data||JSON.stringify(data).length>512)return;
+        if(extra.length||!["host","join","leave","copy","find","browse","cancel-find"].includes(action)||!data||JSON.stringify(data).length>512)return;
         if(action==="cancel-find"){lanSearchRequest++;lan.cancelFind();return;}
         const searchRequest=lanSearchRequest;
         lanCommands=lanCommands.catch(()=>{}).then(async()=>{
           if(!window||window.isDestroyed()||!window.isFocused())return;
-          if(action==="copy"){if(lan.value.invitation){clipboard.writeText(lan.value.invitation);lanEvent({type:"notice",message:"Local invitation copied."});}return;}
+          if(action==="copy"){
+            const current=lan.state(),code=current.code;
+            if(typeof code==="string"&&(current.connectionMode==="lan"?/^[A-Z0-9]{4}$/:/^[A-Z0-9]{6}$/).test(code)){
+              clipboard.writeText(code);lanEvent({type:"notice",message:"Room code copied."});
+            }return;
+          }
           const allowed=await window.webContents.executeJavaScript("!globalThis.PokeBonkNativeApp?.run&&Boolean(document.querySelector('.offline-lan-card,.offline-lan-home,.offline-lan-room'))");
-          if(allowed&&(action!=="find"||searchRequest===lanSearchRequest))await lan.command(action,data);
+          if(allowed&&(!["find","browse"].includes(action)||searchRequest===lanSearchRequest))await lan.command(action,data);
         }).catch(error=>{lanEvent({type:"notice",message:error.message});if(["host","join"].includes(action))lan.stop(error.message,true);});
       }catch{}
     });

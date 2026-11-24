@@ -5,6 +5,7 @@ import {ast, nodesOf, literal} from "../../scripts/source.ts";
 import {readSnapshot} from "../../scripts/upstream-snapshot.ts";
 import {payloadDigest, sha} from "./prepare.mjs";
 import {isMain} from "../../scripts/is-main.mjs";
+import {brokerLiteral,assertBrokerImport} from "./broker-boundary.mjs";
 export async function verifyPayload(directory = "build/standard-game") {
   const root = await realpath(directory);
   const inventory = JSON.parse(await readFile(path.join(root, "asset-manifest.json"), "utf8"));
@@ -26,13 +27,16 @@ export async function verifyPayload(directory = "build/standard-game") {
         const value = node.type === "TemplateLiteral" ? node.quasis[0]?.value.cooked : literal(node);
         if (typeof value !== "string") continue;
         if (/^(?:https?:\/\/|wss?:|stun:|turns?:|mailto:)/i.test(value) &&
-            !value.startsWith("http://www.w3.org/") && !value.startsWith("https://appassets.androidplatform.net/")) throw new Error(`External game destination: ${entry.name}`);
+            !value.startsWith("http://www.w3.org/") && !value.startsWith("https://appassets.androidplatform.net/") &&
+            !brokerLiteral(entry.name,value)) throw new Error(`External game destination: ${entry.name}`);
       }
-      for (const node of [...nodesOf(tree, "ImportDeclaration"), ...nodesOf(tree, "ImportExpression")]) {
+      for (const node of [...nodesOf(tree, "ImportDeclaration"), ...nodesOf(tree, "ImportExpression"),
+        ...nodesOf(tree,"ExportNamedDeclaration"),...nodesOf(tree,"ExportAllDeclaration")]) {
         const target = literal(node.source);
         if (typeof target !== "string") continue;
         const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(entry.name), target));
         if (!target.startsWith(".") || !names.has(resolved)) throw new Error(`Unbundled module: ${target} in ${entry.name}`);
+        assertBrokerImport(entry.name,resolved);
       }
       if (/__offline\/save|LocalSandboxBackend|node:fs|node:child_process|from ["']electron/.test(source)) throw new Error("Native/Python/unlocked implementation leaked into game payload.");
     }

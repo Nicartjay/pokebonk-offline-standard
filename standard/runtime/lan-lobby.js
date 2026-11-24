@@ -10,8 +10,10 @@ export class LanLobby {
     // room's state must never revive its upstream navigation callbacks.
     if (this.retired || this.me && source.me && this.me !== source.me) return;
     this.preview = source.preview === true;
+    this.connectionMode=source.connectionMode??"lan";
+    this.transport=source.transport??(this.connectionMode==="lan"?"lan":"waiting");
     this.me = source.me; this.invitation = source.invitation ?? null;
-    this.code = (source.invitation?.split("#")[1]?.slice(0, 4) ?? source.code ?? "LAN").toUpperCase();
+    this.code = String(source.code??(this.connectionMode==="lan"?"LAN":"ONLINE")).toUpperCase();
     this.open = ["hosting", "connecting", "lobby", "preparing", "playing"].includes(source.phase);
     this.isHost = source.role === "host";
     this.isPublic = false; this.otherBuild = false;

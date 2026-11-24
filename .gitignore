@@ -26,3 +26,13 @@ credentials.json
 state.json
 previous.json
 acceptance.local.json
+.wrangler/
+.dev.vars*
+.env
+.env.*
+!.env.example
+# Defense in depth if an operator accidentally copies a private service file.
+cloudflare-coop.json
+cloudflare-gateway-secrets.json
+cloudflare-usage.json
+*.secrets.json

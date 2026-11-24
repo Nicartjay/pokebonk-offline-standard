@@ -11,7 +11,7 @@ public final class NativeMenuActionTest {
             }
     }
     @Test public void onlyExactUserClickedMainFrameActionsAreAccepted() {
-        for (String action : new String[]{"check-for-updates", "export-backup", "import-backup", "report-bug", "lan/host", "lan/join", "lan/leave", "lan/copy", "lan/find", "lan/cancel-find"}) {
+        for (String action : new String[]{"check-for-updates", "export-backup", "import-backup", "report-bug", "lan/host", "lan/join", "lan/leave", "lan/copy", "lan/find", "lan/browse", "lan/cancel-find"}) {
             String url = NativeMenuAction.ORIGIN + "/__native__/" + action;
             assertEquals(action, NativeMenuAction.resolve(url, "GET", true, true));
             assertNull(NativeMenuAction.resolve(url, "GET", false, true));

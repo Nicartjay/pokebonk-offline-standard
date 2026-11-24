@@ -4,6 +4,7 @@ import {randomBytes,randomUUID} from 'node:crypto';
 import {privateIPv4,invitation,lanDescription,lanFrame,lanState,sameSubnet} from '../common/lan-policy.mjs';
 import {lanWire} from './lan-wire.mjs';
 import {LanDiscovery} from './lan-discovery.mjs';
+import {requireLanConnectionMode,lanRoomCode,roomListing} from '../common/coop-mode.mjs';
 export function lanInterfaces(){
   return Object.entries(os.networkInterfaces()).flatMap(([label,list])=>/^(utun|tun|tap|wg|tailscale|docker|veth|br-)/i.test(label)?[]:(list??[])
     .filter(i=>i.family==='IPv4'&&!i.internal&&privateIPv4(i.address)).map(i=>({label,address:i.address,netmask:i.netmask})));
@@ -11,37 +12,60 @@ export function lanInterfaces(){
 export class NativeLan {
   constructor({identity,profile,emit,broker,interfaces=lanInterfaces,discovery}){
     Object.assign(this,{identity,profile,emit,broker,interfaces});this.wires=new Map();this.epoch=0;this.value={phase:'idle',members:[],linked:false};
-    this.findSerial=0;this.findState={status:"idle",rooms:0};
+    this.findSerial=0;this.findState={status:"idle",rooms:0};this.listing={status:"idle",rooms:[]};
     this.discovery=discovery??new LanDiscovery({identity,interfaces,progress:rooms=>{
-      if(this.finding){this.findState={status:"searching",rooms};this.publish();}
+      if(this.finding&&this.findKind==="find"){this.findState={status:"searching",rooms};this.publish();}
     }});
   }
-  state(){return structuredClone({...this.value,discovery:this.findState,interfaces:this.interfaces().map(({label,address})=>({label,address}))});}
+  state(){
+    const {invitation:_privateInvite,...value}=this.value;
+    return structuredClone({...value,discovery:this.findState,roomListing:roomListing(this.listing),
+      interfaces:this.interfaces().map(({label,address})=>({label,address}))});
+  }
   publish(){this.emit({type:'state',value:this.state()});}
   input(value){Promise.resolve(this.broker(value)).catch(error=>this.stop(error.message,true,false));}
   cancelFind(publish=true){
+    if(this.value.phase==="connecting"&&this.findKind==="code"&&!this.server&&!this.wires.size){
+      this.epoch++;this.value={phase:"idle",members:[],linked:false};this.input({type:"reset",reason:"",error:false});
+    }
     this.findSerial++;this.finding=false;this.discovery.cancel();this.findState={status:"idle",rooms:0};
+    this.listing={status:"idle",rooms:[]};
     if(publish)this.publish();
   }
-  async find(data){
+  async find(data,kind="find",code){
+    requireLanConnectionMode(data.connectionMode);
     if(this.starting||this.finding||this.server||this.wires.size||['hosting','connecting','lobby','preparing','playing'].includes(this.value.phase))throw Error('Leave the current room or cancel the search first.');
-    const serial=++this.findSerial;this.finding=true;
+    const serial=++this.findSerial;this.finding=true;this.findKind=kind;
     try{
       const profile=await this.profile();
       if(serial!==this.findSerial)return;
       if(profile.unfinished)throw Error('Finish or explicitly end your preserved run before finding a local room.');
       if(!Number.isInteger(data.species)||!profile.league.includes(data.species))throw Error('Choose an owned Pokémon.');
       if(!this.interfaces().length)throw Error('Connect to a private Wi-Fi or local hotspot first.');
-      this.findState={status:"searching",rooms:0};this.publish();
+      this.findState={status:kind==="find"?"searching":kind==="code"?"joining":"idle",rooms:0};
+      this.listing={status:kind==="browse"?"loading":"idle",rooms:[]};
+      if(kind==="code")this.value={phase:"connecting",members:[],linked:false};
+      this.publish();
       const result=await this.discovery.find();
       if(serial!==this.findSerial||result.cancelled)return;
       this.finding=false;
+      if(kind==="browse"){
+        const counts=new Map();for(const room of result.rooms){const key=lanRoomCode(room.id);counts.set(key,(counts.get(key)??0)+1);}
+        const rooms=result.rooms.filter(room=>counts.get(lanRoomCode(room.id))===1)
+          .map(room=>({code:lanRoomCode(room.id),name:room.name,players:room.count}));
+        this.listing=roomListing({status:rooms.length?"ready":"empty",rooms});this.publish();return;
+      }
+      const candidates=code?result.rooms.filter(room=>lanRoomCode(room.id)===code):result.rooms;
+      if(code&&candidates.length!==1)throw Error(candidates.length?"More than one host has that code. Ask them to create a new room.":"No compatible LAN room has that code. Check the host and Wi-Fi.");
       if(!result.rooms.length){this.findState={status:"empty",rooms:0};this.publish();return;}
       this.findState={status:"joining",rooms:result.rooms.length};this.publish();
-      try{await this.command("join",{species:data.species,invitation:result.rooms[0].invitation});}
+      if(kind==="code")this.value={phase:"idle",members:[],linked:false};
+      try{await this.command("join",{species:data.species,invitation:candidates[0].invitation});}
       catch(error){this.stop(error.message,true);}
     }catch(error){
       if(serial!==this.findSerial)return;
+      if(kind==="code")this.value={phase:"error",members:[],linked:false,error:String(error.message).slice(0,160)};
+      if(kind==="browse")this.listing={status:"error",rooms:[],message:"Couldn’t list local rooms. Check Wi-Fi and refresh."};
       this.findState={status:"error",rooms:0,message:String(error.message).slice(0,160)};this.publish();
     }finally{if(serial===this.findSerial)this.finding=false;}
   }
@@ -54,14 +78,20 @@ export class NativeLan {
     if(reset)this.input({type:'reset',reason,error});this.publish();
   }
   async command(action,data={}){
+    if(['host','join','find','browse'].includes(action))requireLanConnectionMode(data.connectionMode);
     if(action==='cancel-find'){this.cancelFind();return;}
     if(action==='find')return this.find(data);
+    if(action==='browse')return this.find(data,"browse");
+    if(action==='join'&&typeof data.invitation==="string"&&/^[A-Z0-9]{4}$/.test(data.invitation.trim().toUpperCase()))
+      return this.find(data,"code",data.invitation.trim().toUpperCase());
     if(action==='leave'){this.stop();return;}
     if(!['host','join'].includes(action))return this.input({type:'action',action,data});
     if(this.starting||this.server||this.wires.size||['hosting','connecting','lobby','preparing','playing'].includes(this.value.phase))throw Error('Leave the current local room first.');
     this.starting=true;
+    const requestedEpoch=this.epoch;
     try{
-      const profile=await this.profile();if(profile.unfinished)throw Error('Finish or explicitly end your preserved run before joining LAN co-op.');
+      const profile=await this.profile();if(requestedEpoch!==this.epoch)return;
+      if(profile.unfinished)throw Error('Finish or explicitly end your preserved run before joining LAN co-op.');
       if(!Number.isInteger(data.species)||!profile.league.includes(data.species))throw Error('Choose an owned Pokémon.');
       const member={id:'lan-'+randomUUID(),name:String(profile.name).replace(/[\u0000-\u001f\u007f]/g,'').slice(0,24),species:data.species};
       const invite=action==='join'?invitation(data.invitation):null;

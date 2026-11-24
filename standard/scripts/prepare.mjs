@@ -31,12 +31,14 @@ export async function prepare() {
   if (eventResources.reviewedBuild !== accepted.build || !Array.isArray(eventResources.required) ||
       eventResources.required.some(name => !pristine.has(name))) throw new Error("Missing reviewed offline event resources; preparation stopped.");
   const {files, modules, changed} = reviewed.patch(pristine);
-  for (const name of ["backend.js", "expedition.js", "event-rewards.js", "guard.js", "ui.js", "dropdown.js", "lan.js", "lan-lobby.js", "lan-ui.js", "lan.css", "lan-rtc.js", "lan-session.js", "lan-broker.js", "lan-broker.html", "startup.js", "modes.js", "records.js", "android-ui.js", "transport.js", "offline.css", "home.css", "entry.js"]) {
+  for (const name of ["backend.js", "expedition.js", "event-rewards.js", "guard.js", "ui.js", "dropdown.js", "lan.js", "lan-lobby.js", "lan-ui.js", "lan.css", "lan-rtc.js", "lan-session.js", "lan-broker.js", "lan-broker.html", "internet-broker.js", "internet-rtc.js", "stun-first.js", "startup.js", "modes.js", "records.js", "android-ui.js", "transport.js", "offline.css", "home.css", "entry.js"]) {
     files.set("offline/" + name, await readFile("standard/runtime/" + name));
   }
   files.set("common/state.mjs", await readFile("standard/common/state.mjs"));
   files.set("common/update-feedback.mjs", await readFile("standard/common/update-feedback.mjs"));
   files.set("common/lan-policy.mjs", await readFile("standard/common/lan-policy.mjs"));
+  files.set("common/coop-mode.mjs", await readFile("standard/common/coop-mode.mjs"));
+  files.set("common/internet-coop.mjs", await readFile("standard/common/internet-coop.mjs"));
   // No secrets, URLs or updater API are passed into the game.
   const history = JSON.parse(await readFile("standard/history.json", "utf8"));
   if (!Array.isArray(history) || history[0]?.version !== config.version ||
@@ -73,8 +75,10 @@ ${css.map(name => `<link rel="stylesheet" href="/${name}">`).join("\n")}
     saveSchema: config.saveSchema, upstream: config.upstream, pristineDigest: manifest.digest, sourceCommit,
     modes: ["standard", "endless", "relay", "training", "mutation", "bossrush", "tower", ...(modules.backendExpedition ? ["expedition"] : [])],
     ...(modules.backendExpedition ? {expeditionPolicy: "local-expedition-v1"} : {}),
-    ...(modules.backendExpedition ? {coop: {status: "lan-experimental", targetPlayers: {min: 2, max: 4},
-      networkingEnabled: true, policy:"private-lan-v2"}} : {}),
+    ...(modules.backendExpedition ? {coop: {status: config.internetCoop?.enabled?"internet-test":"lan-experimental",
+      targetPlayers: {min: 2, max: 4},networkingEnabled: true, policy:"native-coop-v2",
+      roomCodes:{lan:4,internet:6},roomPicker:true,lobbyProtocol:2,
+      connectionModes:["lan","stun-only","turn-fallback"],relayEnabled:config.internetCoop?.relayEnabled===true}} : {}),
     eventRewards: "local-earned-v1", localProgression: true, rendererNetwork: "local-only",
     modules, changedModules: changed, missingCandidates: manifest.missingCandidates};
   files.set("offline-build.json", Buffer.from(JSON.stringify(metadata, null, 2) + "\n"));

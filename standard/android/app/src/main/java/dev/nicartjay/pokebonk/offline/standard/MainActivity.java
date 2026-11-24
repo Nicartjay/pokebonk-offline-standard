@@ -49,7 +49,8 @@ public final class MainActivity extends Activity {
     private GameSafeArea safeArea;
     private NativeSaveStore saves;
     private RepositoryUpdater updater;
-    private LanNetwork lan;
+    private CoopNetwork lan;
+    private String coopGateway;
     private WebView lanBroker;
     private boolean lanBrokerReady;
     private final List<String> lanBrokerQueue=new ArrayList<>();
@@ -85,7 +86,8 @@ public final class MainActivity extends Activity {
             if(!digest.matches("[a-f0-9]{64}"))throw new Exception("Invalid game identity.");
             String identity="PB-LAN2|"+config.getString("applicationId")+"|"+config.getString("version")+"|"+
                 config.getJSONObject("upstream").getString("build")+"|"+digest;
-            lan=new LanNetwork(this,identity,()->{
+            coopGateway=InternetPolicy.gateway(config);
+            lan=new CoopNetwork(this,config,identity,()->{
                 JSONObject envelope=saves.load();
                 if(envelope==null)throw new Exception("Choose your starters first.");
                 JSONObject value=envelope.getJSONObject("state");
@@ -200,6 +202,11 @@ public final class MainActivity extends Activity {
     @Override @SuppressLint("GestureBackNavigation") public void onBackPressed() { back(); }
     private void back() {
         if (dialogOpen) return;
+        web.evaluateJavascript("globalThis.PokeBonkOfflineUI?.lanBack?.()===true",handled->{
+            if(!"true".equals(handled))backOutsideRoom();
+        });
+    }
+    private void backOutsideRoom() {
         web.evaluateJavascript("(()=>{const a=globalThis.PokeBonkNativeApp;if(a?.run?.state==='play')a.run.pause();" +
             "return !a?.run&&(!a?.r||Boolean(document.querySelector('.offline-startup-recovery,.offline-boot-error')))})()", failed -> {
                 if ("true".equals(failed)) { recoveryMode = true; showRecoveryMenu(); }
@@ -244,16 +251,21 @@ public final class MainActivity extends Activity {
             if("lan/cancel-find".equals(action)){lan.command("cancel-find",new JSONObject());return;}
             if("lan/copy".equals(action)){
                 try{
-                    String invite=new JSONObject(lan.state()).optString("invitation");
-                    if(!invite.isEmpty()){getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Local co-op invitation",invite));Toast.makeText(this,"Local invitation copied",Toast.LENGTH_SHORT).show();}
-                }catch(Exception error){notice("Could not copy the local invitation.");}
+                    JSONObject state=new JSONObject(lan.state());String code=state.optString("code");
+                    if(CoopCodes.valid(code,state.optString("connectionMode","lan"))){
+                        getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Co-op room code",code));Toast.makeText(this,"Room code copied",Toast.LENGTH_SHORT).show();
+                    }
+                }catch(Exception error){notice("Could not copy the room code.");}
                 return;
             }
-            final String form="(()=>{if(globalThis.PokeBonkNativeApp?.run)return null;const r=document.querySelector('.offline-lan-home,.offline-lan-card');"+
+            final String code=NativeMenuAction.joinCode(action),verb=code==null?action.substring(4):"join";
+            final String form="(()=>{if(globalThis.PokeBonkNativeApp?.run)return null;const r=document.querySelector('.offline-lan-rooms')||document.querySelector('.offline-lan-home,.offline-lan-card');"+
                 "if(!r)return null;const f=n=>r.querySelector('[data-lan-field=\"'+n+'\"]')?.value??'';"+
-                "return {species:Number(f('species')),address:f('address'),invitation:f('invitation')}})()";
+                "return {species:Number(f('species')),address:f('address'),invitation:f('invitation'),connectionMode:f('connection-mode')||'lan'}})()";
             web.evaluateJavascript(form,text->{
-                try{if(text.length()<=512&&!"null".equals(text))lan.command(action.substring(4),new JSONObject(text));}
+                try{if(text.length()<=512&&!"null".equals(text)){
+                    JSONObject fields=new JSONObject(text);if(code!=null)fields.put("invitation",code);lan.command(verb,fields);
+                }}
                 catch(Exception error){notice("Could not read the local lobby fields.");}
             });
             return;
@@ -431,13 +443,13 @@ public final class MainActivity extends Activity {
         lanBroker=new WebView(this);WebSettings s=lanBroker.getSettings();s.setJavaScriptEnabled(true);
         s.setAllowFileAccess(false);s.setAllowContentAccess(false);s.setAllowFileAccessFromFileURLs(false);s.setAllowUniversalAccessFromFileURLs(false);
         // This separate trusted broker needs peer transport. Its asset client
-        // and CSP still reject all external HTTP/navigation; native + shared
-        // SDP policy admits private host candidates only. The GAME WebView
+        // and CSP allow only the native-pinned gateway when configured.
+        // LAN still admits private host candidates only. The GAME WebView
         // above retains setBlockNetworkLoads(true).
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setBlockNetworkLoads(false);s.setSupportMultipleWindows(false);s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         lanBroker.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT,false);
         lanBroker.addJavascriptInterface(new BrokerBridge(),"PokeBonkLanBrokerNative");
-        lanBroker.setWebViewClient(new OfflineAssetWebViewClient(getAssets(),()->{},ignored->{},true));
+        lanBroker.setWebViewClient(new OfflineAssetWebViewClient(getAssets(),()->{},ignored->{},true,coopGateway));
         lanBroker.setAlpha(0);root.addView(lanBroker,new FrameLayout.LayoutParams(1,1));
         lanBroker.loadUrl(OfflineAssetWebViewClient.APP_ORIGIN+"/offline/lan-broker.html");
     }

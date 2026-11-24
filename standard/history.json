@@ -1,5 +1,20 @@
 [
   {
+    "version": "1.2.0",
+    "date": "2026-11-24",
+    "status": "Stable release",
+    "upstream": {"version": "0.10.26", "build": "mwsewi0r"},
+    "changes": [
+      "Added optional Internet co-op with STUN-only and direct-first TURN-fallback connection modes alongside offline LAN play. The entry and room screens show connection status without adding a gameplay overlay.",
+      "Find a random match joins a compatible open room. Pick Rooms lists available rooms without reserving seats or requesting TURN credentials until a player joins.",
+      "Join and share using four-character LAN codes or six-character Internet codes, with individual-character inputs, paste support and code copying.",
+      "Back, Esc and Android Back now ask before leaving a room. The confirmation buttons are centered; opening the Lab still preserves the room.",
+      "Improved Android native action routing and WebView-compatible Internet requests so room creation, discovery and joining use the same co-op flow as desktop.",
+      "Permanent TURN issuer and service administration credentials stay server-side. The game renderer remains isolated; compatible peers try direct connections before an authorized temporary relay.",
+      "Normal progression, existing saves, app identity and the Android signing certificate are preserved. Android build number advances to 12."
+    ]
+  },
+  {
     "version": "1.1.0",
     "date": "2026-11-23",
     "status": "Stable release",

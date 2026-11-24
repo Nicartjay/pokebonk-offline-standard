@@ -77,7 +77,18 @@ test("stable publication requires manual dispatch, explicit acceptance and a sep
   assert.match(stable.run, /trusted-publisher\.mjs/);
   assert.match(stable.run, /"git", \["show",/);
   const checks = await document(".github/workflows/checks.yml");
-  assert.doesNotMatch(JSON.stringify(checks), /secrets\.|release-signing|contents":"write"/);
+  // Match actual GitHub expression access, not a safe audit filename such as
+  // audit-coop-secrets.mjs. Bracket access must be denied too.
+  assert.doesNotMatch(JSON.stringify(checks), /\$\{\{[^}]*\bsecrets\s*(?:\.|\[)|release-signing|contents":"write"/);
+});
+test("service verification has no Cloudflare credentials or deployment authority",async()=>{
+  const w=await document(".github/workflows/checks.yml"),job=w.jobs["service-safety"];
+  assert.equal(w.permissions.contents,"read");assert.equal(job.environment,undefined);
+  const commands=job.steps.map(step=>step.run??"").join("\n");
+  assert.match(commands,/audit-coop-secrets\.mjs/);
+  assert.match(commands,/node --test services\/coop-gateway\/test/);
+  assert.doesNotMatch(commands,/wrangler|provision|run deploy|secret bulk/);
+  assert.doesNotMatch(JSON.stringify(job),/\$\{\{[^}]*\bsecrets\s*(?:\.|\[)|CF_USAGE_API_TOKEN|TURN_API_TOKEN|ADMIN_TOKEN/);
 });
 test("explicit all-platform prereleases disclose incomplete checks and cannot advance the stable channel", async () => {
   const w = await document(".github/workflows/publish-release.yml");

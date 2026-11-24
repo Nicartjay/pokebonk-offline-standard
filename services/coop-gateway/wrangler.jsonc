@@ -1,0 +1,46 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pokebonk-offline-coop",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-11-24",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": false
+  },
+  "vars": {
+    "SERVICE_ENABLED": "true",
+    "PUBLIC_MATCHMAKING_ENABLED": "true",
+    "TURN_MODE": "guarded-payg",
+    "TURN_PAYG_RISK_ACCEPTED": "true",
+    "REALTIME_SUBSCRIPTION_ID": "6bb19b43ef9442ea886d3cf01484f647",
+    "ACCEPTED_BUILD_IDS": "[\"PB-LAN2|dev.nicartjay.pokebonk.offline.standard|1.1.0|mwsewi0r|d1b132facb0e823c337a929f6ea262538d5f1284ed2aa0daa6a0504018187d2a\",\"PB-LAN2|dev.nicartjay.pokebonk.offline.standard|1.1.0|mwsewi0r|659b80e7864cf1ed40a62049437c3cc55e9ff83c463f907ea10f952dd3fe3e52\",\"PB-LAN2|dev.nicartjay.pokebonk.offline.standard|1.1.0|mwsewi0r|5a4406d21fa73b38e4af108f00a10e0c0f2f0ec09761521bba1e2144cad53378\",\"PB-LAN2|dev.nicartjay.pokebonk.offline.standard|1.1.0|mwsewi0r|c865c15f3c51d8209a7831de1771c85055b74111e821bf600200ac3d2299a8cb\"]",
+    "TURN_CUTOFF_BYTES": "800000000000"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "CONTROL",
+        "class_name": "CoopControl"
+      },
+      {
+        "name": "ROOMS",
+        "class_name": "CoopRoom"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "CoopControl",
+        "CoopRoom"
+      ]
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "* * * * *"
+    ]
+  }
+}

@@ -6,8 +6,10 @@ import {describeArtifact, writeReceipt, fileHash} from "./release-files.mjs";
 import {androidTools, localCredentials, runAndroidTool, unsignedAPKName, verifyAPKIdentity} from "./android-artifacts.mjs";
 import {verifyAPKPayload} from "./apk-payload.mjs";
 
-const unsigned = process.argv.includes("--unsigned-candidate");
-const credentials = unsigned ? null : await localCredentials(process.argv[2]);
+const args=process.argv.slice(2),unsigned=args.includes("--unsigned-candidate"),localTest=args.includes("--local-test");
+if(args.some(arg=>arg.startsWith("--")&&!["--unsigned-candidate","--local-test"].includes(arg))||unsigned&&localTest)
+  throw Error("Choose a signed --local-test or an --unsigned-candidate, not both.");
+const credentials = unsigned ? null : await localCredentials(args.find(arg=>!arg.startsWith("--")));
 const config = JSON.parse(await readFile("standard/config.json", "utf8"));
 if (!config.androidCertificateSha256 || !config.updatePublicKey) throw new Error("Restore the original public signing configuration.");
 execFileSync(process.execPath, ["standard/scripts/stage-android.mjs"], {stdio: "inherit"});
@@ -36,6 +38,17 @@ if (unsigned) {
     artifact: {name, platform: "android-universal", kind: "apk-unsigned", bytes: info.size, sha256: await fileHash(path.join(out, name))},
   }, null, 2) + "\n");
   console.log("Built an UNSIGNED Android candidate. It is not an installable signed release; finalize locally with the original keys.");
+} else if(localTest) {
+  const out="build/local-test/android",name=artifactName(config.version,"android-universal").replace(/\.apk$/,`-LOCAL-TEST-build${config.androidVersionCode}.apk`);
+  await mkdir(out,{recursive:true});await cp(apk,path.join(out,name));
+  await writeFile(path.join(out,"android-local-test.json"),JSON.stringify({
+    status:"Unpublished signed local test; not a release receipt",version:config.version,
+    versionCode:config.androidVersionCode,applicationId:config.applicationId,platform:"android-universal",
+    sourceCommit:metadata.sourceCommit,sourceDirty:true,gameDigest:inventory.gameDigest,
+    signingCertificateSha256:config.androidCertificateSha256,
+    artifact:{name,bytes:(await stat(path.join(out,name))).size,sha256:await fileHash(path.join(out,name))},
+  },null,2)+"\n");
+  console.log(`Signed local test APK (not published): ${path.resolve(out,name)}`);
 } else {
   const out = "standard/release", name = artifactName(config.version, "android-universal");
   await mkdir(out, {recursive: true}); await cp(apk, path.join(out, name));

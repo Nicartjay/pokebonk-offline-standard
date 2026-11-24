@@ -109,6 +109,29 @@ It refuses stale/different-payload reports and review-only reader overrides,
 copies the verified signed APK beside the Mac files, and writes local checksums
 and testing instructions. It creates no signed update manifest, tag or release.
 
+### Internet co-op test builds
+
+Keep the gateway separate from game releases; its secrets and OAuth credentials
+never go to GitHub or into app assets. After the **final committed shared
+payload** is prepared/verified in `build/standard-game`, run:
+
+```sh
+node standard/scripts/configure-coop.mjs --enable-stun
+cd services/coop-gateway
+npm run deploy
+```
+
+This admits its exact app/upstream/payload identity and retains up to eight prior
+identities. `--replace-test-builds` is only for deliberately retiring earlier
+test candidates. The local co-op check uses
+`pnpm exec electron standard/scripts/check-internet-native.mjs`; it creates
+isolated fixture profiles and does not run gameplay or access real saves.
+Use `package-desktop.mjs darwin arm64 --local-test` and
+`build-android.mjs --local-test` for unpublished, clearly named test packages.
+TURN remains disabled until its separate budget/usage requirements are met.
+See the [connection policy](coop-connection-mode.md) and
+[device testing steps](internet-coop.md). Publication still requires approval.
+
 ## 3. Version and commit reviewed source
 
 Keep independent: app version, Android versionCode, upstream version/build, save
