@@ -1,17 +1,25 @@
-# Co-op in v1.2.0
+# Co-op in v1.3.0
 
-Install matching app builds on every device. v1.1.0 has LAN only; Internet
-co-op and the short-code room picker require v1.2.0 or a matching test build.
+Install the same official release on every device. Local test builds can differ
+even when their displayed version matches, so replace them with the release
+downloads before playing together.
 
 1. Open **Co-op** and choose the same **Connection** mode on every device.
 2. One trainer chooses **Create room** and keeps the host app open.
-3. Other trainers choose **Find a random match**, select a room in
-   **Pick Rooms**, or enter its code in **Join room**.
-4. Choose Pokémon inside the room, ready up, then let the host start.
+3. To appear in **Find a random match** or **Pick Rooms**, the host enables
+   **Find teammates**. Otherwise, share the code and use **Join room**.
+4. Choose Pokémon inside the room. The host selects the map, difficulty, mode
+   and Duo/Trio/Squad capacity; everyone readies up before starting.
 
-Rooms support up to four trainers in **Classic · Viridian Forest · Normal**.
+Rooms support 2–4 trainers in Classic, Survival, Relay, Daily Mutation and
+Boss Rush. Ordinary map/difficulty choices respect the team's earned unlocks.
+The Great Expedition's team panel also supports Wild Valley and Safari Zone.
+Each trainer uses their own loadout and loot ownership; keep the room and apps
+open until rescued-item returns are acknowledged.
+
 LAN codes have **four characters**; Internet codes have **six**.
 Discovery lists only open rooms using the same build and connection mode.
+Expedition searches also match the selected destination.
 The locked Connection control in the room reports the actual selected peer
 route: LAN, STUN/direct, or TURN—not just the preferred policy.
 
@@ -31,8 +39,12 @@ when account metering is unavailable. This is not a guaranteed billing cap.
 
 Single-player and LAN continue working without Internet. Your normal local
 progress and save export/import remain unchanged. Back/Esc asks before leaving.
-Exact interrupted-run reconnection and host migration are not supported.
+Temporary interruptions pause the current run and retry for up to **90 seconds**
+while the apps remain open. The team resumes after synchronization. Choose
+**Give up** to stop retrying; permanent failure ends the attempt through the
+normal results/save path. Force-closed apps and host migration are not supported.
 
-Export a backup before updating. Fully quit the old Mac app with Command-Q
+Finish older-version unfinished runs and export a backup before updating.
+Fully quit the old Mac app with Command-Q
 before opening its replacement. Install Android updates over the existing app;
 do not uninstall first.
