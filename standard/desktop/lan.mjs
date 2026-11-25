@@ -5,6 +5,8 @@ import {privateIPv4,invitation,lanDescription,lanFrame,lanState,sameSubnet} from
 import {lanWire} from './lan-wire.mjs';
 import {LanDiscovery} from './lan-discovery.mjs';
 import {requireLanConnectionMode,lanRoomCode,roomListing} from '../common/coop-mode.mjs';
+import {COOP_RECONNECT_MS,retryDelay} from '../common/coop-recovery.mjs';
+import {coopMaps,coopSeats,requireCoopUnlocks,coopLoadout,coopDestination,coopRoomMatches} from '../common/coop-rules.mjs';
 export function lanInterfaces(){
   return Object.entries(os.networkInterfaces()).flatMap(([label,list])=>/^(utun|tun|tap|wg|tailscale|docker|veth|br-)/i.test(label)?[]:(list??[])
     .filter(i=>i.family==='IPv4'&&!i.internal&&privateIPv4(i.address)).map(i=>({label,address:i.address,netmask:i.netmask})));
@@ -34,6 +36,7 @@ export class NativeLan {
   }
   async find(data,kind="find",code){
     requireLanConnectionMode(data.connectionMode);
+    coopDestination(data.destination??"");
     if(this.starting||this.finding||this.server||this.wires.size||['hosting','connecting','lobby','preparing','playing'].includes(this.value.phase))throw Error('Leave the current room or cancel the search first.');
     const serial=++this.findSerial;this.finding=true;this.findKind=kind;
     try{
@@ -46,13 +49,14 @@ export class NativeLan {
       this.listing={status:kind==="browse"?"loading":"idle",rooms:[]};
       if(kind==="code")this.value={phase:"connecting",members:[],linked:false};
       this.publish();
-      const result=await this.discovery.find();
+      const result=await this.discovery.find(kind==="code"?{code}:{});
       if(serial!==this.findSerial||result.cancelled)return;
       this.finding=false;
+      if(kind!=="code")result.rooms=result.rooms.filter(room=>coopRoomMatches(room.settings,data.destination??""));
       if(kind==="browse"){
         const counts=new Map();for(const room of result.rooms){const key=lanRoomCode(room.id);counts.set(key,(counts.get(key)??0)+1);}
         const rooms=result.rooms.filter(room=>counts.get(lanRoomCode(room.id))===1)
-          .map(room=>({code:lanRoomCode(room.id),name:room.name,players:room.count}));
+          .map(room=>({code:lanRoomCode(room.id),name:room.name,players:room.count,capacity:room.capacity??4,settings:room.settings,rulesAt:room.rulesAt}));
         this.listing=roomListing({status:rooms.length?"ready":"empty",rooms});this.publish();return;
       }
       const candidates=code?result.rooms.filter(room=>lanRoomCode(room.id)===code):result.rooms;
@@ -70,10 +74,16 @@ export class NativeLan {
     }finally{if(serial===this.findSerial)this.finding=false;}
   }
   stop(reason='',error=false,reset=true){
+    clearTimeout(this.reconnectTimer);this.reconnectTarget=null;this.reconnectUntil=null;this.reconnectAttempts=0;
     this.cancelFind(false);this.discovery.advertise(null);
     this.epoch++;
     this.server?.close();this.server=null;
-    const wires=[...this.wires.values()];this.wires.clear();for(const wire of wires)wire.close();
+    const wires=[...this.wires.values()],leaving=!error&&this.value.phase==='playing'&&this.value.role==='client';
+    this.wires.clear();
+    for(const wire of wires){
+      if(leaving){try{wire.send({op:'leave'});}catch{}setTimeout(()=>wire.close(),40);}
+      else wire.close();
+    }
     this.value={phase:error?'error':'closed',members:[],linked:false,...(reason?{error:reason}:{})};
     if(reset)this.input({type:'reset',reason,error});this.publish();
   }
@@ -93,7 +103,8 @@ export class NativeLan {
       const profile=await this.profile();if(requestedEpoch!==this.epoch)return;
       if(profile.unfinished)throw Error('Finish or explicitly end your preserved run before joining LAN co-op.');
       if(!Number.isInteger(data.species)||!profile.league.includes(data.species))throw Error('Choose an owned Pokémon.');
-      const member={id:'lan-'+randomUUID(),name:String(profile.name).replace(/[\u0000-\u001f\u007f]/g,'').slice(0,24),species:data.species};
+      const member={id:'lan-'+randomUUID(),name:String(profile.name).replace(/[\u0000-\u001f\u007f]/g,'').slice(0,24),species:data.species,maps:coopMaps(profile.maps)};
+      const settings=coopDestination(data.destination??"");
       const invite=action==='join'?invitation(data.invitation):null;
       const selected=action==='host'?this.interfaces().find(i=>i.address===data.address):null;
       if(action==='host'&&!selected)throw Error('Choose a private local network interface.');
@@ -110,8 +121,9 @@ export class NativeLan {
         });this.server=server;
         server.on('error',error=>{if(this.server===server)this.stop(error.message,true);});
         await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,selected.address,resolve);});
-        await this.broker({type:'enter',role:'host',member,invitation:`${selected.address}:${server.address().port}#${secret}`});
+        await this.broker({type:'enter',role:'host',member,settings,invitation:`${selected.address}:${server.address().port}#${secret}`});
       }else{
+        this.reconnectTarget={invite,secret,generation};
         await this.broker({type:'enter',role:'client',member});
         if(generation!==this.epoch)return;
         const socket=net.connect({host:invite.address,port:invite.port});this.attach(socket,false,secret);
@@ -123,19 +135,47 @@ export class NativeLan {
     const wire=lanWire(socket,{host,identity:this.identity,secret},{
       open:()=>this.input({type:'open',connection}),
       message:value=>{try{if(value?.op==='signal')value={...value,description:lanDescription(value.description)};this.input({type:'message',connection,value});}catch(error){wire.close(error.message);}},
-      close:reason=>{if(this.wires.get(connection)!==wire)return;this.wires.delete(connection);this.input({type:'closed',connection,reason});},
+      close:reason=>{
+        if(this.wires.get(connection)!==wire)return;
+        this.wires.delete(connection);this.input({type:'closed',connection,reason});
+        if(!host&&this.value.phase==='playing'&&this.reconnectTarget)this.retryConnection();
+      },
     });this.wires.set(connection,wire);
+  }
+  retryConnection(){
+    clearTimeout(this.reconnectTimer);
+    const target=this.reconnectTarget;if(!target)return;
+    this.reconnectUntil??=Date.now()+COOP_RECONNECT_MS;
+    if(Date.now()>=this.reconnectUntil){this.stop('Reconnection timed out. Ending this run.',true);return;}
+    this.reconnectTimer=setTimeout(()=>{
+      if(this.reconnectTarget!==target||target.generation!==this.epoch)return;
+      if(!this.interfaces().some(network=>sameSubnet(network.address,target.invite.address,network.netmask))){this.retryConnection();return;}
+      const socket=net.connect({host:target.invite.address,port:target.invite.port});
+      this.attach(socket,false,target.secret);
+    },retryDelay(this.reconnectAttempts=(this.reconnectAttempts??0)+1));
   }
   async fromGame(channel,data){
     if(channel==='cancel-find'){this.cancelFind();return;}
     if(channel==='refresh'){this.publish();return;}
     if(channel==='leave'){this.stop();return;}
-    if(['room-ready','room-start','room-pick','room-chat'].includes(channel)){
+    if(channel==="room-return"){
+      const profile=await this.profile();
+      if(this.value.phase!=="playing"||data!==this.value.match?.party||profile.ticket?.party===data||
+        !profile.completedParties?.includes(data))throw Error("The completed co-op run has not been saved.");
+      this.input({type:"action",action:"return",data});return;
+    }
+    if(['room-ready','room-start','room-pick','room-chat','room-settings','room-seats','room-loadout'].includes(channel)){
       if(!['hosting','lobby'].includes(this.value.phase))return;
       if(channel==='room-pick'){
         const profile=await this.profile();if(profile.unfinished||!Number.isInteger(data)||!profile.league.includes(data))throw Error('Choose an owned Pokémon and finish any preserved run first.');
       }
       if(channel==='room-chat'&&(typeof data!=='string'||data.length>140))return;
+      if(channel==='room-loadout')data=coopLoadout(data);
+      if(channel==='room-settings'||channel==='room-seats'){
+        if(this.value.role!=="host")throw Error("Only the host can change this room.");
+        if(channel==='room-settings')requireCoopUnlocks(data,this.value.members);
+        else coopSeats(data,this.value.members.length);
+      }
       this.input({type:'action',action:channel.slice(5),data});return;
     }
     if(channel==='prepared'){
@@ -149,7 +189,11 @@ export class NativeLan {
   }
   fromBroker(value){
     try{
-      if(value.type==='state'){this.value=lanState(value.value);this.discovery.advertise(this.value);this.publish();}
+      if(value.type==='state'){
+        this.value=lanState(value.value);
+        if(this.value.phase==='playing'&&this.value.linked){clearTimeout(this.reconnectTimer);this.reconnectUntil=null;this.reconnectAttempts=0;}
+        this.discovery.advertise(this.value);this.publish();
+      }
       else if(value.type==='send'){
         const wire=this.wires.get(value.connection);if(!wire)return;
         const message=value.value;if(message?.op==='signal')message.description=lanDescription(message.description);

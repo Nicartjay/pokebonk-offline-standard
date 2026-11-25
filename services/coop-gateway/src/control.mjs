@@ -75,7 +75,7 @@ export class CoopControl {
     }
     if (route === "/register-room") {
       const value = await body(request), key = `room:${value.code}`;
-      requireValue(roomCodeValid(value.code) && value.code.length===(coopProtocol(value.protocolVersion)===2?6:8)&&
+      requireValue(roomCodeValid(value.code) && value.code.length===(coopProtocol(value.protocolVersion)>=2?6:8)&&
         /^[a-f0-9]{64}$/.test(value.client), 400, "invalid_registration");
       const rooms = await storage.list({prefix: "room:"});
       for (const [name, room] of rooms) if (room.expiresAt <= now) { await storage.delete(name); rooms.delete(name); }
@@ -97,6 +97,13 @@ export class CoopControl {
       if(room&&room.generation===value.generation)await storage.delete(key);
       return json({removed:true});
     }
+    if(route==="/room-visibility"){
+      const value=await body(request),key=`room:${value.code}`,room=await storage.get(key);
+      requireValue(room&&room.generation===value.generation&&room.protocolVersion>=3&&
+        typeof value.discoverable==="boolean",409,"room_not_current");
+      await storage.put(key,{...room,discoverable:value.discoverable});
+      return json({updated:true});
+    }
     if(route==="/matchmaking"){
       const value=await body(request);internetMode(value.connectionMode);const protocolVersion=coopProtocol(value.protocolVersion);
       requireValue(/^[a-f0-9]{64}$/.test(value.client)&&Array.isArray(value.exclude)&&value.exclude.length<=POLICY.maxRooms&&
@@ -105,6 +112,9 @@ export class CoopControl {
       requireValue(!rate||rate.until<=now||rate.count<20,429,"matchmaking_rate_limited");
       await storage.put(key,rate?.until>now?{...rate,count:rate.count+1}:{count:1,until:now+60000});
       await this.schedule(now+60000);
+      // Knowing an exact v3 room code is a separate, rate-limited invitation
+      // path. It does not enumerate or publish code-only rooms.
+      if(value.codeLookup===true){requireValue(protocolVersion>=3,400,"invalid_coop_protocol");return json({rooms:[]});}
       const candidates=[];
       for(const [key,room] of await storage.list({prefix:"room:"})){
         if(room.expiresAt<=now){await storage.delete(key);continue;}

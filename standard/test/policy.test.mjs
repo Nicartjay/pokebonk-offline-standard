@@ -115,7 +115,7 @@ test("storage and LAN bridges remain separate, narrow and exclude updater/fs/she
     ["web", "LanBridge", "PokeBonkLANAndroid"],
     ["lanBroker", "BrokerBridge", "PokeBonkLanBrokerNative"],
   ]);
-  assert.match(java, /channel\.matches\("ctl\|snap\|prepared\|failed\|leave\|refresh\|cancel-find\|room-ready\|room-start\|room-pick\|room-chat"\)/);
+  assert.match(java, /channel\.matches\("ctl\|snap\|prepared\|failed\|leave\|refresh\|cancel-find\|room-ready\|room-start\|room-pick\|room-chat\|room-settings\|room-seats\|room-loadout\|room-return"\)/);
   assert.match(java, /text\.length\(\)>48000/);
   const transport = await readFile("standard/runtime/transport.js", "utf8");
   assert.doesNotMatch(transport, /fetch\(|http:|https:|node:|checkUpdates|installUpdate/);

@@ -115,9 +115,35 @@ export function reviewedBindings(input) {
       if (names.length === 1 && matches?.length === 1) memo.set(key + ":" + names[0], matches[0]);
     }
   }
+  // 0.10.31 adds the original Pokédex+ hub and cumulative collection/move
+  // history. These public roles changed bodies, not their contracts. Resolve
+  // each by its unique AST/content role in BOTH the canonical and new module.
+  function semanticRole(key, predicate, label) {
+    const owners = [previous.get(key), current.get(key)].map(module =>
+      one([...module.declarations].filter(([, node]) => predicate(node)), label)[0]);
+    memo.set(key + ":" + owners[0], owners[1]);
+  }
+  semanticRole("menus", node => node.type === "FunctionDeclaration" &&
+    nodesOf(node, "TemplateLiteral", value => literal(value) === "dx-nb dx-hdbtn").length === 1 &&
+    nodesOf(node, "CallExpression", call => maybeName(call.callee.property) === "researched").length === 1,
+  "Pokédex entry and research-notebook controls");
+  semanticRole("buildshare", node => node.type === "FunctionDeclaration" && node.params.length === 1 &&
+    ["movesOff", "typesOff", "treasures", "friendship", "lastSpecies"].every(key =>
+      nodesOf(node, "AssignmentExpression", value => maybeName(value.left.property) === key).length > 0),
+  "normal-progression profile normalizer");
+  semanticRole("buildshare", node => node.type === "FunctionDeclaration" && node.params.length === 4 &&
+    ["prevKills", "prevBest", "shinyDust", "joined", "tasks", "events"].every(key =>
+      nodesOf(node, "Property", value => maybeName(value.key) === key).length > 0) &&
+    nodesOf(node, "MemberExpression", value => maybeName(value.property) === "wildK").length > 0,
+  "earned run-reward settlement");
   // A simple module-state setter has the same syntax as other setters. Its
   // actual role is unambiguous in the reviewed main-menu entry contract.
   for (const [key, maps] of [["menus", [previous.get("menus"), current.get("menus")]]]) {
+    const entries = maps.map(module => one(module.tree.body.filter(node =>
+      node.type === "FunctionDeclaration" &&
+      nodesOf(node, "TemplateLiteral", value => literal(value) === "mm-tiles").length === 1),
+    "main-menu entry"));
+    memo.set(key + ":" + entries[0].id.name, entries[1].id.name);
     const setters = maps.map(module => {
       const main = one(module.tree.body.filter(node => node.type === "FunctionDeclaration" &&
         module.source.slice(node.start, node.end).includes("`mm-tiles`")), "main-menu binding owner");

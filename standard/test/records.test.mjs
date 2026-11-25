@@ -1,10 +1,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import {readFile} from "node:fs/promises";
 import {addRecord, ensureRecords, personalRecords, recordRow} from "../runtime/records.js";
 
 const state = () => ({profile: {runs: [], best: {}, kills: {}, times: {}, endless: {}}});
 const run = (values = {}) => ({id: "offline-test", mode: "standard", species: 4, finalSpecies: 6,
   biome: "forest", tier: 0, kills: 100, time: 600, victory: true, date: 1000, ...values});
+test("homepage Pokémon portraits have rounded corners without changing size or pixel-art rendering",async()=>{
+  const css=await readFile(new URL("../runtime/home.css",import.meta.url),"utf8");
+  const rule=css.match(/\.offline-home-record-table\s+td\s*>\s*img\s*\{([^}]+)\}/);
+  assert.ok(rule,"The portrait rule must stay scoped to the homepage table.");
+  for(const declaration of [/width:\s*28px/,/height:\s*28px/,/border-radius:\s*6px/,
+    /margin-right:\s*6px/,/image-rendering:\s*pixelated/])assert.match(rule[1],declaration);
+});
 test("KOs, Survival and Time Attack have distinct eligibility and comparison rules", () => {
   const save = state(), records = ensureRecords(save);
   addRecord(records, run());

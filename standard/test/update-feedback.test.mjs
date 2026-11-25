@@ -54,6 +54,44 @@ test("manual update networking remains native-only and UI feedback adds no calla
   assert.deepEqual([...bridge.matchAll(/ipcRenderer\.invoke\("([^"]+)"/g)].map(m => m[1]), ["standard:load-state", "standard:save-state"]);
   const ui = await readFile("standard/runtime/ui.js", "utf8");
   assert.match(ui, /setAttribute\("role", "progressbar"\)/);
-  assert.doesNotMatch(ui, /aria-valuenow/);
+  assert.match(ui, /aria-valuenow/);
   assert.match(ui, /if \(!view \|\| globalThis\.PokeBonkNativeApp\?\.run\) return false/);
+});
+const update = {latestVersion: "1.4.0", kind: "apk", totalBytes: 100, receivedBytes: 37,
+  upstreamVersion: "0.10.26", upstreamBuild: "mwsewi0r", notes: "Sample release"};
+test("download percent comes only from bounded transferred bytes and the signed size", () => {
+  const view = updateFeedbackView({...update, state: "downloading"}, config);
+  assert.equal(view.percent, 37);
+  assert.equal(view.busy, true);
+  assert.equal(view.primary, null);
+  assert.equal(updateFeedbackView({...update, state: "downloading", receivedBytes: 100}, config).percent, 100);
+  for (const extra of [{receivedBytes: -1}, {receivedBytes: 101}, {receivedBytes: NaN},
+    {totalBytes: 0}, {totalBytes: 2 ** 40}, {kind: "execute"}, {latestVersion: "../bad"}]) {
+    assert.equal(updateFeedbackView({...update, state: "downloading", ...extra}, config), null);
+  }
+});
+test("only a verified ready state offers the fixed Install action", () => {
+  for (const state of ["checking", "downloading", "verifying", "installing"]) {
+    const view = updateFeedbackView({...update, state}, config);
+    assert.equal(view.primary, null);
+    assert.equal(view.busy, true);
+  }
+  assert.deepEqual(updateFeedbackView({...update, state: "available"}, config).primary,
+    {label: "Download update", action: "download-update"});
+  assert.deepEqual(updateFeedbackView({...update, state: "ready"}, config).primary,
+    {label: "Install update", action: "install-update"});
+  assert.match(updateFeedbackView({...update, state: "ready"}, config).note, /Android.*confirm installation/);
+});
+test("transfer failures offer a bounded retry without inventing success", () => {
+  const view = updateFeedbackView({...update, state: "error", errorStage: "download", retryAction: "download-update"}, config);
+  assert.equal(view.title, "Download didn’t finish");
+  assert.equal(view.primary.action, "download-update");
+  assert.equal(updateFeedbackView({...update, state: "error", retryAction: "execute"}, config).primary.action, "check-for-updates");
+});
+test("app-controlled updater presentation never falls back to an Android system alert", async () => {
+  const source = await readFile("standard/android/app/src/main/java/dev/nicartjay/pokebonk/offline/standard/MainActivity.java", "utf8");
+  const block = source.slice(source.indexOf("private void presentUpdate()"), source.indexOf("private void exportSave()"));
+  assert.doesNotMatch(block, /AlertDialog|Toast|showDialog/);
+  assert.match(block, /retryFeedback/);
+  assert.match(source, /dismissUpdate/);
 });

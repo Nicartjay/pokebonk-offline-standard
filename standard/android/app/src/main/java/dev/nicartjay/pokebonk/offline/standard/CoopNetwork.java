@@ -82,12 +82,13 @@ final class CoopNetwork implements AutoCloseable {
                     JSONObject p=profile.get();if(generation!=epoch||disposed)return;
                     LanPolicy.require(!p.getBoolean("unfinished"),"Finish or explicitly end the preserved run before joining co-op.");
                     int species=data.getInt("species");LanPolicy.require(owned(p,species),"Choose an owned Pokémon.");
+                    CoopRules.destination(data.optString("destination"));
                     if("join".equals(action))LanPolicy.require(data.optString("invitation").matches("(?:[A-Z0-9]{6}|[A-Z2-7]{8}#[A-Za-z0-9_-]{43})"),"Enter the 6-character Internet room code.");
                     synchronized(CoopNetwork.this){
                         if(generation!=epoch||disposed)return;
                         String name=p.optString("name").replaceAll("[\\x00-\\x1f\\x7f]","");if(name.length()>24)name=name.substring(0,24);
                         input(new JSONObject().put("type",action).put("gateway",gateway).put("identity",identity)
-                            .put("player",new JSONObject().put("name",name)).put("data",data));
+                            .put("player",new JSONObject().put("name",name).put("maps",CoopRules.maps(p.optJSONObject("maps")))).put("data",data));
                     }
                 }catch(Exception error){
                     synchronized(CoopNetwork.this){
@@ -115,20 +116,24 @@ final class CoopNetwork implements AutoCloseable {
                 if(disposed||!internet||generation!=epoch)return;
                 Object data=new org.json.JSONTokener(text).nextValue();JSONObject state=new JSONObject(current);String phase=state.optString("phase");
                 if("failed".equals(channel)){stop("Co-op preparation failed. Your save is preserved.",true);return;}
-                if("prepared".equals(channel)){
+                if("room-return".equals(channel)){
+                    CoopRules.returned(profile.get(),state,data);
+                }else if("prepared".equals(channel)){
                     JSONObject ticket=profile.get().optJSONObject("ticket"),match=state.optJSONObject("match");
                     LanPolicy.require("preparing".equals(phase)&&ticket!=null&&match!=null&&data.equals(match.getString("party"))&&
                         data.equals(ticket.getString("party"))&&ticket.getLong("seed")==match.getLong("seed")&&
                         ticket.getJSONObject("lan").getString("me").equals(state.getString("me"))&&
                         ticket.getJSONObject("lan").getInt("size")==state.getJSONArray("members").length()&&
                         !ticket.getJSONObject("lan").getBoolean("launched"),"Co-op run was not durably committed.");
-                }else if(channel.matches("room-start|room-ready|room-pick|room-chat")){
+                }else if(channel.matches("room-start|room-ready|room-pick|room-chat|room-settings|room-seats|room-loadout")){
                     if(!phase.matches("hosting|lobby"))return;
                     if("room-pick".equals(channel)){
                         JSONObject p=profile.get();
                         LanPolicy.require(!p.getBoolean("unfinished")&&data instanceof Number&&((Number)data).doubleValue()==((Number)data).intValue()&&owned(p,((Number)data).intValue()),"Choose an owned Pokémon.");
                     }
                     if("room-chat".equals(channel)&&(!(data instanceof String)||((String)data).length()>140))return;
+                    if("room-loadout".equals(channel))data=CoopRules.loadout((JSONObject)data);
+                    if(channel.matches("room-settings|room-seats"))CoopRules.action(channel,data,state);
                 }else{
                     if(!"playing".equals(phase)||!(data instanceof JSONObject)||!channel.matches("ctl|snap"))return;
                     JSONObject frame=(JSONObject)data;boolean member=false;
@@ -155,6 +160,7 @@ final class CoopNetwork implements AutoCloseable {
             else if("frame".equals(type)&&"playing".equals(state.optString("phase"))&&LanPolicy.frame(value.optString("channel"),value.opt("data"))){
                 for(int i=0;i<state.getJSONArray("members").length();i++)if(state.getJSONArray("members").getJSONObject(i).getString("id").equals(value.optString("peer")))event.accept(value);
             }else if("peer-closed".equals(type)&&LanPolicy.id(value.optString("peer")))event.accept(value);
+            else if("notice".equals(type)&&value.opt("message") instanceof String)notice(value.getString("message"));
         }catch(Exception error){stop("Invalid Internet room state. Your save is preserved.",true);}
     }
     @Override public void close(){disposed=true;stop("",false);local.close();io.shutdownNow();}

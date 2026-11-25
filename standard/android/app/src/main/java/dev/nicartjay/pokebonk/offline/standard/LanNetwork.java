@@ -18,6 +18,9 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import org.json.JSONArray;
@@ -35,6 +38,11 @@ final class LanNetwork implements AutoCloseable {
     private final LanDiscovery discovery;
     private final Consumer<JSONObject> broker,event;
     private final ExecutorService commands=Executors.newSingleThreadExecutor(),acceptor=Executors.newSingleThreadExecutor();
+    private final ScheduledExecutorService retries=Executors.newSingleThreadScheduledExecutor();
+    private ScheduledFuture<?> retryTask;
+    private volatile String resumeAddress,resumeSecret;
+    private volatile int resumePort,retryCount;
+    private volatile long resumeEpoch,retryUntil;
     private final Map<String,LanWire> wires=new ConcurrentHashMap<>();
     private volatile ServerSocket server;
     private volatile Socket connecting;
@@ -98,7 +106,7 @@ final class LanNetwork implements AutoCloseable {
         current=new JSONObject().put("phase",phase).put("members",new JSONArray()).put("linked",false).toString();
         if("browse".equals(kind))listingState="{\"status\":\"loading\",\"rooms\":[]}";
         findStatus("find".equals(kind)?"searching":"code".equals(kind)?"joining":"idle",0,null);
-        discovery.find(count->{if(serial==findSerial.get()&&"find".equals(kind))findStatus("searching",count,null);},
+        discovery.find("code".equals(kind)?code:null,count->{if(serial==findSerial.get()&&"find".equals(kind))findStatus("searching",count,null);},
             rooms->{
                 if(disposed||serial!=findSerial.get())return;
                 finding=false;
@@ -107,12 +115,14 @@ final class LanNetwork implements AutoCloseable {
                         Map<String,Integer> counts=new HashMap<>();
                         for(JSONObject room:rooms){String key=CoopCodes.lan(room.getString("id"));counts.put(key,counts.getOrDefault(key,0)+1);}
                         JSONArray listed=new JSONArray();
-                        for(JSONObject room:rooms){String key=CoopCodes.lan(room.getString("id"));if(counts.get(key)==1)
-                            listed.put(new JSONObject().put("code",key).put("name",room.getString("name")).put("players",room.getInt("count")));}
+                        for(JSONObject room:rooms){String key=CoopCodes.lan(room.getString("id"));if(counts.get(key)==1&&CoopRules.matches(room.optJSONObject("settings"),data.optString("destination")))
+                            {JSONObject entry=new JSONObject().put("code",key).put("name",room.getString("name")).put("players",room.getInt("count"))
+                                .put("capacity",room.optInt("capacity",4)).put("settings",CoopRules.settings(room.optJSONObject("settings")));
+                              if(room.has("rulesAt"))entry.put("rulesAt",CoopRules.time(room.get("rulesAt")));listed.put(entry);}}
                         listingState=LanPolicy.listing(new JSONObject().put("status",listed.length()>0?"ready":"empty").put("rooms",listed),"lan").toString();publish();return;
                     }
                     List<JSONObject> candidates=new ArrayList<>();
-                    for(JSONObject room:rooms)if(!"code".equals(kind)||CoopCodes.lan(room.getString("id")).equals(code))candidates.add(room);
+                    for(JSONObject room:rooms)if("code".equals(kind)?CoopCodes.lan(room.getString("id")).equals(code):CoopRules.matches(room.optJSONObject("settings"),data.optString("destination")))candidates.add(room);
                     if("code".equals(kind))LanPolicy.require(candidates.size()==1,candidates.isEmpty()?
                         "No compatible LAN room has that code. Check the host and Wi-Fi.":"More than one host has that code. Ask them to create a new room.");
                     if(candidates.isEmpty()){findStatus("empty",0,null);return;}
@@ -134,11 +144,19 @@ final class LanNetwork implements AutoCloseable {
         findStatus("error",0,message);
     }
     synchronized void stop(String reason,boolean error){
+        if(retryTask!=null)retryTask.cancel(false);
+        resumeAddress=resumeSecret=null;retryUntil=0;retryCount=0;
         cancelFind(false);discovery.advertise(null);
         epoch++;
         Socket pendingSocket=connecting;connecting=null;if(pendingSocket!=null)try{pendingSocket.close();}catch(Exception ignored){}
         ServerSocket old=server;server=null;if(old!=null)try{old.close();}catch(Exception ignored){}
-        List<LanWire> oldWires=new ArrayList<>(wires.values());wires.clear();for(LanWire wire:oldWires)wire.close();
+        List<LanWire> oldWires=new ArrayList<>(wires.values());wires.clear();
+        boolean leaving=false;try{leaving=!disposed&&!error&&"playing".equals(phase)&&"client".equals(new JSONObject(current).optString("role"));}catch(Exception ignored){}
+        for(LanWire wire:oldWires){
+            if(leaving){try{wire.send("{\"op\":\"leave\"}");retries.schedule(wire::close,40,TimeUnit.MILLISECONDS);}
+                catch(Exception ignored){wire.close();}}
+            else wire.close();
+        }
         try{
             phase=error?"error":"closed";JSONObject value=new JSONObject().put("phase",phase).put("members",new JSONArray()).put("linked",false);
             if(reason!=null&&!reason.isEmpty())value.put("error",reason.substring(0,Math.min(240,reason.length())));current=value.toString();publish();
@@ -179,7 +197,7 @@ final class LanNetwork implements AutoCloseable {
             LanPolicy.require(!p.getBoolean("unfinished"),"Finish or explicitly end your preserved run before joining local co-op.");
             int species=data.getInt("species");LanPolicy.require(owned(p,species),"Choose an owned Pokémon.");
             String name=p.optString("name").replaceAll("[\\x00-\\x1f\\x7f]","");if(name.length()>24)name=name.substring(0,24);
-            JSONObject member=new JSONObject().put("id","lan-"+UUID.randomUUID()).put("name",name).put("species",species);
+            JSONObject member=new JSONObject().put("id","lan-"+UUID.randomUUID()).put("name",name).put("species",species).put("maps",CoopRules.maps(p.optJSONObject("maps")));
             stop("",false);operationEpoch=epoch;phase="connecting";
             if("host".equals(action)){
                 String address=data.optString("address");Network selected=null;for(Network n:networks())if(n.address.equals(address))selected=n;
@@ -187,7 +205,7 @@ final class LanNetwork implements AutoCloseable {
                 byte[]key=new byte[16];new SecureRandom().nextBytes(key);StringBuilder hex=new StringBuilder();for(byte b:key)hex.append(String.format(java.util.Locale.ROOT,"%02x",b&255));String secret=hex.toString();
                 ServerSocket listening=new ServerSocket();listening.setReuseAddress(true);listening.bind(new InetSocketAddress(InetAddress.getByName(address),0));
                 if(disposed){listening.close();return;}server=listening;
-                input(new JSONObject().put("type","enter").put("role","host").put("member",member).put("invitation",address+":"+listening.getLocalPort()+"#"+secret));
+                input(new JSONObject().put("type","enter").put("role","host").put("member",member).put("settings",CoopRules.destination(data.optString("destination"))).put("invitation",address+":"+listening.getLocalPort()+"#"+secret));
                 Network network=selected;long generation=epoch;acceptor.execute(()->accept(listening,network,secret,generation));
             }else{
                 String invite=data.optString("invitation").trim();LanPolicy.require(invite.matches("[\\d.]+:\\d{1,5}#[a-fA-F0-9]{32}"),"Paste the complete host invitation: address:port#pairing-key.");
@@ -195,6 +213,7 @@ final class LanNetwork implements AutoCloseable {
                 LanPolicy.require(port>=1024&&port<=65535&&LanPolicy.privateAddress(address),"Use a private LAN invitation.");
                 boolean local=false;for(Network n:networks())if(LanPolicy.subnet(address,n.address,n.prefix))local=true;LanPolicy.require(local,"The host must be on your current private LAN.");
                 input(new JSONObject().put("type","enter").put("role","client").put("member",member));
+                resumeAddress=address;resumePort=port;resumeSecret=secret;resumeEpoch=epoch;
                 Socket socket=new Socket();connecting=socket;long generation=epoch;
                 try{socket.connect(new InetSocketAddress(address,port),10000);attach(socket,false,secret,generation);}
                 catch(Exception error){try{socket.close();}catch(Exception ignored){}throw error;}finally{if(connecting==socket)connecting=null;}
@@ -215,9 +234,32 @@ final class LanNetwork implements AutoCloseable {
         LanWire wire=new LanWire(socket,host,identity,secret,new LanWire.Listener(){
             @Override public void open(){try{input(new JSONObject().put("type","open").put("connection",connection));}catch(Exception error){fail(error);}}
             @Override public void message(String text){try{JSONObject value=LanPolicy.parse(text,48000);if("signal".equals(value.optString("op")))value.put("description",LanPolicy.description(value.getJSONObject("description")));input(new JSONObject().put("type","message").put("connection",connection).put("value",value));}catch(Exception error){LanWire current=wires.get(connection);if(current!=null)current.close();}}
-            @Override public void closed(String reason){LanWire gone=wires.remove(connection);if(gone==null)return;try{input(new JSONObject().put("type","closed").put("connection",connection).put("reason",reason));}catch(Exception error){fail(error);}}
+            @Override public void closed(String reason){
+                LanWire gone=wires.remove(connection);if(gone==null)return;
+                try{input(new JSONObject().put("type","closed").put("connection",connection).put("reason",reason));}
+                catch(Exception error){fail(error);}
+                if(!host&&"playing".equals(phase)&&epoch==generation)retryNetwork();
+            }
         });wires.put(connection,wire);
         if(disposed||epoch!=generation){wires.remove(connection);wire.close();return;}wire.start();
+    }
+    private synchronized void retryNetwork(){
+        if(disposed||resumeSecret==null||resumeEpoch!=epoch)return;
+        if(retryTask!=null)retryTask.cancel(false);
+        if(retryUntil==0)retryUntil=System.currentTimeMillis()+90000L;
+        if(System.currentTimeMillis()>=retryUntil){stop("Reconnection timed out. Ending this run.",true);return;}
+        final long generation=resumeEpoch;
+        final String address=resumeAddress,secret=resumeSecret;final int port=resumePort;
+        long delay=Math.min(8000L,500L<<Math.min(4,++retryCount));
+        retryTask=retries.schedule(()->{
+            if(disposed||epoch!=generation||resumeSecret==null)return;
+            boolean local=false;for(Network network:networks())if(LanPolicy.subnet(address,network.address,network.prefix))local=true;
+            if(!local){retryNetwork();return;}
+            Socket socket=new Socket();connecting=socket;
+            try{socket.connect(new InetSocketAddress(address,port),8000);attach(socket,false,secret,generation);}
+            catch(Exception error){try{socket.close();}catch(Exception ignored){}if(epoch==generation)retryNetwork();}
+            finally{if(connecting==socket)connecting=null;}
+        },delay,TimeUnit.MILLISECONDS);
     }
     private static boolean owned(JSONObject profile,int species)throws Exception {JSONArray list=profile.getJSONArray("league");for(int i=0;i<list.length();i++)if(list.getInt(i)==species)return true;return false;}
     void fromGame(String channel,String json){
@@ -230,10 +272,16 @@ final class LanNetwork implements AutoCloseable {
             if("refresh".equals(channel)){publish();return;}
             if("leave".equals(channel)){stop("",false);return;}
             JSONObject wrapper=LanPolicy.parse("{\"data\":"+json+"}",49000);Object data=wrapper.opt("data");
-            if(channel.matches("room-ready|room-start|room-pick|room-chat")){
+            if("room-return".equals(channel)){
+                CoopRules.returned(profile.get(),LanPolicy.parse(current,24000),data);
+                input(new JSONObject().put("type","action").put("action","return").put("data",data));return;
+            }
+            if(channel.matches("room-ready|room-start|room-pick|room-chat|room-settings|room-seats|room-loadout")){
                 if(!phase.matches("hosting|lobby"))return;
                 if("room-pick".equals(channel)){JSONObject p=profile.get();LanPolicy.require(!p.getBoolean("unfinished")&&data instanceof Number&&owned(p,((Number)data).intValue()),"Choose an owned Pokémon.");}
                 if("room-chat".equals(channel))LanPolicy.require(data instanceof String&&((String)data).length()<=140,"Keep local chat under 140 characters.");
+                if("room-loadout".equals(channel))data=CoopRules.loadout((JSONObject)data);
+                if(channel.matches("room-settings|room-seats"))CoopRules.action(channel,data,LanPolicy.parse(current,24000));
                 input(new JSONObject().put("type","action").put("action",channel.substring(5)).put("data",data));return;
             }
             if("prepared".equals(channel)){
@@ -252,7 +300,13 @@ final class LanNetwork implements AutoCloseable {
     void fromBroker(String text){
         try{
             JSONObject value=LanPolicy.parse(text,48000);String type=value.optString("type");
-            if("state".equals(type)){JSONObject state=LanPolicy.state(value.getJSONObject("value"));current=state.toString();phase=state.getString("phase");discovery.advertise(state);publish();}
+            if("state".equals(type)){
+                JSONObject state=LanPolicy.state(value.getJSONObject("value"));current=state.toString();phase=state.getString("phase");
+                if("playing".equals(phase)&&state.optBoolean("linked")){
+                    synchronized(this){if(retryTask!=null)retryTask.cancel(false);retryUntil=0;retryCount=0;}
+                }
+                discovery.advertise(state);publish();
+            }
             else if("send".equals(type)){LanWire wire=wires.get(value.optString("connection"));if(wire==null)return;JSONObject message=value.getJSONObject("value");if("signal".equals(message.optString("op")))message.put("description",LanPolicy.description(message.getJSONObject("description")));wire.send(message.toString());}
             else if("reject".equals(type)){LanWire wire=wires.get(value.optString("connection"));if(wire!=null){wire.send(new JSONObject().put("op","rejected").put("reason",value.optString("reason")).toString());commands.execute(()->{try{Thread.sleep(40);}catch(InterruptedException error){Thread.currentThread().interrupt();}wire.close();});}}
             else if("terminate".equals(type))stop(value.optString("reason"),true);
@@ -260,5 +314,5 @@ final class LanNetwork implements AutoCloseable {
             else if("peer-closed".equals(type)||"notice".equals(type))event.accept(value);
         }catch(Exception error){fail(error);}
     }
-    @Override public synchronized void close(){disposed=true;stop("",false);discovery.close();commands.shutdownNow();acceptor.shutdownNow();}
+    @Override public synchronized void close(){disposed=true;stop("",false);discovery.close();commands.shutdownNow();acceptor.shutdownNow();retries.shutdownNow();}
 }

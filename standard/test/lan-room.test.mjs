@@ -6,6 +6,7 @@ import {patchLanRoom,patchLanLanding} from "../adapters/lan-room.mjs";
 import {LanLobby} from "../runtime/lan-lobby.js";
 import {ownedLanSpecies,installLanUI} from "../runtime/lan-ui.js";
 import {LocalRoom} from "../runtime/lan.js";
+import vm from "node:vm";
 import {nodesOf, maybeName, literal, one} from "../../scripts/source.ts";
 const directory = new URL("../../vendor/pokebonk-standard-0.10.26/game/assets/", import.meta.url);
 const name = one((await readdir(directory)).filter(name => /^menus-.*\.js$/.test(name)), "captured menus module");
@@ -35,9 +36,12 @@ test("removes server-only room services and destructive solo-save clearing", () 
     "voteOut", "retryLink", "clearSavedForCoop", "startRun", "share"]) {
     assert.ok(!calls.includes(method), "must not call " + method);
   }
-  assert.ok(patched.change.text.includes("disabled:true"));
-  assert.ok(patched.change.text.includes('.filter(mode=>mode==="classic")'));
-  assert.ok(patched.change.text.includes("/4"));
+  assert.ok(patched.change.text.includes("coopModeUnavailable"));
+  assert.ok(!patched.change.text.includes('.filter(mode=>mode==="classic")'));
+  assert.ok(calls.includes("setSettings"));
+  assert.ok(calls.includes("openSeats"));
+  assert.ok(patched.change.text.includes("coopRoomCapacity"));
+  assert.ok(patched.change.text.includes(".room.want??4"));
   assert.ok(!patched.change.text.includes("/2"));
   assert.match(patched.change.text,/globalThis\.PokeBonkOfflineUI\.lanRoomSubtitle\(\w+\)/);
   assert.ok(patched.change.text.includes("disabled:t.preview"));
@@ -58,6 +62,57 @@ test("Lab browsing keeps the upstream return callback and restores title without
   assert.ok(nodesOf(handler,"ArrowFunctionExpression",fn=>fn.params.length===1&&fn.body.type==="CallExpression"&&
     fn.body.arguments.length===3&&literal(fn.body.arguments[1])==="lab"&&
     maybeName(fn.body.arguments[2])===maybeName(fn.params[0])).length,"Lab must retain the callback back to this room.");
+});
+test("the original green room-return shortcut is initialized without website AFK eviction",()=>{
+  const control=patched.returnChange.text,calls=methodCalls(control);
+  assert.ok(control.includes("btn green cp-return"));
+  assert.ok(control.includes("Volver a la sala"));
+  assert.ok(control.includes("Sala {code}"));
+  assert.ok(control.includes(".screen.cp.lobby, .exb-team-room"));
+  for(const name of ["startLeft","leave","notice"])assert.equal(calls.includes(name),false,name);
+  assert.equal(control.includes(".afkLeft"),false);
+  assert.equal(control.includes(".awayAt"),false);
+  assert.ok(control.includes("PokeBonkUseExpeditionRoom"));
+  assert.ok(control.includes(".coopRoom!=="));
+  assert.ok(patched.change.text.includes(patched.returnEntry+"("));
+});
+test("the return shortcut follows the current room and hides in the lobby, during play, or after leaving",()=>{
+  const source=patched.returnChange.text,parsed=tree(source);
+  const timer=one(nodesOf(parsed,"CallExpression",node=>maybeName(node.callee.property)==="setInterval"),
+    "return observer timer");
+  const timerName=maybeName(one(nodesOf(parsed,"AssignmentExpression",node=>node.right===timer),
+    "return observer singleton").left);
+  const control=one(nodesOf(parsed,"CallExpression",node=>node.arguments[1]?.properties?.some(p=>
+    maybeName(p.key)==="class"&&literal(p.value)==="btn green cp-return")),"return observer button");
+  const factory=maybeName(control.callee);
+  const translate=maybeName(control.arguments[1].properties.find(p=>maybeName(p.key)==="title").value.callee);
+  const icon=maybeName(control.arguments[2].callee);
+  const sound=maybeName(one(nodesOf(parsed,"CallExpression",node=>maybeName(node.callee.property)==="click"),
+    "return click sound").callee.object);
+  const buttons=[],opened=[],expedition=[];
+  let tick,installs=0,inLobby=true;
+  const context=vm.createContext({
+    [timerName]:null,
+    window:{setInterval(callback){installs++;tick=callback;return 1;}},
+    document:{querySelector:()=>inLobby?{}:null,body:{append(node){node.isConnected=true;buttons.push(node);}}},
+    [factory]:(tag,props,...children)=>({tag,props,children,isConnected:false,remove(){this.isConnected=false;}}),
+    [translate]:text=>text,[icon]:()=>({}),[sound]:{click(){}},
+    [patched.entry]:(app,room)=>opened.push(room),
+    PokeBonkUseExpeditionRoom:(app,room)=>expedition.push(room),
+  });
+  vm.runInContext(source+`;globalThis.install=${patched.returnEntry};`,context);
+  const first={open:true,code:"BONK",room:{tier:0}},app={coopRoom:first};
+  context.install(app);context.install(app);assert.equal(installs,1);
+  tick();assert.equal(buttons.length,0);
+  inLobby=false;tick();tick();assert.equal(buttons.length,1);
+  const old=buttons.at(-1);old.props.onclick();assert.deepEqual(opened,[first]);
+  tick();const second={open:true,code:"NEXT",room:{tier:4}};app.coopRoom=second;tick();
+  const latest=buttons.at(-1);old.props.onclick();assert.deepEqual(opened,[first]);
+  tick();buttons.at(-1).props.onclick();assert.deepEqual(expedition,[second]);
+  tick();app.run={};tick();assert.equal(buttons.at(-1).isConnected,false);
+  app.run=null;tick();second.open=false;tick();assert.equal(buttons.at(-1).isConnected,false);
+  second.open=true;second.retired=true;tick();assert.equal(buttons.at(-1).isConnected,false);
+  assert.equal(latest.isConnected,false);
 });
 test("LAN selection falls back to an owned starter when lastSpecies is not in the local League",()=>{
   const profile=Object.freeze({league:Object.freeze([7,155]),lastSpecies:4});
@@ -125,7 +180,8 @@ test("native state is mapped to the original four-seat room with no account serv
   assert.equal(input.members[1].name, "Friend");
   await lobby.setPick(4); await lobby.start(); await lobby.say("Hi!");
   assert.deepEqual(sent, [["room-pick", 4], ["room-start"], ["room-chat", "Hi!"]]);
-  await assert.rejects(lobby.setSettings("forest", 1), /Classic/);
+  await lobby.setSettings("forest",1);await lobby.openSeats(true,3);
+  assert.deepEqual(sent.slice(-2),[["room-settings",{biome:"forest",tier:1}],["room-seats",{discoverable:true,capacity:3}]]);
 });
 test("updates the existing original screen and emits only newly received chat", () => {
   const input = session(), lobby = new LanLobby(input, () => {}), received = [];

@@ -9,15 +9,15 @@ import {importEnvelope, MAX_STATE_BYTES} from "../common/state.mjs";
 import {StandardUpdater} from "./updater.mjs";
 import {ORIGIN, CSP, MIME, isGameURL, resolveAsset, byteRange,endsLanSessionForNavigation} from "./protocol.mjs";
 import {windowChrome, connectWindowUI, quitAfterLastWindow} from "./window-ui.mjs";
-import {updateDistribution, installationInstructions} from "./distribution.mjs";
+import {updateDistribution} from "./distribution.mjs";
 import {issueFormURL} from "./report.mjs";
 import {DesktopPreferences, graphicsSwitches, restoreBounds} from "./preferences.mjs";
 import {createDesktopControls} from "./desktop-controls.mjs";
-import {updateFeedbackView} from "../common/update-feedback.mjs";
 import {NativeCoop} from "./coop.mjs";
 import {gatewayOrigin} from "../common/internet-coop.mjs";
 import {configureBrokerSession} from "./coop-session.mjs";
 import {lanIdentity} from "../common/lan-policy.mjs";
+import {coopMaps} from "../common/coop-rules.mjs";
 const root = path.dirname(fileURLToPath(import.meta.url));
 // Graphics switches must be selected before Electron initializes Chromium.
 const config = JSON.parse(readFileSync(path.join(root, "../config.json"), "utf8"));
@@ -49,8 +49,11 @@ const updater = new StandardUpdater({config, directory: dataDirectory,
   platform: `${process.platform}-${process.arch}`,
   distribution: updateDistribution({platform: process.platform, arch: process.arch, packaged: app.isPackaged,
     env: process.env, nsisInstalled: app.isPackaged && existsSync(path.join(path.dirname(process.execPath), ".pokebonk-offline-nsis"))}),
-  loadSave: () => store.loadState()});
-let window, desktopControls, pendingMessage, pendingFeedback, presentedVersion, showing = false, verifiedDownload;
+  loadSave: () => store.loadState(), onFeedback: value => {
+    pendingFeedback = value;
+    void showPending().catch(console.error);
+  }});
+let window, desktopControls, pendingMessage, pendingFeedback, presentedVersion, showing = false, reopenUpdate = false;
 let lan, brokerWindow, brokerReady, brokerResolve, brokerReject,brokerSession;
 const BROKER_URL = `${ORIGIN}/offline/lan-broker.html`;
 async function brokerInput(value) {
@@ -77,7 +80,9 @@ function lanEvent(value){
 async function lanProfile(){
   const saved=(await store.loadState())?.state;
   if(!saved)throw new Error("Choose your starters and create a local save first.");
-  return {name:saved.profile.name,league:saved.profile.league,unfinished:Boolean(saved.activeRun||saved.suspended),ticket:saved.activeRun?.ticket};
+  return {name:saved.profile.name,league:saved.profile.league,maps:coopMaps(saved.profile.biomes),
+    completedParties:[...new Set(Object.values(saved.finished??{}).map(result=>result.record?.coop?.party).filter(Boolean))],
+    unfinished:Boolean(saved.activeRun||saved.suspended),ticket:saved.activeRun?.ticket};
 }
 
 async function idle() {
@@ -92,36 +97,19 @@ async function showPending() {
   showing = true;
   try {
     if (pendingFeedback) {
-      const value = pendingFeedback; pendingFeedback = null;
+      const value = pendingFeedback;
       const handled = await presentUpdateFeedback(value);
-      if (!handled && !await idle()) { pendingFeedback = value; return; }
-      if (!handled && value.state !== "checking") {
-        const view = updateFeedbackView(value, config);
-        await dialog.showMessageBox(window, {type: value.state === "error" ? "warning" : "info", message: view.title,
-          detail: [view.summary, ...view.rows.map(([label, text]) => `${label}: ${text}`), view.note, view.detail].filter(Boolean).join("\n\n"),
-          buttons: ["OK"]});
-      }
+      // Keep feedback queued until the game UI can show it. Never substitute
+      // an operating-system update alert or interrupt an active run.
+      if (handled && pendingFeedback === value) pendingFeedback = null;
     } else if (pendingMessage) {
       const detail = pendingMessage; pendingMessage = null;
-      await dialog.showMessageBox(window, {type: "info", message: `${config.productName} updates`, detail, buttons: ["OK"]});
-    } else if (verifiedDownload) {
-      const ready = verifiedDownload; verifiedDownload = null;
-      const choice = await dialog.showMessageBox(window, {type: "info", message: "Verified update downloaded",
-        detail: installationInstructions(ready.artifact.kind),
-        buttons: ["Show verified download", "Later"], defaultId: 1, cancelId: 1});
-      if (choice.response === 0) shell.showItemInFolder(ready.file);
-    } else if (updater.pending && updater.pending.manifest.version !== presentedVersion) {
-      await presentUpdateFeedback({state: "handoff"});
+      await dialog.showMessageBox(window, {type: "info", message: config.productName, detail, buttons: ["OK"]});
+    } else if (updater.pending && !updater.downloading && !updater.ready && !updater.installing &&
+        updater.pending.manifest.version !== presentedVersion) {
       const {manifest} = updater.pending;
       presentedVersion = manifest.version;
-      const choice = await dialog.showMessageBox(window, {type: "info", message: `${config.productName} ${manifest.version} is available`,
-        detail: `Installed app: v${config.version}\nLatest public release: v${manifest.version}\nBundled game: v${manifest.upstream.version} (${manifest.upstream.build})\n\n${manifest.notes}\n\nDownloading does not install or replace the game. Your saves stay on this device.`,
-        buttons: ["Download update", "Later"], defaultId: 1, cancelId: 1});
-      if (choice.response === 0) {
-        // No automatic download; this branch only follows the explicit button.
-        void updater.downloadPending().then(value => { verifiedDownload = value; })
-          .catch(error => { pendingMessage = `${error.message}\nThe installed game is still available offline.`; });
-      }
+      updater.publish("available");
     }
   } finally { showing = false; }
 }
@@ -130,11 +118,18 @@ async function presentUpdateFeedback(value) {
   // One-way UI data only. The renderer receives no updater methods, URLs or
   // arbitrary commands; download/installation remain explicit native actions.
   try {
-    return await window.webContents.executeJavaScript(
-      `globalThis.PokeBonkOfflineUI?.updateFeedback(${JSON.stringify(value)}) ?? false`);
+    const handled = await window.webContents.executeJavaScript(
+      `globalThis.PokeBonkOfflineUI?.updateFeedback(${JSON.stringify({...value, open: reopenUpdate})}) ?? false`);
+    if (handled) reopenUpdate = false;
+    return handled;
   } catch { return false; }
 }
 async function checkUpdates(manual = false) {
+  if (manual) reopenUpdate = true;
+  if (updater.downloading || updater.installing || updater.ready) {
+    if (manual) { pendingFeedback = updater.feedback; await showPending(); }
+    return;
+  }
   if (manual) {
     pendingFeedback = {state: "checking"};
     presentedVersion = null;
@@ -143,11 +138,51 @@ async function checkUpdates(manual = false) {
   try {
     const result = await updater.check(manual);
     if (manual && result.current) pendingFeedback = {state: result.ahead ? "ahead" : "current", latestVersion: result.latestVersion};
+    else if (manual && updater.pending) {
+      presentedVersion = updater.pending.manifest.version;
+      pendingFeedback = updater.publish("available");
+    }
   } catch (error) {
     // Automatic errors are intentionally silent. Playing never depends on GitHub.
     if (manual) pendingFeedback = {state: "error", detail: error.message};
   }
   await showPending();
+}
+async function updateAction(action) {
+  if (!await idle() || updater.installing) return;
+  if (action === "download-update") {
+    if (updater.downloading) return;
+    try { await updater.downloadPending(); }
+    catch (error) {
+      // Includes compatibility failures raised before the transfer begins.
+      updater.publish("error", {errorStage: "download", detail: error.message, retryAction: "download-update"});
+    }
+    return;
+  }
+  if (action !== "install-update" || !updater.ready || updater.downloading) return;
+  updater.installing = true;
+  try {
+    if (["connecting", "hosting", "lobby", "preparing", "playing"].includes(lan?.value.phase))
+      throw new Error("Leave your co-op room before installing an update.");
+    updater.publish("installing");
+    await Promise.all([store.queue, preferences.save()]);
+    const ready = await updater.prepareInstall();
+    // Hashing can take time. Recheck the game immediately before handoff.
+    if (!await idle() || ["connecting", "hosting", "lobby", "preparing", "playing"].includes(lan?.value.phase))
+      throw new Error("Return to the homepage and leave co-op before installing.");
+    if (["dmg", "nsis", "deb"].includes(ready.artifact.kind)) {
+      const error = await shell.openPath(ready.file);
+      if (error) throw new Error("The system could not open the verified installer.");
+    } else {
+      // Portable EXEs/AppImages are games, not installers. Never run them out
+      // of the download cache or silently overwrite an application folder.
+      shell.showItemInFolder(ready.file);
+    }
+    app.quit();
+  } catch (error) {
+    updater.publish("error", {errorStage: "install", detail: error.message,
+      retryAction: updater.ready ? "install-update" : "download-update"});
+  } finally { updater.installing = false; }
 }
 function sender(event) {
   if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame ||
@@ -344,6 +379,13 @@ else {
         if (args.length) return;
         void idle().then(ok => { if (ok) return checkUpdates(true); }).catch(console.error);
       } catch { /* Untrusted frames cannot use native update networking. */ }
+    });
+    ipcMain.on("standard:update-action", (event, action, ...extra) => {
+      try {
+        sender(event);
+        if (extra.length || !["download-update", "install-update"].includes(action)) return;
+        void updateAction(action).catch(console.error);
+      } catch { /* Fixed actions only; no renderer-supplied path or URL. */ }
     });
     ipcMain.on("standard:report-bug", (event, ...args) => {
       try {

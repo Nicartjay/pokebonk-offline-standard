@@ -7,18 +7,90 @@ const hasClass = (node, cls) => nodesOf(node, "Property", property =>
   maybeName(property.key) === "class" && (literal(property.value) === cls ||
     [...nodesOf(property.value, "Literal"), ...nodesOf(property.value, "TemplateLiteral")]
       .some(value => literal(value) === cls))).length > 0;
+
+function patchRoomReturn(source, tree, roomEntry) {
+  const keeper=one(tree.body.filter(node=>node.type==="FunctionDeclaration"&&
+    hasClass(node,"btn green cp-return")),"original co-op return shortcut");
+  const app=maybeName(keeper.params[0]);
+  const timer=one(nodesOf(keeper,"CallExpression",node=>
+    maybeName(node.callee.object)==="window"&&maybeName(node.callee.property)==="setInterval"),
+  "original room-return observer");
+  const tick=timer.arguments[0];
+  if(tick?.type!=="ArrowFunctionExpression")throw Error("Unsupported room-return timer callback.");
+  const control=one(nodesOf(tick,"CallExpression",node=>literal(node.arguments[0])==="button"&&
+    hasClass(node,"btn green cp-return")),"original green room-return button");
+  const button=maybeName(one(nodesOf(tick,"AssignmentExpression",node=>node.right===control),
+    "room-return button binding").left);
+  const clear=one(nodesOf(keeper,"VariableDeclarator",node=>node.init?.type==="ArrowFunctionExpression"&&
+    nodesOf(node.init,"CallExpression",call=>maybeName(call.callee.object)===button&&
+      maybeName(call.callee.property)==="remove").length===1),"room-return cleanup").id.name;
+  const room=maybeName(one(nodesOf(tick,"VariableDeclarator",node=>
+    node.init?.type==="MemberExpression"&&maybeName(node.init.object)===app&&
+    maybeName(node.init.property)==="coopRoom"),"room-return active room").id);
+  const handler=one(control.arguments[1].properties.filter(node=>maybeName(node.key)==="onclick"),
+    "room-return click action").value;
+  const open=one(nodesOf(handler,"CallExpression",node=>maybeName(node.callee)===roomEntry),
+    "original return-to-room navigation");
+  if(!app||!button||!room||handler.body.type!=="BlockStatement"||
+    source.slice(keeper.start,keeper.end).includes("__offlineReturnRoom"))
+    throw Error("Unsupported room-return bindings.");
+  const navigation=`(${room}.room?.tier===4&&globalThis.PokeBonkUseExpeditionRoom?`+
+    `globalThis.PokeBonkUseExpeditionRoom(${app},${room}):${source.slice(open.start,open.end)})`;
+  const action=source.slice(handler.start,handler.body.start+1)+
+    `if(${app}.coopRoom!==${room}||!${room}?.open||${room}.retired){${clear}();return;}`+
+    source.slice(handler.body.start+1,open.start)+navigation+source.slice(open.end,handler.end);
+  const markup=source.slice(control.start,handler.start)+action+source.slice(handler.end,control.end);
+  // Preserve the actual original button, translation, icon, animation and
+  // responsive CSS. Native rooms have their own lifetime/recovery policy;
+  // the website's account AFK/start timers must not evict these local rooms.
+  const callback=`()=>{
+    const ${room}=${app}.coopRoom;
+    if(!${room}?.open||${room}.retired||${app}.run||document.querySelector(".screen.cp.lobby, .exb-team-room")){
+      ${clear}();__offlineReturnRoom=null;return;
+    }
+    if(${button}?.isConnected&&__offlineReturnRoom===${room})return;
+    ${clear}();__offlineReturnRoom=${room};${button}=${markup};document.body.append(${button});
+  }`;
+  const text=source.slice(keeper.start,keeper.body.start+1)+
+    "let __offlineReturnRoom=null;"+source.slice(keeper.body.start+1,tick.start)+
+    callback+source.slice(tick.end,keeper.end);
+  return {entry:keeper.id.name,change:{...keeper,text}};
+}
 export function patchLanRoom(source) {
   const tree = parse(source, {ecmaVersion: "latest", sourceType: "module"});
   const owner = one(nodesOf(tree, "FunctionDeclaration", node =>
     hasClass(node, "cp-room") && hasClass(node, "cp-slots") && hasClass(node, "cp-bar")),
   "original co-op room screen");
   const [app, room] = owner.params.map(maybeName);
+  const roomReturn=patchRoomReturn(source,tree,owner.id.name);
   const changes = [];
   const replace = (node, text) => changes.push({start: node.start, end: node.end, text});
+  // Nested upstream callbacks reuse the outer room's minified identifier.
+  // A unique lexical alias keeps shared-clock hooks correct in every scope.
+  const stableRoom="__offlineCoopRoom";
+  if(nodesOf(owner,"Identifier",node=>node.name===stableRoom).length)
+    throw Error("Unsupported upstream: co-op room alias collision.");
+  replace({start:owner.body.start+1,end:owner.body.start+1},
+    `const ${stableRoom}=${room};${roomReturn.entry}(${app});`);
+  const capacity=one(nodesOf(owner,"BinaryExpression",node=>node.operator===">="&&
+    node.right.type==="CallExpression"&&node.right.callee.type==="Identifier"&&node.right.arguments.length===1&&
+    node.right.arguments[0].type==="MemberExpression"&&maybeName(node.right.arguments[0].object)===room&&
+    maybeName(node.right.arguments[0].property)==="room"),"original room seat capacity").right.callee.name;
+  const selectedCapacity=one(nodesOf(owner,"VariableDeclarator",node=>node.init?.type==="ConditionalExpression"&&
+    node.init.consequent.type==="CallExpression"&&maybeName(node.init.consequent.callee)===capacity),
+  "original selected room capacity");
+  replace(selectedCapacity.init,`globalThis.PokeBonkOfflineUI.coopRoomCapacity(${stableRoom})`);
+  for(const call of nodesOf(owner,"CallExpression",node=>maybeName(node.callee)===capacity))
+    replace(call,`globalThis.PokeBonkOfflineUI.coopRoomCapacity(${stableRoom})`);
+  for(const count of nodesOf(owner,"Property",node=>maybeName(node.key)==="length"&&
+    node.value.type==="ConditionalExpression"&&literal(node.value.alternate)===4))
+    replace(count.value,`globalThis.PokeBonkOfflineUI.coopRoomCapacity(${stableRoom})`);
+  for(const title of nodesOf(owner,"TemplateLiteral",node=>node.quasis.some(quasi=>quasi.value.raw.includes("/4"))))
+    replace(title,source.slice(title.start,title.end).replaceAll("/4",`/\${${stableRoom}.room.want??4}`));
   const property = (node, name) => one(nodesOf(node, "Property", p => maybeName(p.key) === name), `room ${name}`);
   const variable = cls => one(nodesOf(owner, "VariableDeclarator", node =>
     node.init?.type === "CallExpression" && hasClass(node.init, cls)), cls + " container").id.name;
-  const seats = variable("cp-seats"), standing = variable("cp-stand"), friends = variable("cp-fr-list scroll");
+  const standing = variable("cp-stand"), friends = variable("cp-fr-list scroll");
   const arrows = nodesOf(owner, "VariableDeclarator").map(node => node.init)
     .filter(node => node?.type === "ArrowFunctionExpression");
   const callsMethod = (node, name) => nodesOf(node, "CallExpression", call =>
@@ -50,9 +122,7 @@ export function patchLanRoom(source) {
   replace(one(arrows.filter(node => callsMethod(node, "coopStanding")), "online team standing"),
     `()=>{${standing}.hidden=true}`);
   replace(one(arrows.filter(node => callsMethod(node, "quick")), "online quick matchmaking"), "async()=>{}");
-  replace(one(arrows.filter(node => nodesOf(node, "AssignmentExpression", a =>
-    a.left?.object?.name === seats && maybeName(a.left.property) === "hidden").length === 1),
-  "public-seat controls"), `()=>{${seats}.hidden=true}`);
+  // Keep the real Find teammates switch and Duo/Trio/Squad controls.
   for (const call of nodesOf(owner, "CallExpression", n => maybeName(n.callee.property) === "coopSeeking")) {
     replace(call, "Promise.resolve({n:0})");
   }
@@ -91,13 +161,19 @@ export function patchLanRoom(source) {
       replace(vote, "()=>null");
     } else for (const match of matches) replace(match, "null");
   }
-  // Keep the original selector and its animations, restricted to the initial
-  // supported LAN rules. Do not advertise unsupported modes or consume bags.
-  const picker = one(nodesOf(owner, "CallExpression", n => n.arguments.some(arg =>
+  // Keep the real map picker and mode/difficulty animations. Unsupported
+  // shared-daily/weekly rule sets remain visible with an explicit reason.
+  one(nodesOf(owner, "CallExpression", n => n.arguments.some(arg =>
     arg?.type === "ObjectExpression" && arg.properties.some(p => maybeName(p.key) === "canOpen"))),
   "original destination picker");
-  replace(property(picker, "canOpen").value, "()=>false");
-  replace(property(picker, "hint").value, '()=>"Forest · fixed for this LAN test"');
+  const dailyNames=new Set(nodesOf(owner,"MemberExpression",node=>maybeName(node.property)==="mutation"&&
+    node.object.type==="CallExpression"&&node.object.arguments[0]?.type==="CallExpression"&&
+    maybeName(node.object.arguments[0].callee.object)==="Date"&&
+    maybeName(node.object.arguments[0].callee.property)==="now").map(node=>maybeName(node.object.callee)));
+  for(const call of nodesOf(owner,"CallExpression",node=>dailyNames.has(maybeName(node.callee))&&
+    node.arguments.length===1&&node.arguments[0].type==="CallExpression"&&
+    maybeName(node.arguments[0].callee.object)==="Date"&&maybeName(node.arguments[0].callee.property)==="now"))
+    replace(call.arguments[0],`${stableRoom}.room.rulesAt??Date.now()`);
   const bagRefresh = one(arrows.filter(node =>
     [...nodesOf(node, "Literal"), ...nodesOf(node, "TemplateLiteral")].some(n =>
       literal(n) === "hasta {n} · se gastan al empezar")),
@@ -105,18 +181,31 @@ export function patchLanRoom(source) {
   // Resolve the bag renderer by its semantic arguments rather than retaining
   // the current minifier's name in generated code.
   replace(bagRefresh, "()=>{}");
+  const modeIconNames=new Set();
   for (const map of nodesOf(owner, "CallExpression", n => maybeName(n.callee.property) === "map" &&
     n.callee.object?.type === "CallExpression")) {
     const callback = map.arguments[0];
     if (callback?.type !== "ArrowFunctionExpression") continue;
     if (callsMethod(callback, "setSettings") && hasClass(callback, "cp-tier")) {
-      replace(map.callee.object, source.slice(map.callee.object.start, map.callee.object.end) +
-        '.filter(mode=>mode==="classic")');
+      const disabled=property(callback,"disabled").value;
+      const mode=maybeName(callback.params[0]);
+      // Original room modes use the reviewed encoded tier mapping.
+      const encode=one(nodesOf(callback,"CallExpression",n=>n.callee.type==="Identifier"&&
+        n.arguments.length===1&&maybeName(n.arguments[0])===mode&&
+        nodesOf(callback,"CallExpression",c=>maybeName(c.callee.property)==="setSettings"&&
+          nodesOf(c,"CallExpression",x=>x===n).length).length),"room mode tier encoding").callee.name;
+      replace(disabled,`!${stableRoom}.isHost||!!globalThis.PokeBonkOfflineUI.coopModeUnavailable(${encode}(${mode}))`);
+      replace(property(callback,"title").value,`globalThis.PokeBonkOfflineUI.coopModeUnavailable(${encode}(${mode}))??globalThis.PokeBonkOfflineUI.coopRoomModeHint(${mode})`);
+      const control=one(nodesOf(callback,"CallExpression",node=>literal(node.arguments[0])==="button"&&hasClass(node,"cp-tier")),
+        "original co-op mode button");
+      if(control.arguments[2]?.type!=="CallExpression"||!maybeName(control.arguments[2].callee))
+        throw Error("Unsupported original co-op mode icon.");
+      modeIconNames.add(maybeName(control.arguments[2].callee));
     }
   }
-  for (const node of nodesOf(owner, "CallExpression", n => n.arguments.some(arg =>
-    arg?.type === "ObjectExpression" && hasClass(arg, "cp-tier")))) {
-    replace(property(node, "disabled").value, "true");
+  for(const call of nodesOf(owner,"CallExpression",node=>modeIconNames.has(maybeName(node.callee)))){
+    const [mode,size]=call.arguments;
+    replace(call,`globalThis.PokeBonkOfflineUI.coopRoomModeIcon(${stableRoom},${source.slice(mode.start,mode.end)},()=>${source.slice(call.start,call.end)},${size?source.slice(size.start,size.end):24})`);
   }
   // Pairing uses a private invitation, never the website's four-letter URL.
   const ticket = one(nodesOf(owner, "CallExpression", n => n.arguments.some(arg =>
@@ -141,7 +230,7 @@ export function patchLanRoom(source) {
   const report = one(nodesOf(owner, "CallExpression", n => n.arguments.some(arg =>
     arg?.type === "ObjectExpression" && hasClass(arg, "btn small ghost cp-report"))), "room bug button");
   replace(property(report, "onclick").value, "()=>globalThis.PokeBonkOfflineUI.reportBug()");
-  // The durable native two-party start barrier owns launch, not the former
+  // The durable native two-to-four-player start barrier owns launch, not the former
   // online `start` event. LocalRoom supplies game-engine callbacks separately.
   const startHandler = one(nodesOf(owner, "Property", p =>
     maybeName(p.key) === "start" && callsMethod(p.value, "startRun")), "online start-event handler");
@@ -165,7 +254,9 @@ export function patchLanRoom(source) {
   for (const text of nodesOf(owner, "TemplateElement")) {
     const value = text.value.raw;
     const updated = value.replace("Código de la sala", "Room code").replace("Copiar enlace", "Copy room code")
-      .replace("Sala ", "Room ");
+      .replace("Sala ", "Room ")
+      .replace("Clasifica por la zona a la que llega el equipo, y las bajas desempatan.","Your team’s stage and KOs are saved in your local run records.")
+      .replace("Clasifica por los jefes vencidos y el tiempo. Va aparte de la clasificación del evento en solitario.","Bosses defeated and time are saved locally, separately from solo runs. No online ranking or prizes.");
     if (updated !== value) replace(text, updated);
   }
   const rootClass = one(nodesOf(owner, "TemplateLiteral", n => literal(n) === "cp lobby"), "original room screen class");
@@ -180,7 +271,8 @@ export function patchLanRoom(source) {
   }
   let text = source.slice(owner.start, owner.end);
   for (const edit of edits) text = text.slice(0, edit.start - owner.start) + edit.text + text.slice(edit.end - owner.start);
-  return {change: {...owner, text}, cleanupChange:{...cleanup,text:cleanupText}, entry: owner.id.name};
+  return {change: {...owner, text}, cleanupChange:{...cleanup,text:cleanupText},
+    returnChange:roomReturn.change,returnEntry:roomReturn.entry,entry:owner.id.name};
 }
 
 // Reuse the upstream co-op entry's With friends/Create/Join and How to play
@@ -227,12 +319,8 @@ export function patchLanLanding(source) {
   }
   for(const n of nodesOf(owner,'ExpressionStatement',n=>nodesOf(n,'CallExpression',c=>
     maybeName(c.callee.property)==='coopSeeking').length))replace(n,'void 0;');
-  for(const n of nodesOf(owner,'CallExpression',n=>n.arguments.some(a=>literal(a)==='Supervivencia en equipo'))){
-    // Remove just the Survival how-to row, not its ancestor pane.
-    const row=one(nodesOf(owner,'CallExpression',r=>r.arguments[0]&&literal(r.arguments[0])==='maldicion'&&r.start<n.start&&r.end>n.end),'unsupported Survival guide row');replace(row,'null');
-  }
   const translations=new Map([
-    ['Eliges el mapa y la dificultad, e invitas a tus amigos o a tu clan','Classic · Forest · Normal. Devices on this private network can find your open room.'],
+    ['Eliges el mapa y la dificultad, e invitas a tus amigos o a tu clan','Choose the map, mode and difficulty. Share a code, or turn on Find teammates.'],
     ['Buscar partida','Find a random match'],
     ['Te juntamos con otros entrenadores que también buscan equipo','Automatically join a compatible open room on your Wi-Fi or hotspot.'],
     ['Te lo pasa quien ha creado la sala','Enter the room code shared by the host.'],['Únete con un código','Join a local room'],

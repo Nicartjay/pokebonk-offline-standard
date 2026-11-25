@@ -1,0 +1,66 @@
+/* Co-op with multiple visible bosses only. Original solo/single bars unchanged. */
+.offline-boss-rack { display:contents; }
+.offline-boss-rack-title { display:none; }
+.offline-boss-rack.is-compact {
+  position:absolute;
+  top:calc(var(--hb,76px) + 8px);
+  left:var(--hc,50%);
+  transform:translateX(-50%) scale(var(--hs,1));
+  transform-origin:top center;
+  width:min(440px,calc(var(--hw,100vw) / var(--hs,1)));
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:5px 9px;
+  align-items:start;
+  pointer-events:none;
+}
+.offline-boss-rack.is-compact > .offline-boss-rack-title {
+  display:block; grid-column:1/-1; justify-self:center;
+  margin:0; padding:2px 9px; border-radius:99px;
+  background:var(--w96); color:var(--ink-2);
+  font:900 9px/1.1 var(--font-title); letter-spacing:.08em;
+}
+.offline-boss-rack.is-compact > .minibars { display:contents; }
+/* Upstream hides its third mini-row on narrow screens. The 2×2 grid has
+   room for that fourth slot; inline display:none still hides inactive rows. */
+.offline-boss-rack.is-compact > .minibars > .bossbar { display:flex; }
+.offline-boss-rack.is-compact .bossbar {
+  position:relative; inset:auto; transform:none;
+  width:auto; min-width:0; margin:0; animation:none;
+}
+.offline-boss-rack.is-compact .bossbar .bb-pt {
+  width:24px; height:24px; border-width:2px; margin-right:-9px;
+  box-shadow:0 0 0 1px var(--paper);
+}
+.offline-boss-rack.is-compact .bossbar .bb-body {
+  min-width:0; gap:3px; padding:4px 7px 5px 13px;
+  border-bottom-width:2px; border-radius:10px;
+  box-shadow:0 2px 6px #00000032;
+}
+.offline-boss-rack.is-compact .bb-head { min-height:12px; gap:3px; padding-right:37px; flex-wrap:wrap; }
+.offline-boss-rack.is-compact .bb-name { flex:1; min-width:0; font-size:11px; line-height:12px; }
+.offline-boss-rack.is-compact .bb-tag { flex:none; font-size:6px; letter-spacing:.35px; padding:1px 4px; }
+.offline-boss-rack.is-compact .bb-rage { flex:none; font-size:7px; padding:1px 4px; }
+.offline-boss-rack.is-compact .bb-seals { min-width:0; max-width:100%; flex:0 1 auto; flex-wrap:wrap; gap:2px; padding:1px 4px; }
+.offline-boss-rack.is-compact .bb-seals img { width:12px; height:12px; }
+.offline-boss-rack.is-compact .bb-seals em { font-size:9px; }
+.offline-boss-rack.is-compact .bossbar .bb-bar { height:5px; overflow:visible; }
+.offline-boss-rack.is-compact .bb-bar > b {
+  inset:auto 0 auto auto; top:-15px; padding:0;
+  font-size:9px; line-height:12px; color:var(--ink);
+  text-shadow:none; white-space:nowrap;
+}
+.offline-boss-rack.is-compact .bossbar .bb-sub,
+.offline-boss-rack.is-compact .bossbar .bb-sub.move {
+  font-size:8px; letter-spacing:.3px; line-height:1.2;
+  white-space:normal; overflow-wrap:anywhere;
+}
+.offline-boss-rack.is-compact .bb-foot { gap:3px; min-width:0; }
+.offline-boss-rack.is-compact .bb-st { min-width:0; flex-wrap:wrap; gap:2px; }
+.offline-boss-rack.is-compact .bossbar .bb-sti .uiicon { width:12px!important; height:12px!important; }
+.offline-boss-rack.is-compact .bossbar .bb-sti > b { font-size:8px; }
+@media(max-width:760px) {
+  .offline-boss-rack.is-compact { gap:4px 6px; }
+  .offline-boss-rack.is-compact .bb-tag { display:none; }
+  .offline-boss-rack.is-compact .bb-head { padding-right:33px; }
+}

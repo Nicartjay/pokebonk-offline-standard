@@ -41,21 +41,27 @@ final class RepositoryUpdater {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final AtomicBoolean busy = new AtomicBoolean();
     private volatile JSONObject candidate;
+    private volatile byte[] candidateSigned;
     private volatile File ready;
+    private volatile JSONObject readyManifest;
+    private volatile HttpsURLConnection transfer;
     private volatile String event;
-    private volatile String message;
     private volatile JSONObject feedback;
     private boolean checking, reportCheck;
     RepositoryUpdater(MainActivity activity, NativeSaveStore saves, JSONObject config) {
         this.activity = activity; this.saves = saves; this.config = config;
         preferences = activity.getSharedPreferences("standard-native-updater-v1", 0);
     }
-    void close() { worker.shutdownNow(); }
+    void close() { worker.shutdownNow(); HttpsURLConnection active = transfer; if (active != null) active.disconnect(); }
     synchronized String takeEvent() { String value = event; event = null; return value; }
-    String message() { return message; }
-    JSONObject candidate() { return candidate; }
     JSONObject feedback() { return feedback; }
-    private synchronized void emit(String type, String text) { message = text; event = type; }
+    synchronized void retryFeedback(JSONObject value) {
+        if (feedback == value && event == null) event = "feedback";
+    }
+    synchronized void resumed() {
+        if (ready != null && !busy.get() && feedback != null && "installing".equals(feedback.optString("state")))
+            emitState("ready", readyManifest, 0, null, null, null);
+    }
     static void require(boolean ok, String message) throws IOException { if (!ok) throw new IOException(message); }
     static boolean allowedURL(URL url) {
         String host = url.getHost();
@@ -163,23 +169,44 @@ final class RepositoryUpdater {
             if (latest != null) value.put("latestVersion", latest);
             if (detail != null) value.put("detail", detail);
         } catch (org.json.JSONException impossible) { throw new IllegalStateException(impossible); }
-        feedback = value; event = "feedback";
+        feedback = value; event = "feedback"; activity.updateChanged();
+    }
+    private synchronized void emitState(String state, JSONObject manifest, long received, String stage, String detail, String retry) {
+        try {
+            JSONObject value = new JSONObject().put("state", state);
+            if (manifest != null) {
+                JSONObject artifact = manifest.getJSONObject("artifacts").getJSONObject("android-universal");
+                value.put("latestVersion", manifest.getString("version")).put("notes", manifest.getString("notes"))
+                    .put("upstreamVersion", manifest.getJSONObject("upstream").getString("version"))
+                    .put("upstreamBuild", manifest.getJSONObject("upstream").getString("build"))
+                    .put("kind", "apk").put("totalBytes", artifact.getLong("bytes")).put("receivedBytes", received);
+            }
+            if (stage != null) value.put("errorStage", stage);
+            if (detail != null) value.put("detail", detail);
+            if (retry != null) value.put("retryAction", retry);
+            feedback = value; event = "feedback"; activity.updateChanged();
+        } catch (org.json.JSONException impossible) { throw new IllegalStateException(impossible); }
     }
     synchronized void check(boolean manual) {
+        if (ready != null && !busy.get()) {
+            if (manual) emitState("ready", readyManifest, 0, null, null, null);
+            return;
+        }
         long now = System.currentTimeMillis(), last = preferences.getLong("lastCheck", 0);
         if (!manual && last <= now && now - last < INTERVAL) return;
         if (!busy.compareAndSet(false, true)) {
             if (manual && checking) { reportCheck = true; emitFeedback("checking", null, null); }
-            else if (manual) emitFeedback("error", null, "An update is already downloading or being verified. Wait for it to finish, then try again.");
+            else if (manual && feedback != null) { event = "feedback"; activity.updateChanged(); }
             return;
         }
         checking = true; reportCheck = manual;
         if (manual) emitFeedback("checking", null, null);
         worker.execute(() -> {
-            JSONObject checked = null; Exception failure = null;
+            JSONObject checked = null; byte[] signed = null; Exception failure = null;
             try {
                 require(preferences.edit().putLong("lastCheck", System.currentTimeMillis()).commit(), "Cannot store update check time.");
-                JSONObject m = verifyManifest(readMetadata(open(new URL(ENDPOINT))));
+                signed = readMetadata(open(new URL(ENDPOINT)));
+                JSONObject m = verifyManifest(signed);
                 // A local test version is not a previously verified public
                 // release. Only signed manifests advance the rollback floor.
                 String version = m.getString("version"), highest = preferences.getString("highestSeen", "0.0.0");
@@ -189,10 +216,10 @@ final class RepositoryUpdater {
                     require(m.getJSONObject("artifacts").getJSONObject("android-universal").getInt("versionCode") > BuildConfig.VERSION_CODE, "Android version code is not an upgrade.");
                 checked = m;
             } catch (Exception error) { failure = error; }
-            finally { completeCheck(checked, failure); }
+            finally { completeCheck(checked, signed, failure); }
         });
     }
-    private synchronized void completeCheck(JSONObject checked, Exception failure) {
+    private synchronized void completeCheck(JSONObject checked, byte[] signed, Exception failure) {
         checking = false; busy.set(false);
         boolean report = reportCheck; reportCheck = false;
         if (failure != null) { if (report) emitFeedback("error", null, failure.getMessage()); return; }
@@ -200,40 +227,47 @@ final class RepositoryUpdater {
         try {
             int order = compare(version, BuildConfig.VERSION_NAME);
             if (order <= 0) {
-                candidate = null;
+                candidate = null; candidateSigned = null;
                 if (report) emitFeedback(order < 0 ? "ahead" : "current", version, null);
-            } else { candidate = checked; emit("available", null); }
+            } else { candidate = checked; candidateSigned = signed; emitState("available", checked, 0, null, null, null); }
         } catch (Exception error) { if (report) emitFeedback("error", null, error.getMessage()); }
     }
-    void download() {
-        JSONObject m = candidate;
-        if (m == null || !busy.compareAndSet(false, true)) return;
+    synchronized void download() {
+        final byte[] signed = candidateSigned;
+        if (signed == null || ready != null || !busy.compareAndSet(false, true)) return;
+        emitState("downloading", candidate, 0, null, null, null);
         worker.execute(() -> {
             File temporary = new File(activity.getCacheDir(), "standard-update.apk.part");
             try {
+                JSONObject m = verifyManifest(signed);
+                require(compare(m.getString("version"), preferences.getString("highestSeen", "0.0.0")) >= 0, "Rejected a rolled-back update.");
                 compatibleSave(m);
                 JSONObject artifact = m.getJSONObject("artifacts").getJSONObject("android-universal");
                 long size = artifact.getLong("bytes");
                 StorageManager storage = (StorageManager) activity.getSystemService(Context.STORAGE_SERVICE);
                 require(storage != null && storage.getAllocatableBytes(storage.getUuidForPath(activity.getCacheDir())) > size + 64L * 1024 * 1024, "Not enough space for the APK.");
-                HttpsURLConnection connection = open(new URL(artifact.getString("url")));
+                HttpsURLConnection connection = open(new URL(artifact.getString("url"))); transfer = connection;
                 MessageDigest sha = MessageDigest.getInstance("SHA-256");
-                long count = 0;
+                long count = 0, lastProgress = 0;
                 try (InputStream input = connection.getInputStream(); FileOutputStream output = new FileOutputStream(temporary)) {
                     byte[] buffer = new byte[64 * 1024]; int n;
                     while ((n = input.read(buffer)) >= 0) {
                         count += n; require(count <= size && !Thread.currentThread().isInterrupted(), "Download interrupted or oversized.");
                         sha.update(buffer, 0, n); output.write(buffer, 0, n);
+                        long now = android.os.SystemClock.elapsedRealtime();
+                        if (now - lastProgress >= 200) { lastProgress = now; emitState("downloading", m, count, null, null, null); }
                     }
                     output.getFD().sync();
-                } finally { connection.disconnect(); }
+                } finally { connection.disconnect(); transfer = null; }
+                emitState("verifying", m, count, null, null, null);
                 require(count == size && hex(sha.digest()).equals(artifact.getString("sha256")), "Update size or SHA-256 mismatch.");
-                verifyAPK(temporary, artifact);
+                verifyAPK(temporary, artifact, m.getString("version"));
                 compatibleSave(m);
+                require(!Thread.currentThread().isInterrupted(), "Download interrupted.");
                 File target = new File(activity.getCacheDir(), "verified-update.apk");
                 Files.move(temporary.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING);
-                ready = target; emit("ready", null);
-            } catch (Exception error) { emit("message", "Update rejected: " + error.getMessage() + "\nThe installed game is unchanged."); }
+                ready = target; readyManifest = m; emitState("ready", m, size, null, null, null);
+            } catch (Exception error) { emitState("error", candidate, 0, "download", error.getMessage(), "download-update"); }
             finally { try { Files.deleteIfExists(temporary.toPath()); } catch (IOException ignored) {} busy.set(false); }
         });
     }
@@ -248,7 +282,7 @@ final class RepositoryUpdater {
         return info.signatures;
     }
     @SuppressWarnings("deprecation")
-    private void verifyAPK(File file, JSONObject artifact) throws Exception {
+    private void verifyAPK(File file, JSONObject artifact, String version) throws Exception {
         require(file.length() == artifact.getLong("bytes"), "APK size changed.");
         MessageDigest sha = MessageDigest.getInstance("SHA-256");
         try (InputStream input = new FileInputStream(file)) {
@@ -260,7 +294,7 @@ final class RepositoryUpdater {
         int flags = Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES;
         PackageInfo apk = manager.getPackageArchiveInfo(file.getAbsolutePath(), flags), installed = manager.getPackageInfo(activity.getPackageName(), flags);
         require(apk != null && activity.getPackageName().equals(apk.packageName) && apk.versionCode == artifact.getInt("versionCode") &&
-            apk.versionCode > BuildConfig.VERSION_CODE && candidate.getString("version").equals(apk.versionName) &&
+            apk.versionCode > BuildConfig.VERSION_CODE && version.equals(apk.versionName) &&
             apk.applicationInfo != null && apk.applicationInfo.minSdkVersion <= Build.VERSION.SDK_INT &&
             (apk.splitNames == null || apk.splitNames.length == 0), "Incompatible APK package, SDK, split, or version.");
         Signature[] proposed = signers(apk), current = signers(installed);
@@ -268,24 +302,35 @@ final class RepositoryUpdater {
             proposed[0].equals(current[0]) && BuildConfig.RELEASE_CERTIFICATE.equals(hex(MessageDigest.getInstance("SHA-256").digest(proposed[0].toByteArray()))),
             "APK signing identity differs from this installed Standard app.");
     }
-    void install() {
-        JSONObject m = candidate; File file = ready;
-        if (m == null || file == null || !busy.compareAndSet(false, true)) return;
+    synchronized void install() {
+        final byte[] signed = candidateSigned; final File file = ready;
+        if (signed == null || file == null || !busy.compareAndSet(false, true)) return;
+        emitState("installing", readyManifest, 0, null, null, null);
         worker.execute(() -> {
             try {
-                compatibleSave(m); verifyAPK(file, m.getJSONObject("artifacts").getJSONObject("android-universal"));
-                activity.runOnUiThread(() -> activity.whenIdle(() -> {
-                    if (!activity.getPackageManager().canRequestPackageInstalls()) {
-                        emit("ready", null);
-                        activity.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + activity.getPackageName())));
-                    } else {
-                        Uri uri = Uri.parse("content://" + activity.getPackageName() + ".updates/update.apk");
-                        activity.startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
-                            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
-                    }
+                final JSONObject m = verifyManifest(signed);
+                require(compare(m.getString("version"), preferences.getString("highestSeen", "0.0.0")) >= 0, "Rejected a rolled-back update.");
+                compatibleSave(m); verifyAPK(file, m.getJSONObject("artifacts").getJSONObject("android-universal"), m.getString("version"));
+                activity.runOnUiThread(() -> activity.whenUpdateIdle(() -> {
+                    try {
+                        if (!activity.getPackageManager().canRequestPackageInstalls()) {
+                            emitState("ready", m, 0, null, null, null);
+                            activity.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + activity.getPackageName())));
+                        } else {
+                            Uri uri = Uri.parse("content://" + activity.getPackageName() + ".updates/update.apk");
+                            activity.startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+                        }
+                    } catch (Exception error) { emitState("error", m, 0, "install", error.getMessage(), "install-update"); }
+                    finally { busy.set(false); }
+                }, () -> {
+                    busy.set(false);
+                    emitState("error", m, 0, "install", "Return to the homepage and leave your co-op room before installing.", "install-update");
                 }));
-            } catch (Exception error) { ready = null; emit("message", "Installation not started: " + error.getMessage()); }
-            finally { busy.set(false); }
+            } catch (Exception error) {
+                ready = null; readyManifest = null; busy.set(false);
+                emitState("error", candidate, 0, "install", error.getMessage(), "download-update");
+            }
         });
     }
 }

@@ -1,0 +1,92 @@
+/* Optional cloud-save UI, reusing the game's modal, colors and button system.
+   Not linked by production prepare until native/service integration is ready. */
+.offline-card.offline-cloud-card { width:min(730px,100%); }
+.offline-cloud-body { font-size:14px; line-height:1.45; }
+.offline-cloud-hero { display:flex; align-items:center; gap:15px; }
+.offline-cloud-hero > div { min-width:0; }
+.offline-cloud-hero h3 { margin:0 0 7px; font:900 26px/1.12 var(--font-title); color:var(--ink); }
+.offline-cloud-hero p { margin:0; color:var(--ink-2); font-size:13px; }
+.offline-cloud-symbol { flex:none; display:grid; place-items:center; width:59px; height:59px; border-radius:18px; color:#75b5ff; background:#5b9ef522; border:1px solid #6baaff44; }
+.offline-cloud-icon { width:35px; height:35px; }
+.offline-cloud-status { display:flex; align-items:center; flex-wrap:wrap; gap:8px 10px; margin:17px 0; }
+.offline-cloud-pill { display:inline-block; flex:none; padding:3px 9px; border-radius:99px; background:var(--paper-2); border:1px solid var(--line); font:900 9px/1.4 var(--font-title); letter-spacing:.07em; color:var(--ink-2); white-space:nowrap; }
+.offline-cloud-pill.on { color:var(--green-t,#218a54); background:#34ba7c18; border-color:#34ba7c77; }
+.offline-cloud-status-text { color:var(--ink-2); font-size:11px; }
+.offline-cloud-benefits { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:0 0 15px; }
+.offline-cloud-benefits > div { display:flex; align-items:flex-start; gap:8px; padding:12px; border:1px solid var(--line); border-radius:13px; background:var(--paper-2); }
+.offline-cloud-benefits i { font-style:normal; font-weight:900; color:var(--green-t,#218a54); }
+.offline-cloud-benefits strong,.offline-cloud-benefits span { display:block; }
+.offline-cloud-benefits strong { color:var(--ink); font-size:12px; margin-bottom:5px; }
+.offline-cloud-benefits span { color:var(--ink-2); font-size:11px; line-height:1.45; }
+.offline-cloud-note { color:var(--ink-2); font-size:11px; line-height:1.55; margin:13px 0 0; }
+.offline-cloud-consent { margin:14px 0; padding:12px 15px; background:#6d92ef14; border:1px solid #6d92ef55; border-radius:12px; }
+.offline-cloud-consent strong,.offline-cloud-consent span { display:block; }
+.offline-cloud-consent strong { font-size:12px; margin-bottom:4px; }
+.offline-cloud-consent span { font-size:11px; color:var(--ink-2); }
+.offline-cloud-actions { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:12px; margin:17px 0 0; padding-bottom:4px; }
+.offline-cloud-actions > .btn { display:inline-flex; align-items:center; justify-content:center; flex:1 1 170px; max-width:310px; min-height:41px; padding:10px 15px; font-size:13px; text-align:center; white-space:normal; }
+.offline-cloud-preview-label { display:block; margin:14px 0 0; color:var(--ink-2); opacity:.75; text-align:center; font-size:9px; letter-spacing:.03em; }
+.offline-cloud-account { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:11px 14px; background:var(--paper-2); border:1px solid var(--line); border-radius:12px; }
+.offline-cloud-account > div { min-width:0; }
+.offline-cloud-account strong,.offline-cloud-account span { display:block; overflow-wrap:anywhere; }
+.offline-cloud-account strong { font-size:13px; }
+.offline-cloud-account span { margin-top:3px; font-size:11px; color:var(--ink-2); }
+.offline-cloud-auto { display:flex; align-items:center; justify-content:space-between; gap:15px; margin:13px 0; padding:11px 14px; border:1px solid var(--line); border-radius:12px; cursor:pointer; }
+.offline-cloud-auto > span { min-width:0; }
+.offline-cloud-auto strong,.offline-cloud-auto small { display:block; }
+.offline-cloud-auto strong { font-size:12px; }
+.offline-cloud-auto small { margin-top:3px; font-size:10px; color:var(--ink-2); }
+.offline-cloud-auto input { width:36px; height:20px; accent-color:var(--blue,#399ee8); flex:none; cursor:pointer; }
+.offline-cloud-compare { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:13px; }
+.offline-cloud-save { min-width:0; padding:13px 15px; background:var(--paper-2); border:1px solid var(--line); border-top:3px solid #6daaff; border-radius:12px; }
+.offline-cloud-save.remote { border-top-color:#59c68c; }
+.offline-cloud-save h4 { margin:0 0 7px; font-size:9px; color:var(--ink-2); letter-spacing:.1em; }
+.offline-cloud-save > strong { display:block; font:900 17px/1.2 var(--font-title); overflow-wrap:anywhere; }
+.offline-cloud-save dl { margin:10px 0 0; }
+.offline-cloud-save dl > div { display:flex; justify-content:space-between; flex-wrap:wrap; gap:4px 10px; margin-top:6px; font-size:11px; }
+.offline-cloud-save dt { color:var(--ink-2); }
+.offline-cloud-save dd { margin:0; font-weight:900; font-variant-numeric:tabular-nums; }
+.offline-cloud-warning { border-left:3px solid #e5af49; padding:9px 12px; background:#e5af4914; border-radius:0 8px 8px 0; }
+.offline-cloud-conflict-actions > .btn:last-child { flex-basis:100%; max-width:none; background:transparent; box-shadow:none; min-height:27px; padding:5px; }
+.offline-cloud-confirm h3 { margin:0 0 12px; font:900 21px/1.2 var(--font-title); }
+.offline-cloud-confirm p { color:var(--ink-2); font-size:13px; }
+.offline-cloud-entry { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px 20px; margin:19px 0 0; padding:16px 17px; border:1px solid #7198e955; background:#7198e90c; border-radius:14px; }
+.offline-cloud-entry > div { min-width:0; flex:1 1 250px; }
+.offline-cloud-entry h3 { display:flex; align-items:center; flex-wrap:wrap; gap:9px; margin:0; font-family:var(--font-title); font-size:18px; }
+.offline-cloud-entry p { margin:5px 0 0; font-size:12px; color:var(--ink-2); }
+.offline-cloud-entry > .btn { min-width:110px; }
+@media(max-width:600px) {
+  .offline-cloud-hero { align-items:flex-start; gap:10px; }
+  .offline-cloud-hero h3 { font-size:22px; }
+  .offline-cloud-symbol { width:43px; height:43px; border-radius:13px; }
+  .offline-cloud-icon { width:27px; height:27px; }
+  .offline-cloud-benefits { grid-template-columns:1fr; gap:7px; }
+  .offline-cloud-benefits > div { padding:8px 11px; }
+  .offline-cloud-benefits strong { margin:0 0 2px; }
+  .offline-cloud-save { padding:11px; }
+  .offline-cloud-save dl > div { font-size:10px; }
+  .offline-cloud-save > strong { font-size:15px; }
+}
+@media(max-height:500px) and (min-width:600px) {
+  .offline-card.offline-cloud-card { width:min(900px,100%); }
+  .offline-cloud-body { padding:11px 18px 14px; }
+  .offline-cloud-hero h3 { font-size:21px; }
+  .offline-cloud-hero p { font-size:11px; }
+  .offline-cloud-symbol { width:43px; height:43px; }
+  .offline-cloud-icon { width:27px; height:27px; }
+  .offline-cloud-status { margin:9px 0; }
+  .offline-cloud-benefits { gap:8px; margin-bottom:8px; }
+  .offline-cloud-benefits > div { padding:8px 10px; }
+  .offline-cloud-benefits strong { margin-bottom:2px; }
+  .offline-cloud-consent { margin:9px 0; padding:8px 11px; }
+  .offline-cloud-actions { margin-top:10px; gap:9px; }
+  .offline-cloud-actions > .btn { min-height:34px; padding:7px 10px; }
+  .offline-cloud-note { font-size:10px; margin-top:8px; }
+  .offline-cloud-preview-label { margin-top:8px; font-size:8px; }
+  .offline-cloud-auto { margin:9px 0; padding:7px 11px; }
+  .offline-cloud-account { padding:7px 11px; }
+  .offline-cloud-compare { margin-top:9px; gap:10px; }
+  .offline-cloud-save { padding:9px 12px; }
+  .offline-cloud-save dl { margin-top:6px; }
+  .offline-cloud-save dl > div { margin-top:4px; }
+}

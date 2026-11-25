@@ -2,6 +2,7 @@ import {NativeLan} from "./lan.mjs";
 import {coopConnectionMode} from "../common/coop-mode.mjs";
 import {gatewayOrigin,internetState,internetInvitation} from "../common/internet-coop.mjs";
 import {lanFrame} from "../common/lan-policy.mjs";
+import {coopMaps,coopSeats,requireCoopUnlocks,coopDestination,coopLoadout} from "../common/coop-rules.mjs";
 const occupied=value=>["connecting","hosting","lobby","preparing","playing"].includes(value.phase);
 export class NativeInternet {
   constructor({identity,profile,emit,broker,gateway}){
@@ -35,12 +36,13 @@ export class NativeInternet {
       if(profile.unfinished)throw Error("Finish or explicitly end the preserved run before joining co-op.");
       if(!Number.isInteger(data.species)||!profile.league.includes(data.species))throw Error("Choose an owned Pokémon.");
       if(action==="join")internetInvitation(data.invitation);
+      coopDestination(data.destination??"");
       this.stop();this.mode=mode;this.finding=action==="find"||action==="browse";
       this.value={phase:action==="browse"?"idle":"connecting",members:[],linked:false,discovery:{status:action==="find"?"searching":"idle",rooms:0},
         ...(action==="browse"?{roomListing:{status:"loading",rooms:[]}}:{})};this.publish();
       this.input({type:action,gateway:this.gateway,identity:this.identity,
-        player:{name:String(profile.name).replace(/[\u0000-\u001f\u007f]/g,"").slice(0,24)},
-        data:{species:data.species,connectionMode:mode,...(action==="join"?{invitation:data.invitation}:{})}});
+        player:{name:String(profile.name).replace(/[\u0000-\u001f\u007f]/g,"").slice(0,24),maps:coopMaps(profile.maps)},
+        data:{species:data.species,connectionMode:mode,destination:data.destination??"",...(action==="join"?{invitation:data.invitation}:{})}});
     }finally{this.starting=false;if(this.value.phase!=="connecting"&&this.value.roomListing?.status!=="loading")this.finding=false;}
   }
   async fromGame(channel,data){
@@ -49,17 +51,27 @@ export class NativeInternet {
     if(channel==="leave"){this.stop();return;}
     if(channel==="cancel-find"){this.cancelFind();return;}
     if(channel==="failed"){this.stop("Co-op preparation failed. Your save is preserved.",true);return;}
-    if(channel==="prepared"){
+    if(channel==="room-return"){
+      const profile=await this.profile();
+      if(this.value.phase!=="playing"||data!==this.value.match?.party||profile.ticket?.party===data||
+        !profile.completedParties?.includes(data))throw Error("The completed co-op run has not been saved.");
+    }else if(channel==="prepared"){
       const {ticket}=await this.profile(),match=this.value.match;
       if(this.value.phase!=="preparing"||data!==match?.party||ticket?.party!==data||ticket.seed!==match.seed||
         ticket.lan?.me!==this.value.me||ticket.lan?.size!==this.value.members.length||ticket.lan?.launched!==false)
         throw Error("The Internet co-op run has not been durably committed.");
-    }else if(["room-start","room-ready","room-pick","room-chat"].includes(channel)){
+    }else if(["room-start","room-ready","room-pick","room-chat","room-settings","room-seats","room-loadout"].includes(channel)){
       if(!["hosting","lobby"].includes(this.value.phase))return;
       if(channel==="room-pick"){
         const profile=await this.profile();if(profile.unfinished||!profile.league.includes(data))throw Error("Choose an owned Pokémon.");
       }
       if(channel==="room-chat"&&(typeof data!=="string"||data.length>140))return;
+      if(channel==="room-loadout")data=coopLoadout(data);
+      if(channel==="room-settings"||channel==="room-seats"){
+        if(this.value.role!=="host")throw Error("Only the host can change this room.");
+        if(channel==="room-settings")requireCoopUnlocks(data,this.value.members);
+        else coopSeats(data,this.value.members.length);
+      }
     }else if(!(["ctl","snap"].includes(channel)&&this.value.phase==="playing"&&
       this.value.members.some(member=>member.id===data?.to&&member.id!==this.value.me)&&lanFrame(channel,data?.payload)))return;
     if(epoch===this.epoch)this.input({type:"action",channel,data});
@@ -69,7 +81,9 @@ export class NativeInternet {
     try{
       if(value.type==="state"){this.value=internetState(value.value,this.mode);this.finding=["searching","joining"].includes(this.value.discovery?.status)||this.value.roomListing?.status==="loading";this.publish();}
       else if(value.type==="frame"&&this.value.phase==="playing"&&this.value.members.some(member=>member.id===value.peer)&&lanFrame(value.channel,value.data))this.emit(value);
-      else if(value.type==="peer-closed"&&this.value.members.some(member=>member.id===value.peer))this.emit({type:"peer-closed",peer:value.peer});
+      else if(value.type==="peer-closed"&&this.value.members.some(member=>member.id===value.peer))
+        this.emit({type:"peer-closed",peer:value.peer,permanent:value.permanent===true});
+      else if(value.type==="notice"&&typeof value.message==="string")this.emit({type:"notice",message:value.message.slice(0,180)});
     }catch{this.stop("Invalid Internet room state. Your save is preserved.",true);}
   }
 }

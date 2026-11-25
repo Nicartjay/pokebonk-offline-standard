@@ -1,16 +1,20 @@
-# PokéBonk Offline 1.2.0
+# PokéBonk Offline 1.3.0
 
-Bundled game: **PokéBonk 0.10.26 / mwsewi0r**.
+Bundled game: **PokéBonk 0.10.31 / mwv6wzyo**.
 
-- **Internet co-op:** choose STUN only or STUN + TURN fallback alongside LAN. Direct connections are tried first; TURN is used only when needed and authorized.
-- **Pick Rooms** lets you browse compatible open rooms. **Find a random match** joins an available room automatically.
-- **Short room codes:** four characters for LAN, six for Internet, with separate character boxes and easy copying.
-- **Leave confirmation:** Back/Esc and Android Back now ask before leaving. The buttons are centered, and opening the Lab keeps your room.
-- Improved Android room creation, discovery and joining, with connection status shown before joining and in the room—not over gameplay.
-- Solo play and LAN remain available without Internet. Normal earned progression and existing saves are preserved.
+- **Updated game:** the original Pokédex+, collection/move history, Expedition improvements and upstream fixes.
+- **Expedition co-op:** team up with 2–4 trainers in Wild Valley or Safari Zone, with individual loadouts, Ready/Enter controls, loot ownership and acknowledged item returns.
+- **Expanded co-op rooms:** original map, difficulty and mode pickers, including Daily Mutation and Boss Rush. Find teammates controls public discovery; private rooms remain code-only.
+- **Reconnect during runs:** temporary interruptions pause the team for up to 90 seconds while apps remain open. Rejoin the same run, or choose Give up. Host migration and recovery after force-closing the app are not supported.
+- **Better updates:** checking, download percentage, verification and Install update use the game's modal design. Downloads and installation still require your choice.
+- **Offline rental builds:** all 1,104 public builds for 138 Pokémon are bundled, with creator credits and normal unlock requirements.
+- **Performance and readability:** graphics quality affects the actual render resolution; Battery Saver lowers resolution, disables bloom and locks FPS to 30. Improved Android HP/friendship text, compact multi-boss bars and the Left to use panel.
+- **Artwork fixes:** restored original status icons and Treasures banner glows. Original generated Pokémon looks remain intact; no cosmetic unlocks are granted.
 
-Co-op supports 2–4 trainers in Classic · Viridian Forest · Normal. All players need matching app builds and connection modes. Host migration and exact reconnection to interrupted co-op runs are not supported; the last durable run ticket/checkpoint is retained.
+**Before updating:** export a save backup and finish any unfinished run in v1.2.0 first. Completed progression remains compatible; older-engine suspended runs are preserved but cannot resume in v1.3.0.
 
-Export a save backup before upgrading. Install the Android APK over the existing app; do not uninstall. On macOS, fully quit the old app before opening the new one.
+All co-op players need the same app build and connection mode. LAN and solo play work without Internet; STUN/TURN co-op requires the separate signaling service. Keep apps and the room open until Expedition item returns are acknowledged.
 
-Downloads: macOS Apple Silicon/Intel DMG and ZIP; Windows setup/portable EXE and ZIP; Linux AppImage/DEB; Android APK. Desktop builds are not Apple-notarized or Authenticode-signed. Android updates retain the existing application ID and signing certificate.
+Install the Android APK over the existing app—do not uninstall. Fully quit the old macOS app before opening the new one. The app ID, save schema and Android signing identity are unchanged.
+
+**Downloads:** macOS Apple Silicon/Intel DMG and ZIP; Windows setup/portable EXE and ZIP; Linux AppImage/DEB; Android APK. Desktop builds are not Apple-notarized or Authenticode-signed.

@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {EventEmitter} from "node:events";
 import {readFile} from "node:fs/promises";
-import {ANDROID_UI_SCALE, androidPresentationSettings, androidMinimapScale, androidBatteryFpsCap,
-  skipAndroidBatteryFrame, installAndroidSafeArea, installAndroidStarterLayout, projectAndroidInsets} from "../runtime/android-ui.js";
+import {ANDROID_UI_SCALE, androidPresentationSettings, androidMinimapScale,
+  installAndroidSafeArea, installAndroidStarterLayout, projectAndroidInsets} from "../runtime/android-ui.js";
 
 const geometry = {width: 2400, height: 1080, left: 120, top: 48, right: 48, bottom: 66};
 test("Android inset projection respects physical density and rounds toward safety", () => {
@@ -84,48 +84,34 @@ test("Android minimap size follows the complete 60–200% slider instead of the 
   }
 });
 
-test("Android battery saver overrides higher or unlimited FPS without increasing a lower cap", () => {
-  const win = {PokeBonkStandardAndroid: {}};
-  for (const cap of [0, 30, 60, 90, 120, 144, 240]) assert.equal(androidBatteryFpsCap(true, cap, win), 30);
-  assert.equal(androidBatteryFpsCap(true, 20, win), 20);
-  assert.equal(androidBatteryFpsCap(false, 144, win), 144);
-  assert.equal(androidBatteryFpsCap(true, 144, {}), 144);
-  assert.equal(androidBatteryFpsCap(true, 144, {...win, PokeBonkStandard: {}}), 144);
-});
-
-test("battery saver limits actual frames on high-refresh Android displays, including needsDraw redraws", () => {
-  const win = {PokeBonkStandardAndroid: {}};
-  for (const hz of [60, 90, 120, 144, 165, 240]) {
-    const app = {saver: true, r: {needsDraw: true}, frameGap: () => 33.3};
-    const frames = [];
-    for (let n = 0; n < hz * 4; n++) {
-      const now = n * 1000 / hz;
-      if (!skipAndroidBatteryFrame(app, now, win)) frames.push(now);
-    }
-    assert.ok(frames.length <= 120 && frames.length >= 100, `${hz}Hz rendered ${frames.length} frames over four seconds.`);
-    for (let n = 1; n < frames.length; n++) assert.ok(frames[n] - frames[n - 1] >= 1000 / 30 - .01);
-  }
-});
-
-test("battery pacing resets when disabled and remains independent per app, pause rate and platform", () => {
-  const win = {PokeBonkStandardAndroid: {}}, app = {saver: true, frameGap: () => 50};
-  assert.equal(skipAndroidBatteryFrame(app, 0, win), false);
-  assert.equal(skipAndroidBatteryFrame(app, 40, win), true);
-  assert.equal(skipAndroidBatteryFrame(app, 50, win), false);
-  assert.equal(skipAndroidBatteryFrame({...app}, 51, win), false);
-  app.saver = false;
-  assert.equal(skipAndroidBatteryFrame(app, 51, win), false);
-  app.saver = true;
-  assert.equal(skipAndroidBatteryFrame(app, 52, win), false);
-  assert.equal(skipAndroidBatteryFrame(app, 53, {}), false);
-  assert.equal(skipAndroidBatteryFrame(app, 54, {...win, PokeBonkStandard: {}}), false);
-});
-
 test("Android hides both menu and in-game fullscreen controls, and tablet card headers explicitly stretch", async () => {
   const css = await readFile("standard/runtime/offline.css", "utf8");
   assert.match(css, /data-standard-platform="android"[^{}]*:is\(\.offline-fullscreen, \.fs-btn, \.tc-fs\)[^{]*\{\s*display:\s*none\s*!important/);
   assert.match(css, /#ui \.sp-card,\s*#ui \.card\s*\{\s*align-items:\s*stretch/);
   assert.match(css, /#ui \.card > \.top\s*\{[^}]*width:\s*100%/);
+});
+
+test("Android under-character HP digits use white fill and a thin behind-text shadow, without changing the bar", async () => {
+  const css = await readFile("standard/runtime/home.css", "utf8");
+  const rule = css.match(/:root\[data-standard-platform="android"\] \.under \.hpbar > b\s*\{([^}]+)\}/)?.[1];
+  assert.ok(rule, "The HP typography override must be limited to the Android shell.");
+  assert.match(rule, /-webkit-text-stroke:\s*0 transparent !important/);
+  assert.match(rule, /-webkit-text-fill-color:\s*#fff/);
+  assert.match(rule, /(?:^|;)\s*color:\s*#fff/);
+  assert.match(rule, /text-shadow:[^;]*\.65px[^;]*#2a2440[^;]*!important/);
+  assert.doesNotMatch(rule, /paint-order|font-size|font-weight|padding|height|width|background|border/);
+});
+
+test("Android friendship badge numbers use the behind-fill outline at every badge size", async () => {
+  const css = await readFile("standard/runtime/home.css", "utf8");
+  const outline = [...css.matchAll(/:root\[data-standard-platform="android"\] :is\(([^{}]+)\)\s*\{([^}]+)\}/g)]
+    .find(rule => rule[1].includes(".fr-badge > b"));
+  assert.ok(outline);
+  assert.match(outline[1], /\.fr-badge > b/);
+  assert.match(outline[2], /-webkit-text-stroke:\s*0 transparent !important/);
+  assert.match(outline[2], /-webkit-text-fill-color:\s*currentColor/);
+  assert.match(outline[2], /text-shadow:[^;]*\.06em[^;]*!important/);
+  assert.match(css, /:root\[data-standard-platform="android"\] \.fr-badge > b\s*\{[^}]*--standard-outline:\s*#2a2440;\s*color:\s*#fff/);
 });
 
 test("Android no longer adds a native menu overlay, uses current APK assets and retains filled launcher art", async () => {

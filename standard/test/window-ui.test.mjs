@@ -125,6 +125,27 @@ test("desktop-control clicks validate exact scopes, verbs and enum URLs without 
     assert.equal(fire(action,value),false);
   assert.deepEqual(bridges,[["PokeBonkStandard",["loadState","saveState"]],["PokeBonkLAN",["state","send"]]]);
 });
+test("update download/install require a trusted click in the updater and accept no arguments or destination", async () => {
+  let click;
+  const sent = [];
+  vm.runInNewContext(await readFile("standard/desktop/preload.cjs", "utf8"), {
+    document: {addEventListener(_type, fn) { click = fn; }}, window: {addEventListener() {}},
+    require: () => ({contextBridge: {exposeInMainWorld() {}}, ipcRenderer: {on() {}, send: (...args) => sent.push(args)}}),
+  });
+  const fire = (action, {trusted = true, scope = true, disabled = false, href = "/__native__/" + action} = {}) => {
+    const link = {closest: selector => scope && selector === ".offline-update-card" ? {} : null,
+      getAttribute: key => key === "href" ? href : key === "aria-disabled" ? String(disabled) : action};
+    click({isTrusted: trusted, button: 0,
+      target: {closest: selector => selector === "a[data-standard-native-action]" ? link : null}, preventDefault() {}});
+  };
+  for (const action of ["download-update", "install-update"]) {
+    const count = sent.length;
+    for (const options of [{trusted: false}, {scope: false}, {disabled: true},
+      {href: "https://example.invalid"}, {href: "/__native__/" + action + "?file=arbitrary"}]) fire(action, options);
+    assert.equal(sent.length, count);
+    fire(action); assert.deepEqual(sent.at(-1), ["standard:update-action", action]);
+  }
+});
 test("the LAN bridge allows only bounded game messages and never exposes transport or filesystem commands", async () => {
   const bridges = new Map(), sent = [];
   vm.runInNewContext(await readFile("standard/desktop/preload.cjs", "utf8"), {

@@ -4,6 +4,7 @@ import {EventEmitter} from "node:events";
 import {DISCOVERY_GROUP,DISCOVERY_PORT,DISCOVERY_MAGIC,discoveryQuery,discoveryRoom,advertisedRoom} from "../common/lan-discovery.mjs";
 import {LanDiscovery} from "../desktop/lan-discovery.mjs";
 import {NativeLan} from "../desktop/lan.mjs";
+import {lanRoomCode} from "../common/coop-mode.mjs";
 const identity="PB-LAN2|standard|1.1.0|build|"+"a".repeat(64),nonce="ab".repeat(16);
 const network=address=>({label:"Wi-Fi",address,netmask:"255.255.255.0"});
 const host=()=>({role:"host",phase:"hosting",me:"lan-host",invitation:"192.168.1.10:42000#"+"cd".repeat(16),
@@ -60,6 +61,19 @@ test("native discovery multicasts one bounded query, receives a nonce-matched ro
     assert.equal(query.to,DISCOVERY_PORT);assert.ok(query.bytes.length<=1400);
     assert.equal(b.sent.filter(p=>p.address===DISCOVERY_GROUP).length,1,"No subnet address sweep.");
     advertiser.advertise({...host(),phase:"playing"});assert.equal(b.sockets.size,0);
+  }finally{advertiser.close();finder.close();}
+});
+test("code-only LAN hosts answer an exact code lookup but never random discovery or room browsing",async()=>{
+  const b=bus(),advertiser=new LanDiscovery({identity,interfaces:()=>[network("192.168.1.10")],socket:b.create("192.168.1.10")}),
+    finder=new LanDiscovery({identity,interfaces:()=>[network("192.168.1.20")],socket:b.create("192.168.1.20")});
+  try{
+    advertiser.advertise({...host(),seats:{discoverable:false,capacity:2}});await tick();
+    let pending=finder.find();await tick();await tick();finder.cancel();
+    assert.equal((await pending).rooms.length,0);
+    pending=finder.find({code:lanRoomCode(host().me)});await tick();await tick();finder.cancel();
+    const result=await pending;assert.equal(result.rooms.length,1);assert.equal(result.rooms[0].capacity,2);
+    assert.equal(result.rooms[0].invitation,host().invitation);
+    assert.equal(b.sent.filter(packet=>packet.address===DISCOVERY_GROUP).length,2);
   }finally{advertiser.close();finder.close();}
 });
 function controller({profile={league:[4],name:"Player",unfinished:false},result={rooms:[],cancelled:false}}={}){

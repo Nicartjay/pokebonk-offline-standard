@@ -1,7 +1,7 @@
 {
   "name": "pokebonk-offline",
   "productName": "PokéBonk Offline",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "description": "Unofficial offline PokéBonk with normal progression.",
@@ -12,6 +12,9 @@
     "test": "node scripts/test.mjs",
     "prepare:game": "node standard/scripts/prepare.mjs",
     "verify": "node standard/scripts/verify.mjs",
+    "audit:images": "node standard/scripts/audit-images.mjs",
+    "capture:rentals": "node standard/scripts/capture-rentals.mjs",
+    "compact:vendor": "node standard/scripts/compact-vendor.mjs",
     "dev": "pnpm prepare:game && electron standard/desktop/main.mjs",
     "check:layout": "node standard/scripts/check-layout.mjs",
     "check:content": "node standard/scripts/check-offline-content.mjs",

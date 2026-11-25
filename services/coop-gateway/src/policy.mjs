@@ -1,3 +1,4 @@
+import {coopMaps} from "../../../standard/common/coop-rules.mjs";
 export const POLICY = Object.freeze({
   maxPlayers: 4, maxRooms: 8, maxRoomCreatesPerHour:12, roomLifetimeMs: 2 * 60 * 60 * 1000,
   maxBodyBytes: 36 * 1024, maxSignalBytes: 32 * 1024,
@@ -12,13 +13,14 @@ export const POLICY = Object.freeze({
   cutoffBytes: 800 * 1000 * 1000 * 1000,
   usageMaxAgeMs: 120000, usageRefreshMs: 45000, directAttemptMs: 12000,
   reservationLifetimeMs: 60000, maxFindAttempts: 3,
+  reconnectWindowMs: 90000, maxPeerRound: 32,
 });
 export const MATCH_RULES = "classic-forest-normal-v1";
 export function roomCodeValid(value) {
   return typeof value==="string"&&/^(?:[A-Z2-7]{6}|[A-Z2-7]{8})$/.test(value);
 }
 export function coopProtocol(value=1) {
-  requireValue(value===1||value===2,400,"invalid_coop_protocol");return value;
+  requireValue(value===1||value===2||value===3,400,"invalid_coop_protocol");return value;
 }
 export function internetMode(value) {
   requireValue(["stun-only","turn-fallback"].includes(value),400,"invalid_connection_mode");
@@ -89,7 +91,7 @@ export async function privateAddressKey(request, secret) {
 export function profile(value) {
   requireValue(typeof value.name === "string" && value.name.trim().length > 0 && value.name.length <= 24 &&
     !/[\u0000-\u001f\u007f]/.test(value.name) && Number.isInteger(value.species) && value.species >= 1 && value.species <= 10000, 400, "invalid_player");
-  return {name: value.name.trim(), species: value.species};
+  return {name: value.name.trim(), species: value.species,maps:coopMaps(value.maps)};
 }
 export function acceptedBuild(value, env) {
   let accepted; try { accepted = JSON.parse(env.ACCEPTED_BUILD_IDS); } catch { throw new Fault(503, "builds_not_configured"); }

@@ -1,4 +1,6 @@
 // Data validation shared by the native LAN controller and bundled game adapter.
+import {recoveryState, peerLinks} from "./coop-recovery.mjs";
+import {coopMaps,coopSettings,coopSeats,coopGameConfig,coopRuleTime,coopLoadout} from "./coop-rules.mjs";
 export const LAN_PROTOCOL = 2;
 export const LAN_MAX_MESSAGE = 48 * 1024;
 export const LAN_MAX_SNAPSHOT = 16 * 1024;
@@ -59,7 +61,9 @@ export function lanState(value) {
   const members=value.members.map(m=>{
     if(!m||!id(m.id)||typeof m.name!=="string"||m.name.length>24||!Number.isInteger(m.species)||m.species<1||m.species>10000||
       !Number.isInteger(m.slot)||m.slot<0||m.slot>3||typeof m.ready!=="boolean")throw Error("Invalid native LAN member.");
-    return {id:m.id,name:m.name,species:m.species,slot:m.slot,ready:m.ready};
+    return {id:m.id,name:m.name,species:m.species,slot:m.slot,ready:m.ready,maps:coopMaps(m.maps),
+      ...(m.returned===true?{returned:true}:{}),
+      ...(m.loadout!==undefined?{loadout:coopLoadout(m.loadout)}:{})};
   });
   if(new Set(members.map(m=>m.id)).size!==members.length||new Set(members.map(m=>m.slot)).size!==members.length)throw Error("Duplicate local player.");
   const result={phase:value.phase,members,linked:value.linked===true,
@@ -69,15 +73,24 @@ export function lanState(value) {
         typeof m.text!=="string"||m.text.length>140||!Number.isFinite(m.at))throw Error("Invalid local chat.");
       return {id:m.id,from:m.from,name:m.name,text:m.text,at:m.at};
     }):[]};
+  result.settings=coopSettings(value.settings);
+  result.seats=coopSeats(value.seats,members.length);
+  if(value.rulesAt!==undefined)result.rulesAt=coopRuleTime(value.rulesAt);
   if(value.me!==undefined){if(!id(value.me)||!["host","client"].includes(value.role))throw Error("Invalid local identity.");result.me=value.me;result.role=value.role;}
   if(value.invitation!==undefined){invitation(value.invitation);result.invitation=value.invitation;}
   if(value.code!==undefined)result.code=String(value.code).slice(0,8);
+  if(value.lastParty!==undefined){if(!id(value.lastParty))throw Error("Invalid completed co-op party.");result.lastParty=value.lastParty;}
   if(value.error!==undefined)result.error=String(value.error).slice(0,240);
   if(value.match!==undefined){
     const m=value.match;
-    if(!m||!id(m.party)||!Number.isInteger(m.seed)||m.seed<0||m.seed>0xffffffff||m.mode!=="standard"||m.biome!=="forest"||m.tier!==0||
+    if(!m||!id(m.party)||!Number.isInteger(m.seed)||m.seed<0||m.seed>0xffffffff||!coopGameConfig(m)||
       !Array.isArray(m.players)||m.players.length<2||m.players.length>4||JSON.stringify(m.players)!==JSON.stringify(members.map(p=>p.id)))throw Error("Invalid shared LAN match.");
     result.match={party:m.party,seed:m.seed,mode:m.mode,biome:m.biome,tier:m.tier,players:[...m.players]};
+    if(m.rulesAt!==undefined)result.match.rulesAt=coopRuleTime(m.rulesAt);
+    if(["mutation","bossrush"].includes(m.mode)&&m.rulesAt===undefined)throw Error("Missing shared co-op rule clock.");
   }
+  if(value.peerLinks!==undefined)result.peerLinks=peerLinks(value.peerLinks,members,result.me);
+  if(value.departed!==undefined)result.departed=peerLinks(value.departed,members,result.me);
+  if(value.recovery!==undefined)result.recovery=recoveryState(value.recovery,members,result.me);
   return result;
 }

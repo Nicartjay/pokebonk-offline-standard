@@ -2,7 +2,7 @@
 
 Unofficial offline PokéBonk for **macOS, Windows, Linux, and Android**. Play with normal progression and local saves—no online account or automatic unlocks.
 
-**App v1.2.0 · Bundled game v0.10.26**
+**App v1.3.0 · Bundled game v0.10.31**
 
 [Download the latest release](https://github.com/Nicartjay/pokebonk-offline-standard/releases/latest) · [Report a bug](https://github.com/Nicartjay/pokebonk-offline-standard/issues)
 
@@ -10,9 +10,10 @@ Unofficial offline PokéBonk for **macOS, Windows, Linux, and Android**. Play wi
 
 - Classic, Endless, Relay, Practice, and Daily Mutation.
 - Offline Boss Rush and Lavender Tower, including earned Challenge Pass rewards and missions.
-- Solo Great Expedition with local loot, extraction, inventory, shop and earned pass rewards.
-- Experimental 2–4-player co-op: LAN, STUN-only Internet connections, or direct-first TURN fallback (Classic · Viridian Forest · Normal). Browse rooms, find a random match, or join by code. See the [co-op guide](standard/docs/internet-coop.md).
-- Personal Records, JSON save backups, desktop graphics options, and Android touch controls.
+- Great Expedition with local loot, extraction, inventory, shop, earned pass rewards and 2–4-player teams.
+- Co-op: LAN, STUN-only Internet connections, or direct-first TURN fallback. Choose maps, difficulty and modes; browse rooms or join by code. Temporary connection interruptions have a 90-second recovery window while apps remain open. See the [co-op guide](standard/docs/internet-coop.md).
+- Pokédex+, 1,104 bundled rental builds, Personal Records and JSON save backups.
+- Download progress and explicit installation in the game-styled updater; improved graphics quality, 30-FPS Battery Saver and Android readability.
 
 LAN and solo play need no Internet. Internet co-op uses a separate signaling service; there are no online accounts, leaderboards or competitive prizes.
 
@@ -30,6 +31,8 @@ macOS builds are not notarized, and Windows builds are unsigned, so OS security 
 ## Saves and updates
 
 Use **Player & saves** to export/import backups or check for updates. Progress is stored outside the installed app. **Back up your save before updating**, especially on Android.
+
+Complete unfinished runs in the previous version before upgrading; their checkpoints are preserved, but older-engine runs cannot resume in this version.
 
 The app automatically checks signed GitHub releases; downloads and installation require your confirmation. Gameplay works offline. Website updates are adapted separately before being included in an app release.
 

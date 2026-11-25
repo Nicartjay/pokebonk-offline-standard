@@ -276,7 +276,7 @@
 .offline-home-record-table th:last-child { width: 70px; text-align: right; }
 .offline-home-record-table td { padding: 9px 4px; border-top: 1px solid var(--line); vertical-align: middle; }
 .offline-home-record-table td:last-child { text-align: right; }
-.offline-home-record-table td > img { width: 28px; height: 28px; margin-right: 6px; vertical-align: middle; image-rendering: pixelated; }
+.offline-home-record-table td > img { width: 28px; height: 28px; margin-right: 6px; border-radius: 6px; vertical-align: middle; image-rendering: pixelated; }
 .offline-home-record-table td > span { display: inline-flex; flex-direction: column; max-width: calc(100% - 35px); vertical-align: middle; gap: 2px; }
 .offline-home-record-table td b { font-size: 12px; line-height: 1.2; overflow-wrap: anywhere; }
 .offline-home-record-table td small { display: block; font-size: 9px; color: var(--ink-2); line-height: 1.3; }
@@ -291,12 +291,23 @@
 .offline-update-symbol.offline-update-spinner { width: 36px; height: 36px; margin: 6px; background: none; border: 4px solid #8a6bd733; border-top-color: var(--purple,#8a3aff); animation: offline-update-spin .9s linear infinite; }
 .offline-update-progress { overflow: hidden; height: 7px; border-radius: 99px; background: #8a6bd722; margin-bottom: 20px; }
 .offline-update-progress > span { display: block; width: 40%; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#9a73f5,#65b8ff); animation: offline-update-sweep 1.5s ease-in-out infinite; }
+.offline-update-progress.determinate { height: 15px; border: 2px solid var(--line); background: var(--paper-2); box-shadow: inset 0 2px 0 #0000000c; }
+.offline-update-progress.determinate > span { width: 0; animation: none; transition: width .18s linear; background: var(--stripes),linear-gradient(90deg,#8360e7,#399ee8); box-shadow: inset 0 2px 0 #ffffff66; }
+.offline-update-transfer { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin: 0 0 9px; }
+.offline-update-percent { font: 900 28px/1 var(--font-title); color: var(--ink); font-variant-numeric: tabular-nums; }
+.offline-update-bytes { font-size: 12px; font-weight: 800; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.offline-update-verified { margin: 0 0 16px; padding: 11px 14px; color: var(--ink); background: #32b37618; border: 1px solid #32b37666; border-radius: 12px; font-size: 12px; font-weight: 800; line-height: 1.5; }
+[data-update-state="available"] .offline-update-symbol { color: #6b52d5; background: #8a6bd722; }
 .offline-update-versions { margin: 0 0 16px; padding: 10px 16px; background: var(--paper-2); border: 1px solid var(--line); border-radius: 14px; }
 .offline-update-versions > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; padding: 8px 0; }
 .offline-update-versions dt { font-size: 13px; color: var(--ink-2); }
 .offline-update-versions dd { margin: 0; font-size: 13px; font-weight: 900; overflow-wrap: anywhere; }
 .offline-update-note { color: var(--ink-2); font-size: 12px; line-height: 1.55; }
-.offline-update-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.offline-update-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 18px; padding-bottom: 5px; }
+.offline-update-actions > .btn { display: inline-flex; align-items: center; justify-content: center; flex: 1 1 150px; max-width: 260px; text-align: center; min-height: 43px; font-size: 14px; white-space: normal; text-decoration: none; }
+.offline-update-release-notes { margin-top: 15px; padding-top: 12px; border-top: 1px solid var(--line); }
+.offline-update-release-notes summary { cursor: pointer; font-weight: 900; font-size: 13px; }
+.offline-update-notes-text { max-height: 150px; overflow: auto; margin-top: 10px; font-size: 12px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .offline-update-details { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
 .offline-update-details summary { cursor: pointer; }
 @keyframes offline-update-spin { to { rotate: 360deg; } }
@@ -308,6 +319,39 @@
   .offline-update-hero p { font-size: 12px; }
   .offline-update-versions { padding-block: 3px; margin-bottom: 8px; }
   .offline-update-versions > div { padding-block: 5px; }
+  .offline-update-body { padding: 12px 18px 14px; }
+  .offline-update-hero { margin-bottom: 10px; }
+  .offline-update-versions { margin-bottom: 7px; }
+  .offline-update-note { margin-block: 8px; font-size: 11px; }
+  .offline-update-actions { margin-top: 12px; }
+  .offline-update-release-notes { margin-top: 8px; padding-top: 8px; }
+  .offline-update-notes-text { max-height: 74px; }
+  .offline-update-percent { font-size: 24px; }
+  .offline-update-progress { margin-bottom: 12px; }
+}
+/* Landscape phones use the available width rather than pushing Install below
+   the fold. Roomy tablets/desktops keep the original single-column modal. */
+@media (max-height: 500px) and (min-width: 600px) {
+  .offline-card.offline-update-card { width: min(840px,100%); }
+  .offline-card.offline-update-card > .offline-card-head { padding: 11px 18px; }
+  .offline-update-body {
+    display: grid; grid-template-columns: minmax(0,1.05fr) minmax(0,1fr);
+    grid-template-areas: "hero hero" "detail versions" "note versions" "actions actions";
+    gap: 8px 18px;
+  }
+  .offline-update-hero { grid-area: hero; margin: 0 0 2px; }
+  .offline-update-versions { grid-area: versions; align-self: start; margin: 0; padding-inline: 12px; }
+  .offline-update-note { grid-area: note; align-self: start; margin: 0; }
+  .offline-update-progress,.offline-update-verified,.offline-update-release-notes,.offline-update-details { grid-area: detail; margin: 0; }
+  .offline-update-actions { grid-area: actions; margin: 2px 0 0; }
+  .offline-update-actions > .btn { min-height: 38px; padding-block: 8px; }
+  .offline-update-release-notes { border: 0; padding-top: 0; }
+  .offline-update-notes-text { max-height: 64px; }
+  .offline-update-card[data-update-state="downloading"] .offline-update-body {
+    grid-template-areas: "hero hero" "transfer versions" "progress versions" "note versions" "actions actions";
+  }
+  .offline-update-transfer { grid-area: transfer; margin: 0; }
+  .offline-update-card[data-update-state="downloading"] .offline-update-body > .offline-update-progress { grid-area: progress; margin: 0; }
 }
 .offline-record-panel .offline-home-all { flex: none; width: 100%; min-height: 30px; padding: 6px 10px; font-size: 11px; white-space: normal; }
 
@@ -350,11 +394,12 @@
 .offline-music-status { max-width: 420px; text-align: center; color: var(--ink-2); margin: 12px 0 0; font-size: 13px; }
 /* Older tablet WebViews stroke OVER the fill even when they claim to support
    paint-order. A shadow ring stays behind the glyph on every supported
-   WebView; it cannot swallow the white title counters/letter interiors.
+   WebView; it cannot swallow the white letter or number interiors.
    Keep the original font, text, artwork and sizes. Desktop is unchanged. */
 :root[data-standard-platform="android"] :is(
   .screen.brs .br-top .scr-title h1, .screen.brs h2, .br-cur b, .br-btn,
   .br-medal i, .br-boss-name, .br-best-row b, .br-go b, .br-lvbadge b,
+  .fr-badge > b,
   .br-stop.k-cos .br-stop-rw small, .br-stop.got .br-node, .br-stop.ready .br-node,
   .br-pod-val b, .br-pod-base, .br-me-rank b, .br-tier > b, .re2-head h1,
   .ls4 .lg-poster .ls-id h1, .mu-name, .ms-tx b,
@@ -380,10 +425,24 @@
 :root[data-standard-platform="android"] .ls4 .lg-poster .ls-id h1 { --standard-outline: var(--lg-ink,#19152d); }
 :root[data-standard-platform="android"] .mu-name { --standard-outline: var(--deep,#1a1238); }
 :root[data-standard-platform="android"] .ms-tx b { --standard-outline: #1a1238; }
+:root[data-standard-platform="android"] .fr-badge > b { --standard-outline: #2a2440; color: #fff; }
 :root[data-standard-platform="android"] .screen.exb { --standard-outline: var(--x-ink,#1b2448); }
 /* Keep the lighter letter interiors. Old tablet WebViews ignore paint-order
    and paint a thick stroke inward over the original white fill. */
 :root[data-standard-platform="android"] .screen.exb :is(.exb-mapcard b,.exb-chart-name h2,.ex-go b,.ex-cur b,.scr-title h1) { color: #fff; }
+/* The under-character HP number is only 10–11px tall. Its upstream 2.5px
+   stroke covers the digits on tablet WebViews without stroke-first painting.
+   Keep the bar, shield layers, number and sizing; draw a thin shadow BEHIND
+   an explicit white fill instead. Desktop keeps the upstream appearance. */
+:root[data-standard-platform="android"] .under .hpbar > b {
+  color: #fff;
+  -webkit-text-fill-color: #fff;
+  -webkit-text-stroke: 0 transparent !important;
+  text-shadow:
+    -.65px -.65px 0 #2a2440, .65px -.65px 0 #2a2440,
+    -.65px .65px 0 #2a2440, .65px .65px 0 #2a2440,
+    0 1px 0 #2a2440 !important;
+}
 .offline-expedition-history { padding: 20px; overflow: auto; }
 .offline-expedition-history table { width: 100%; border-collapse: collapse; }
 .offline-expedition-history :is(th,td) { text-align: start; padding: 10px; border-bottom: 1px solid var(--line); }
@@ -616,3 +675,73 @@
 :root[data-standard-platform="android"] #ui .screen.sp.standard-starter-compact .sp-foot { gap: 5px; }
 :root[data-standard-platform="android"] #ui .screen.sp.standard-starter-compact .sp-go { min-height: 36px; padding: 7px 16px; font-size: clamp(16px, 3.4dvh, 21px); }
 :root[data-standard-platform="android"] #ui .screen.sp.standard-starter-compact .sp-foot .keys { font-size: 9px; }
+
+/* Shared by desktop and Android. Keep 30 selected and legible when locked. */
+#ui .offline-fps-settings .pill:disabled {
+  opacity: .38;
+  cursor: not-allowed;
+  transform: none;
+  animation: none;
+}
+#ui .offline-fps-settings .pill.on:disabled { opacity: .9; }
+
+/* A multi-row list cannot use the upstream 99px capsule corners: icons at
+   the first/last row then sit outside its visible background. Keep complete
+   icon/count pairs together, and give the heading its own full-width row. */
+#hud .hud-tr > .leftpill {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: min(230px, calc(100vw - 32px));
+  border-radius: 14px;
+  justify-content: flex-start;
+  gap: 6px 8px;
+  padding: 8px 10px;
+}
+#hud .hud-tr > .leftpill > small {
+  flex: 0 0 100%;
+  min-width: 0;
+  text-align: center;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+#hud .hud-tr > .leftpill > .lp-i {
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: nowrap;
+}
+#hud .hud-tr > .leftpill > .lp-i > b { line-height: 1.2; }
+
+.offline-rental-snapshot { align-items: center; gap: 10px; }
+.offline-rental-snapshot > img { width: 28px; height: 28px; flex: none; image-rendering: pixelated; }
+.offline-rental-snapshot-text { display: grid; gap: 4px; min-width: 0; }
+.offline-rental-snapshot-text > small { display: block; line-height: 1.35; overflow-wrap: anywhere; }
+.bs-rentcard .bp-origin { cursor: default; }
+
+/* The upstream 0.10.31 wanted-loot list can exceed short laptop/tablet
+   viewports. Keep its original card design but make the whole list/footer
+   reachable instead of letting the viewport crop off Ready/Clear all. */
+.season-modal.xw-modal > .cl-modal {
+  box-sizing: border-box;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+/* Keep the original Expedition team layout. The locked transport is a label;
+   visibility and capacity keep the game's pill/segmented controls. */
+.offline-expedition-room .offline-exp-team-tools {
+  display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin:8px 0;
+}
+.offline-expedition-room .offline-exp-team-tools > .offline-lan-connection {
+  flex:1 1 auto; min-width:0; margin-right:auto;
+}
+.offline-exp-team-entry > .offline-lan-fields {
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px;
+}
+.offline-exp-team-entry .xt-join .offline-lan-join { max-width:100%; }
+.offline-exp-team-entry .offline-lan-pick-rooms { width:100%; }
+@media(max-width:600px){
+  .offline-exp-team-entry > .offline-lan-fields { grid-template-columns:1fr; }
+  .offline-expedition-room .offline-exp-team-tools { align-items:stretch; }
+}

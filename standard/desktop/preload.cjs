@@ -8,7 +8,7 @@ let lan = {phase:"idle",members:[],interfaces:[],linked:false};
 contextBridge.exposeInMainWorld("PokeBonkLAN", Object.freeze({
   state: () => structuredClone(lan),
   send: (channel,data) => {
-    if(!["ctl","snap","prepared","failed","leave","refresh","cancel-find","room-ready","room-start","room-pick","room-chat"].includes(channel))return;
+    if(!["ctl","snap","prepared","failed","leave","refresh","cancel-find","room-ready","room-start","room-pick","room-chat","room-settings","room-seats","room-loadout","room-return"].includes(channel))return;
     const text=JSON.stringify(data??null);
     if(text.length<=48000)ipcRenderer.send("standard:lan-game",channel,data);
   },
@@ -72,7 +72,7 @@ document.addEventListener("click", event => {
     if(code!==undefined&&(action!=="join"||!(mode==="lan"?/^[A-Z0-9]{4}$/:/^[A-Z0-9]{6}$/).test(code)))return;
     if(lanLink.getAttribute("href")!=="/__native__/lan/"+action+(code!==undefined?"/"+code:""))return;
     event.preventDefault();
-    ipcRenderer.send("standard:lan-action",action,{species:Number(field("species")),address:field("address"),invitation:code??field("invitation"),connectionMode:mode});
+    ipcRenderer.send("standard:lan-action",action,{species:Number(field("species")),address:field("address"),invitation:code??field("invitation"),connectionMode:mode,destination:field("destination")});
     return;
   }
   if (event.target.closest?.("button.offline-fullscreen")) {
@@ -98,6 +98,13 @@ document.addEventListener("click", event => {
   const link = event.target.closest?.("a[data-standard-native-action]");
   if (!link) return;
   const action = link.getAttribute("data-standard-native-action");
+  if (["download-update", "install-update"].includes(action)) {
+    if (!link.closest(".offline-update-card") || link.getAttribute("href") !== "/__native__/" + action ||
+        link.getAttribute("aria-disabled") === "true") return;
+    event.preventDefault();
+    ipcRenderer.send("standard:update-action", action);
+    return;
+  }
   const scope = action === "check-for-updates" ? ".offline-player-card" :
     action === "report-bug" ? ".offline-report-card" : null;
   if (!scope || !link.closest(scope) || link.getAttribute("href") !== "/__native__/" + action) return;

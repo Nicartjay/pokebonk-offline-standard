@@ -30,15 +30,16 @@ final class InternetPolicy {
         JSONObject value=new JSONObject();
         // Native boundary allowlist, including nested objects. Broker tokens,
         // ICE credentials/candidates and service URLs never enter the game.
-        for(String key:new String[]{"phase","linked","role","me","code","error","match","disconnected","chat","members","discovery"})
+        for(String key:new String[]{"phase","linked","role","me","code","error","match","disconnected","chat","members","discovery","peerLinks","departed","recovery","settings","seats","rulesAt"})
             if(source.has(key))value.put(key,source.get(key));
         String invitation=source.optString("invitation","");
         JSONObject checked=LanPolicy.state(value),result=new JSONObject();
-        for(String key:new String[]{"phase","linked","role","me","code","error","disconnected"})if(checked.has(key))result.put(key,checked.get(key));
+        for(String key:new String[]{"phase","linked","role","me","code","error","disconnected","peerLinks","departed","recovery","settings","seats","rulesAt"})if(checked.has(key))result.put(key,checked.get(key));
         org.json.JSONArray members=new org.json.JSONArray(),incoming=checked.getJSONArray("members");
         for(int i=0;i<incoming.length();i++){
             JSONObject member=new JSONObject(),raw=incoming.getJSONObject(i);
             for(String key:new String[]{"id","name","species","slot","ready"})member.put(key,raw.get(key));
+            member.put("maps",CoopRules.maps(raw.optJSONObject("maps")));
             members.put(member);
         }
         result.put("members",members).put("connectionMode",mode);
@@ -46,6 +47,7 @@ final class InternetPolicy {
         if(checked.has("match")){
             JSONObject match=new JSONObject(),raw=checked.getJSONObject("match");
             for(String key:new String[]{"party","seed","mode","biome","tier","players"})match.put(key,raw.get(key));
+            if(raw.has("rulesAt"))match.put("rulesAt",CoopRules.time(raw.get("rulesAt")));
             result.put("match",match);
         }
         org.json.JSONArray chat=new org.json.JSONArray(),rawChat=checked.optJSONArray("chat");

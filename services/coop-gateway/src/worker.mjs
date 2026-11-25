@@ -1,4 +1,5 @@
 import {POLICY, STUN_SERVERS, Fault, requireValue, json, body, authorized, privateAddressKey, acceptedBuild, internetMode, coopProtocol, randomToken, profile} from "./policy.mjs";
+import {coopDestination} from "../../../standard/common/coop-rules.mjs";
 export {CoopControl} from "./control.mjs";
 export {CoopRoom} from "./room.mjs";
 const ORIGINS=new Set(["pokebonk-standard://game","https://appassets.androidplatform.net"]);
@@ -37,7 +38,8 @@ async function route(request,env){
     await admission(request,env);
     const listing=pathname==="/v1/matchmaking/rooms";
     const value=await body(request),player=listing?null:profile(value),buildId=acceptedBuild(value.buildId,env),protocolVersion=coopProtocol(value.protocolVersion);
-    if(listing)requireValue(protocolVersion===2,400,"invalid_coop_protocol");
+    try{coopDestination(value.destination??"");}catch{throw new Fault(400,"invalid_destination");}
+    if(listing)requireValue(protocolVersion>=2,400,"invalid_coop_protocol");
     const connectionMode=internetMode(value.connectionMode),client=await privateAddressKey(request,env.IP_HASH_SECRET);
     if(pathname==="/v1/matchmaking/find"||listing){
       const list=await control(env).fetch(internal("/matchmaking",{client,buildId,connectionMode,protocolVersion,exclude:listing?[]:value.exclude??[]}));
@@ -46,23 +48,24 @@ async function route(request,env){
       for(const code of rooms){
         // Directory data can be stale; only the room's serialized operation
         // may reserve a seat. It counts unconfirmed seats toward capacity.
-        const attempt=await room(env,code).fetch(internal(listing?"/listing":"/reserve",{...player,buildId,connectionMode,protocolVersion}));
+        const attempt=await room(env,code).fetch(internal(listing?"/listing":"/reserve",{...player,buildId,connectionMode,protocolVersion,destination:value.destination??""}));
         if(attempt.ok){if(!listing)return attempt;visible.push(await attempt.json());continue;}
         if(![403,409,410].includes(attempt.status))return attempt;
       }
       if(listing)return json({rooms:visible});
       return json({error:"no_matching_room"},404);
     }
-    const generation=randomToken(16),discoverable=value.discoverable!==false;
+    requireValue(value.discoverable===undefined||typeof value.discoverable==="boolean",400,"invalid_visibility");
+    const generation=randomToken(16),discoverable=value.discoverable??(protocolVersion<3);
     let code,registration;
     for(let retry=0;retry<3;retry++){
-      code=roomCode(protocolVersion===2?6:8);
+      code=roomCode(protocolVersion>=2?6:8);
       registration=await control(env).fetch(internal("/register-room",{code,generation,client,buildId,connectionMode,discoverable,protocolVersion}));
       if(registration.ok||registration.status!==409||(await registration.clone().json()).error!=="code_collision")break;
     }
     if(!registration.ok)return registration;
     let response;
-    try{response=await room(env,code).fetch(internal("/initialize",{code,generation,buildId,connectionMode,discoverable,protocolVersion,...player}));}
+    try{response=await room(env,code).fetch(internal("/initialize",{code,generation,buildId,connectionMode,discoverable,protocolVersion,...player,destination:value.destination??""}));}
     catch{await control(env).fetch(internal("/unregister-room",{code,generation}));throw new Fault(503,"room_unavailable");}
     if(!response.ok)await control(env).fetch(internal("/unregister-room",{code,generation}));
     return response;
@@ -74,11 +77,11 @@ async function route(request,env){
     await admission(request,env,"X-Coop-Access");
     const value=await body(request),buildId=acceptedBuild(value.buildId,env),connectionMode=internetMode(value.connectionMode),protocolVersion=coopProtocol(value.protocolVersion);
     if(value.joinSecret===undefined){
-      requireValue(protocolVersion===2&&code.length===6,403,"invitation_required");
+      requireValue(protocolVersion>=2&&code.length===6,403,"invitation_required");
       const client=await privateAddressKey(request,env.IP_HASH_SECRET);
-      const listing=await control(env).fetch(internal("/matchmaking",{client,buildId,connectionMode,protocolVersion,exclude:[]}));
+      const listing=await control(env).fetch(internal("/matchmaking",{client,buildId,connectionMode,protocolVersion,exclude:[],codeLookup:protocolVersion>=3}));
       if(!listing.ok)return listing;
-      requireValue((await listing.json()).rooms.includes(code),409,"room_not_open");
+      if(protocolVersion<3)requireValue((await listing.json()).rooms.includes(code),409,"room_not_open");
     }
     return room(env,code).fetch(internal("/join",value));
   }

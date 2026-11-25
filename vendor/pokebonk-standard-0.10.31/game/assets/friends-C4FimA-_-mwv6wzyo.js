@@ -1,0 +1,1 @@
+export{V as showFriends}from"./menus-BkF4ftHZ-mwv6wzyo.js";

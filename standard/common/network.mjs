@@ -1,7 +1,7 @@
 // Trusted native code ONLY. Never imported by the game or its preload.
 import https from "node:https";
 import {createHash} from "node:crypto";
-import {mkdir, open, rename, rm} from "node:fs/promises";
+import {mkdir, open, rename, rm, lstat} from "node:fs/promises";
 import path from "node:path";
 import {MAX_MANIFEST_BYTES} from "./manifest.mjs";
 const HOSTS = new Set(["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]);
@@ -42,7 +42,23 @@ export async function fetchManifest(url, get = request) {
     return Buffer.concat(chunks);
   } finally { response.destroy?.(); }
 }
-export async function downloadArtifact(artifact, directory, get = request) {
+export async function verifyArtifactFile(artifact, file) {
+  const info = await lstat(file);
+  if (!info.isFile() || info.size !== artifact.bytes) throw new Error("Verified update file has changed.");
+  const input = await open(file, "r"), digest = createHash("sha256");
+  let bytes = 0;
+  try {
+    const opened = await input.stat();
+    if (opened.ino !== info.ino || opened.dev !== info.dev || opened.size !== artifact.bytes) throw new Error("Verified update file has changed.");
+    for await (const chunk of input.createReadStream({autoClose: false})) {
+      bytes += chunk.length;
+      if (bytes > artifact.bytes) throw new Error("Verified update exceeds signed size.");
+      digest.update(chunk);
+    }
+    if (bytes !== artifact.bytes || digest.digest("hex") !== artifact.sha256) throw new Error("Verified update SHA-256 has changed. Download it again.");
+  } finally { await input.close(); }
+}
+export async function downloadArtifact(artifact, directory, get = request, {onProgress} = {}) {
   if (!/^[A-Za-z0-9_.-]+$/.test(artifact.name)) throw new Error("Unsafe download filename.");
   await mkdir(directory, {recursive: true, mode: 0o700});
   const target = path.join(directory, artifact.name), temporary = `${target}.part`;
@@ -50,14 +66,25 @@ export async function downloadArtifact(artifact, directory, get = request) {
   const output = await open(temporary, "wx", 0o600);
   const digest = createHash("sha256");
   let bytes = 0, response;
+  let lastProgress = 0;
+  const progress = (phase, force = false) => {
+    const now = Date.now();
+    if (!force && now - lastProgress < 200) return;
+    lastProgress = now;
+    try { onProgress?.({phase, receivedBytes: bytes, totalBytes: artifact.bytes}); }
+    catch { /* A presentation failure cannot change verification or corrupt a download. */ }
+  };
   try {
+    progress("downloading", true);
     response = await get(artifact.url);
     for await (const chunk of response) {
       bytes += chunk.length;
       if (bytes > artifact.bytes) throw new Error("Download exceeds signed size.");
       digest.update(chunk);
       await output.writeFile(chunk);
+      progress("downloading");
     }
+    progress("verifying", true);
     if (bytes !== artifact.bytes || digest.digest("hex") !== artifact.sha256) throw new Error("Update size or SHA-256 mismatch.");
     await output.sync();
     await output.close();

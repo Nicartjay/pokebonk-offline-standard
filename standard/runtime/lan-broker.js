@@ -16,7 +16,7 @@ function input(value){
       return;
     }
     if(value.type==='reset'){room.reset(value.reason,value.error);void internet.close();}
-    else if(value.type==='enter')room.enter(value.role,value.member,value.invitation);
+    else if(value.type==='enter')room.enter(value.role,value.member,value.invitation,value.settings);
     else if(value.type==='open')room.opened(value.connection);
     else if(value.type==='message')room.received(value.connection,value.value);
     else if(value.type==='closed')room.closed(value.connection,value.reason);

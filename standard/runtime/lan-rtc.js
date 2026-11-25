@@ -4,8 +4,9 @@ export class RtcMesh {
   constructor(emit){this.emit=emit;this.peers=new Map();}
   drop(id){
     const p=this.peers.get(id);if(!p)return;this.peers.delete(id);
+    clearTimeout(p.timeout);clearTimeout(p.disconnectTimer);
     for(const c of [p.ctl,p.snap]){c.onopen=c.onclose=c.onmessage=null;try{c.close();}catch{}}
-    p.pc.onconnectionstatechange=null;try{p.pc.close();}catch{}
+    p.pc.onconnectionstatechange=p.pc.oniceconnectionstatechange=null;try{p.pc.close();}catch{}
   }
   async describe(p,type){
     await p.pc.setLocalDescription(type==='offer'?await p.pc.createOffer():await p.pc.createAnswer());
@@ -27,10 +28,21 @@ export class RtcMesh {
           snap:pc.createDataChannel('snap',{negotiated:true,id:1,ordered:false,maxRetransmits:0})};
         this.peers.set(p.id,p);p.snap.binaryType='arraybuffer';
         const emit=v=>{if(this.peers.get(p.id)===p)this.emit({...v,peer:p.id,token:p.token});};
-        for(const c of [p.ctl,p.snap]){c.onopen=()=>{if(p.ctl.readyState==='open'&&p.snap.readyState==='open')emit({type:'link',state:'open'});};c.onclose=()=>emit({type:'link',state:'failed'});}
+        const opened=()=>{if(p.ctl.readyState==='open'&&p.snap.readyState==='open'){
+          clearTimeout(p.timeout);clearTimeout(p.disconnectTimer);emit({type:'link',state:'open'});}};
+        for(const c of [p.ctl,p.snap]){c.onopen=opened;c.onclose=()=>emit({type:'link',state:'failed'});}
         p.ctl.onmessage=e=>{if(typeof e.data!=='string'||e.data.length>32768)return;try{const data=JSON.parse(e.data);if(data&&typeof data.t==='string')emit({type:'frame',channel:'ctl',data});}catch{}};
         p.snap.onmessage=e=>{if(!(e.data instanceof ArrayBuffer)||e.data.byteLength>16384)return;let s='';for(const b of new Uint8Array(e.data))s+=String.fromCharCode(b);emit({type:'frame',channel:'snap',data:btoa(s)});};
-        pc.onconnectionstatechange=()=>{if(['failed','closed'].includes(pc.connectionState))emit({type:'link',state:'failed'});};
+        const changed=()=>{
+          if(['failed','closed'].includes(pc.connectionState)||pc.iceConnectionState==='failed')emit({type:'link',state:'failed'});
+          else if(pc.connectionState==='connected'||['connected','completed'].includes(pc.iceConnectionState))opened();
+          else if(pc.connectionState==='disconnected'||pc.iceConnectionState==='disconnected'){
+            emit({type:'link',state:'reconnecting'});
+            clearTimeout(p.disconnectTimer);p.disconnectTimer=setTimeout(()=>emit({type:'link',state:'failed'}),2500);
+          }
+        };
+        pc.onconnectionstatechange=pc.oniceconnectionstatechange=changed;
+        p.timeout=setTimeout(()=>emit({type:'link',state:'failed'}),20000);
         if(m.offerer)await this.describe(p,'offer');return;
       }
       p=this.peers.get(m.peer);if(!p||p.token!==m.token)return;

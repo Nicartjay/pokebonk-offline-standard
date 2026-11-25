@@ -1,4 +1,5 @@
 // Data only. Also imported by the sandboxed game; no Node or native APIs here.
+import {coopGameConfig,coopRuleTime} from "./coop-rules.mjs";
 export const FORMAT = "pokebonk-offline-standard";
 export const MAX_STATE_BYTES = 32 * 1024 * 1024;
 export const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -18,6 +19,9 @@ function validateExpedition(state) {
       !Array.isArray(e.ins) || !Array.isArray(e.codex) || !Array.isArray(e.history) || e.history.length > 50 ||
       !isObject(e.ps) || !uint(e.ps.xp) || !Array.isArray(e.ps.got) ||
       e.ps.got.some(n => !uint(n, 30) || n < 1) || new Set(e.ps.got).size !== e.ps.got.length) fail("Invalid Expedition inventory or pass.");
+  if (e.wl != null && (!Array.isArray(e.wl) || e.wl.length > 24 ||
+      new Set(e.wl).size !== e.wl.length || e.wl.some(key =>
+        typeof key !== "string" || !/^[a-z0-9-]{1,80}$/.test(key)))) fail("Invalid Expedition wanted-loot preferences.");
   const ids = new Set();
   const item = value => {
     if (!isObject(value) || !uint(value.id, 9999998) || value.id < 1 || value.id >= e.next ||
@@ -101,13 +105,15 @@ export function validateState(state) {
   const ticket = value => {
     if (!isObject(value) || typeof value.id !== "string" || !value.id.startsWith("offline-") ||
         !Number.isSafeInteger(value.seed) || value.seed < 0 || value.seed > 0xffffffff) fail("Invalid local run ticket.");
-    if (value.lan != null && (!isObject(value.lan) || value.lan.version !== 1 ||
+    if (value.lan != null && (!isObject(value.lan) || ![1,2].includes(value.lan.version) ||
         value.lan.party !== value.party || typeof value.party !== "string" || !/^lan-[\w-]{1,80}$/.test(value.party) ||
         typeof value.lan.me !== "string" || !/^lan-[\w-]{1,80}$/.test(value.lan.me) ||
         !Number.isInteger(value.lan.size) || value.lan.size < 2 || value.lan.size > 4 || typeof value.lan.launched !== "boolean" ||
-        value.config?.mode !== "standard" || value.config?.biome !== "forest" || value.config?.tier !== 0)) {
+        !coopGameConfig(value.config) ||
+        value.lan.version===1&&(value.config.mode!=="standard"||value.config.biome!=="forest"||value.config.tier!==0))) {
       fail("Unsupported local co-op ticket. Keep the original save.");
     }
+    if(value.lan?.version===2)coopRuleTime(value.coopRulesAt);
   };
   if (state.activeRun != null) {
     if (!isObject(state.activeRun) || !["running", "suspended"].includes(state.activeRun.status)) fail("Invalid active run.");
@@ -120,6 +126,24 @@ export function validateState(state) {
     if (state.activeRun && state.activeRun.ticket.id !== state.suspended.ticket.id) fail("Suspended run identity mismatch.");
   }
   validateExpedition(state);
+  if(state.expeditionTeams!=null){
+    const book=state.expeditionTeams,id=value=>typeof value==="string"&&/^lan-[\w-]{1,80}$/.test(value);
+    if(!isObject(book)||book.version!==1||!isObject(book.parties)||Object.keys(book.parties).length>100)
+      fail("Unsupported Expedition co-op receipt format. Keep the original save.");
+    for(const [party,group]of Object.entries(book.parties)){
+      if(!id(party)||!isObject(group)||group.version!==1||typeof group.settled!=="boolean"||
+        !Number.isSafeInteger(group.at)||!id(group.me)||!Array.isArray(group.members)||group.members.length<2||group.members.length>4||
+        group.members.some(member=>!id(member))||new Set(group.members).size!==group.members.length||!group.members.includes(group.me)||
+        group.ticket?.party!==party||group.ticket.lan?.me!==group.me||group.ticket.config?.mode!=="expedition"||
+        !isObject(group.gifts)||Object.keys(group.gifts).length>24||!isObject(group.packs)||Object.keys(group.packs).length>16||
+        !isObject(group.received)||Object.keys(group.received).length>16||!isObject(group.restored)||
+        !Array.isArray(group.incomingGifts)||group.incomingGifts.length>24||
+        !Array.isArray(group.incomingPacks)||group.incomingPacks.length>24||
+        !Array.isArray(group.seen)||group.seen.length>240||
+        !Array.isArray(group.pending)||group.pending.length>24)
+        fail("Invalid Expedition co-op ownership receipts. Keep the original save.");
+    }
+  }
   return state;
 }
 

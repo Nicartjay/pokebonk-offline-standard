@@ -1,9 +1,51 @@
 [
   {
+    "version": "1.3.0",
+    "date": "2026-11-25",
+    "status": "Stable release",
+    "upstream": {
+      "version": "0.10.31",
+      "build": "mwv6wzyo"
+    },
+    "changes": [
+      "Bundled all six original Series 2 Treasures banner glow layers, including Amethyst Cavern. Twelve look-frame URLs missing on the original site reuse their matching original prize-frame artwork offline, without granting cosmetics. Asset discovery now checks the original wheel/look catalogs rather than only literal paths.",
+      "Restored the complete original boss/elite status-icon set, including icons generated from status names during gameplay. Missing status artwork beneath boss HP bars in v1.2.0 is now included in the offline assets; preparation checks the finite status catalog rather than only literal icon references.",
+      "Co-op with multiple visible boss bars uses a compact two-column grid below the timer. The existing four display slots, enemy order, HP-number/percentage setting, phases and status warnings are retained. Solo and single-boss layouts are unchanged.",
+      "Adapted the original Expedition team panel to the existing LAN, STUN-only and direct-first TURN-fallback transports. Wild Valley and Safari Zone support two to four trainers, original loadout cards, chat, map selection and explicit Ready/Enter controls. Solo entry remains available.",
+      "Expedition discovery is filtered to the selected map. Find teammates and Duo/Trio/Squad use the same bounded native room controls as regular co-op; account friends, player trading, rankings and competitive prizes remain excluded.",
+      "Each trainer durably escrows their own equipment, route card and insurance before the shared start barrier. A canceled preparation restores that escrow. Original gifts and backpack rescues use local ownership receipts, duplicate suppression and acknowledged retries; rescued items return to their owner rather than becoming the rescuer's permanent equipment.",
+      "Once saved runs and deliverable item returns are complete, the existing room can return to its lobby for another Expedition. Temporary interruptions retain the current run; permanently departed players' undelivered returns remain in the save rather than being granted to somebody else.",
+      "Updated the bundled upstream game from 0.10.26 to 0.10.31 (mwv6wzyo), including the original Pokédex+ hub, collection and move-history tracking, engine/UI fixes and Expedition changes. Official account/chat/leaderboard services remain disconnected; original game data, art, credits and earned progression are retained.",
+      "The new Expedition wanted-loot preferences and Sort and stack action use local transactional saves. Wanted loot follows the original allowlist; sorting conserves quantities, locked stacks, gear and safe-pocket contents. The long preference modal is scrollable on short screens.",
+      "Refreshed all exposed public rental listings for the new upstream snapshot. Runtime rental data remains bundled and never requires the official API.",
+      "The save format and app identity remain unchanged. Older unfinished-run checkpoints are preserved and must be completed in their previous version until new-engine replay compatibility is established. Completed progression profiles remain importable.",
+      "Bundled all 1,104 publicly listed rental builds for 138 Pokémon, refreshed from online v0.10.31. Builds → Rental reuses the original browser and copy flow offline, preserves creator attribution and earned unlock requirements, and removes live account links and rental payouts. The snapshot is refreshed whenever a new upstream game version/build is integrated.",
+      "The Left to use HUD panel has a separate heading row, wrapping icon/count pairs and compact rounded corners so multi-row contents stay inside its background.",
+      "Shared graphics quality now limits the actual 3D rendering buffer on every platform. Battery Saver disables bloom and reduces internal resolution even with fixed/native output. While enabled, it selects and locks the FPS controls to 30; switching it off restores the previous FPS choice without changing saved quality preferences or UI sharpness.",
+      "Bundled five missing original status/seal icons, including the Fury Seal image, through a hash-checked image supplement. Corrected Cinnabar Island’s co-op map identifier to canela so its picker artwork and earned unlocks match the game catalog.",
+      "Restored the original co-op map picker, Normal/Hard/Nightmare selector and all five mode buttons: Classic, Survival, Relay, Daily Mutation and Boss Rush. Ordinary map/difficulty choices respect every teammate’s unlocks.",
+      "Daily Mutation resolves its original rules from the room’s shared rule time, and Boss Rush freezes the weekly boss lineup to that same room clock. Teammates retain the same settings, seed and ticket through recovery.",
+      "Find teammates controls random-match and Pick Rooms visibility. New rooms are code-only; switching discovery off keeps existing teammates connected. Duo, Trio and Squad enforce capacities of two, three and four players without kicking current members.",
+      "Android HP numbers under the player use white lettering with a thin shadow instead of the heavy text stroke that obscured digits on some tablet WebViews. Health-bar colors, sizing, shields and HP values are unchanged.",
+      "Android friendship-level numbers use a behind-text outline so the badge digits stay readable in the League header, Friendship panel, collection tiles and run results. Friendship levels, rewards and badge artwork are unchanged.",
+      "Added a bounded 90-second co-op recovery path for temporary LAN, STUN and TURN-fallback interruptions while the apps stay open. Private seat credentials reconnect the same players instead of joining a new room.",
+      "The existing run pauses during recovery and resumes only after the team’s synchronization barrier. Pokémon, roster, run ticket and local reward settlement are retained; no fresh run is minted by reconnecting.",
+      "A game-styled reconnect notice includes Give up. A permanent connection failure or the 90-second timeout automatically ends the attempt through the normal run results and local saving path. Failed writes keep the previous ticket/checkpoint; late reconnect packets cannot resume an abandoned attempt.",
+      "Desktop releases mouse capture during recovery so Give up is accessible. Force-closed apps and host migration are not part of this recovery path.",
+      "App updates stay in the game-styled modal from checking through download progress, verification, errors and installation handoff. App-controlled updater alerts no longer use native system message boxes.",
+      "Downloads display the actual percentage and transferred size against the signed release size. Hiding the modal does not stop the download; Check for updates reopens the current progress.",
+      "Install update is offered only after verification, and the downloaded file and save compatibility are checked again before opening it. Installation remains an explicit choice.",
+      "Android keeps its required system installation and permission confirmations. Desktop installers open after the game safely closes; portable/archive builds show their verified download and replacement instructions."
+    ]
+  },
+  {
     "version": "1.2.0",
     "date": "2026-11-24",
     "status": "Stable release",
-    "upstream": {"version": "0.10.26", "build": "mwsewi0r"},
+    "upstream": {
+      "version": "0.10.26",
+      "build": "mwsewi0r"
+    },
     "changes": [
       "Added optional Internet co-op with STUN-only and direct-first TURN-fallback connection modes alongside offline LAN play. The entry and room screens show connection status without adding a gameplay overlay.",
       "Find a random match joins a compatible open room. Pick Rooms lists available rooms without reserving seats or requesting TURN credentials until a player joins.",
@@ -18,7 +60,10 @@
     "version": "1.1.0",
     "date": "2026-11-23",
     "status": "Stable release",
-    "upstream": {"version": "0.10.26", "build": "mwsewi0r"},
+    "upstream": {
+      "version": "0.10.26",
+      "build": "mwsewi0r"
+    },
     "changes": [
       "Room-to-Lab navigation no longer resets the online room URL. Desktop only closes LAN sessions for actual main-document navigation, not ordinary loading or in-page history changes. The homepage Co-op subtitle is now With friends.",
       "Moved Find a match into its own card above How to play. Network selection and Personal Records filters now share the original leaderboard dropdown styling, map colors, selected-row highlight and animations, without menus being cropped by their panels.",
@@ -41,7 +86,10 @@
     "version": "1.0.0",
     "date": "2026-11-23",
     "status": "Stable release",
-    "upstream": {"version": "0.10.26", "build": "mwsewi0r"},
+    "upstream": {
+      "version": "0.10.26",
+      "build": "mwsewi0r"
+    },
     "changes": [
       "Refreshed the pinned game source to 0.10.26, including the eleven new Maximum-form sprite sheets, Korean-name correction and upstream fixes from 0.10.24–0.10.26.",
       "Added desktop window-state restoration, DPI-aware monitor/size selection, foreground keep-awake, native fullscreen, graphics diagnostics and restart-required alternate ANGLE backends. Auto remains the default; failed alternate launches restore Auto.",
@@ -68,7 +116,10 @@
     "version": "0.1.4",
     "date": "2026-11-22",
     "status": "Earlier design preview — not published",
-    "upstream": {"version": "0.10.23", "build": "mwro88g3"},
+    "upstream": {
+      "version": "0.10.23",
+      "build": "mwro88g3"
+    },
     "changes": [
       "Compact homepage controls leave more of the background visible, with an inline Personal Records table and Game Modes beside Endless and Relay.",
       "The player row shows the actual Pokédex seen/total count; the extra OFFLINE · LOCAL SAVES label is removed.",
@@ -82,7 +133,10 @@
     "version": "0.1.3",
     "date": "2026-11-22",
     "status": "Earlier local test build — not published",
-    "upstream": {"version": "0.10.23", "build": "mwro88g3"},
+    "upstream": {
+      "version": "0.10.23",
+      "build": "mwro88g3"
+    },
     "changes": [
       "Mewtwo Strikes Back and Lavender Tower are permanently available as offline challenges, without event prizes or leaderboards.",
       "Daily Mutation runs locally, with earned progression and no server ranking.",
@@ -95,7 +149,10 @@
     "version": "0.1.2",
     "date": "2026-11-22",
     "status": "Earlier local test build — not published",
-    "upstream": {"version": "0.10.23", "build": "mwro88g3"},
+    "upstream": {
+      "version": "0.10.23",
+      "build": "mwro88g3"
+    },
     "changes": [
       "Updated the reviewed game payload from 0.10.20 to 0.10.23, preserving compatible Classic and Endless checkpoints.",
       "Fixed tablet starter portraits and upgrade-card artwork, Android minimap scaling and the 30 FPS battery-saver cap.",
@@ -107,7 +164,10 @@
     "version": "0.1.1",
     "date": "2026-11-22",
     "status": "Published prerelease",
-    "upstream": {"version": "0.10.20", "build": "mwqb4pwz"},
+    "upstream": {
+      "version": "0.10.20",
+      "build": "mwqb4pwz"
+    },
     "changes": [
       "Corrected Unicode normalization in macOS app/helper names to prevent startup crashes.",
       "Restored normal Android screen edges and slightly reduced HUD/touch-control size.",
@@ -118,7 +178,10 @@
     "version": "0.1.0",
     "date": "2026-11-22",
     "status": "Initial local build — not a public release",
-    "upstream": {"version": "0.10.20", "build": "mwqb4pwz"},
+    "upstream": {
+      "version": "0.10.20",
+      "build": "mwqb4pwz"
+    },
     "changes": [
       "Established the native Standard edition with normal progression rather than automatic unlocks.",
       "Added atomic application-data saves, explicit backup import/export and signed native update discovery.",

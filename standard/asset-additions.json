@@ -1,0 +1,363 @@
+{
+  "schemaVersion": 1,
+  "origin": "https://pokebonk.com",
+  "reviewedBuild": "mwv6wzyo",
+  "reason": "Original status icons, Treasures banner glows and collection artwork omitted from captures, plus explicitly recorded matching-art aliases for upstream-missing look frames.",
+  "files": [
+    {
+      "name": "assets/ui/icons/st-burn.png",
+      "bytes": 4600,
+      "sha256": "d8ca90fce758765ad31b6bfd284161e47244548e5fdeed93e05d6803cd916577",
+      "source": "https://pokebonk.com/assets/ui/icons/st-burn.png"
+    },
+    {
+      "name": "assets/ui/icons/st-healblock.png",
+      "bytes": 4758,
+      "sha256": "cc1992c903032f49a18f7fef9cb788fe173028a8de7341761fb75c1a231a89f1",
+      "source": "https://pokebonk.com/assets/ui/icons/st-healblock.png"
+    },
+    {
+      "name": "assets/ui/icons/st-shield.png",
+      "bytes": 4809,
+      "sha256": "a247fb2cad4c61f0dc28879bdd03c883644f97d08636c108d24f803aca048ab3",
+      "source": "https://pokebonk.com/assets/ui/icons/st-shield.png"
+    },
+    {
+      "name": "assets/ui/icons/st-sleep.png",
+      "bytes": 4541,
+      "sha256": "5a6258cb8aae3676fa10b279935f9174a16be630522620bf9559450a0bede2fd",
+      "source": "https://pokebonk.com/assets/ui/icons/st-sleep.png"
+    },
+    {
+      "name": "assets/ui/icons/st-wet.png",
+      "bytes": 4249,
+      "sha256": "364c2bbc38b75189993b1eefc330fde1148a39b11a4a49b52d7396e914b3df59",
+      "source": "https://pokebonk.com/assets/ui/icons/st-wet.png"
+    },
+    {
+      "name": "assets/ui/icons/goal-classic.png",
+      "source": "https://pokebonk.com/assets/ui/icons/goal-classic.png",
+      "bytes": 5265,
+      "sha256": "26bd0393c3becbc53b1288f4392b6c2bd85ec5960ad56407b200723dd1fd72f5"
+    },
+    {
+      "name": "assets/ui/icons/goal-crown.png",
+      "source": "https://pokebonk.com/assets/ui/icons/goal-crown.png",
+      "bytes": 5821,
+      "sha256": "22bca51c8fd1be8ac58d1d7e36efdaed0231dd81500f3026e540ed2d5a778c03"
+    },
+    {
+      "name": "assets/ui/icons/goal-seen.png",
+      "source": "https://pokebonk.com/assets/ui/icons/goal-seen.png",
+      "bytes": 4711,
+      "sha256": "100d856a7f710a1b234f544a280b41f1f19c055a604e6d8e74bd9349d1a90464"
+    },
+    {
+      "name": "assets/ui/icons/goal-shiny.png",
+      "source": "https://pokebonk.com/assets/ui/icons/goal-shiny.png",
+      "bytes": 5903,
+      "sha256": "739d299688d0fdd4fe1159fe9d98eac2845a6f38493970cfeb1cd674acd30879"
+    },
+    {
+      "name": "assets/ui/icons/st-charm.png",
+      "source": "https://pokebonk.com/assets/ui/icons/st-charm.png",
+      "bytes": 4562,
+      "sha256": "f0d4157e048d0b28330c003db51bfdee76df6d1c7ccdc4b4e56c8bbd61cbbf45"
+    },
+    {
+      "name": "assets/ui/icons/st-chill.png",
+      "source": "https://pokebonk.com/assets/ui/icons/st-chill.png",
+      "bytes": 4697,
+      "sha256": "37ec3db9a9a3e715b1a788ade18c57f825a313c719aeda0df30a193242c3839f"
+    },
+    {
+      "name": "assets/ui/icons/st-confuse.png",
+      "source": "https://pokebonk.com/assets/ui/icons/st-confuse.png",
+      "bytes": 4997,
+      "sha256": "c31c6dde21213795ee79756778af99247e360ed9b0a648d37b02470da00bfd7d"
+    },
+    {
+      "name": "assets/ui/icons/st-curse.png",
+      "source": "https://pokebonk.com/assets/ui/icons/st-curse.png",
+      "bytes": 4776,
+      "sha256": "92a77d2b965670d867c4365209b0da9fb145785e670f0fa90467311c075aa2f4"
+    },
+    {
+      "name": "assets/ui/icons/st-frozen.png",
+      "source": "https://pokebonk.com/assets/ui/icons/st-frozen.png",
+      "bytes": 5256,
+      "sha256": "56a818041129a48be88ce2128f5ac954669e6f1e1090be547ce57cfac3b77530"
+    },
+    {
+      "name": "assets/ui/icons/st-para.png",
+      "source": "https://pokebonk.com/assets/ui/icons/st-para.png",
+      "bytes": 4505,
+      "sha256": "df06142a1089954a1e901bc28458767153ca940efde95bc3bf094aef2c6dd9d9"
+    },
+    {
+      "name": "assets/ui/icons/st-poison.png",
+      "source": "https://pokebonk.com/assets/ui/icons/st-poison.png",
+      "bytes": 4632,
+      "sha256": "bc51e620102042fae7be25e49da68c225513f5387a0ff33fbe785c49a7f40838"
+    },
+    {
+      "name": "assets/ui/icons/st-pull.png",
+      "source": "https://pokebonk.com/assets/ui/icons/st-pull.png",
+      "bytes": 5017,
+      "sha256": "7977d1e99d54b401d100c1cbb7dcf3934b0e3e9976e8c0a15e9cf786ddbfaf4d"
+    },
+    {
+      "name": "assets/ui/icons/st-root.png",
+      "source": "https://pokebonk.com/assets/ui/icons/st-root.png",
+      "bytes": 5133,
+      "sha256": "b99e9f02917d30991ee6242180fb40bab56281b10f6285dbedb6cf3af0ffb069"
+    },
+    {
+      "name": "assets/ui/icons/st-stun.png",
+      "source": "https://pokebonk.com/assets/ui/icons/st-stun.png",
+      "bytes": 5000,
+      "sha256": "43fd7a1342777f8ad803acd553c78feddc3c3e6721d07fbebfe92da87d5e7bc9"
+    },
+    {
+      "name": "assets/ui/banners/tr-candy-glow.png",
+      "source": "https://pokebonk.com/assets/ui/banners/tr-candy-glow.png",
+      "bytes": 168187,
+      "sha256": "5d2f19e90bc6cfff8c88ed0a1d291372d8357f3969f4fdb23741862cccdc72ee"
+    },
+    {
+      "name": "assets/ui/banners/tr-circuit-glow.png",
+      "source": "https://pokebonk.com/assets/ui/banners/tr-circuit-glow.png",
+      "bytes": 251747,
+      "sha256": "dfd9e94638c09809a5588ad84b8883e55931982770578493cd335905d1528ce9"
+    },
+    {
+      "name": "assets/ui/banners/tr-frost-glow.png",
+      "source": "https://pokebonk.com/assets/ui/banners/tr-frost-glow.png",
+      "bytes": 171939,
+      "sha256": "3283d8c025f7aee113ba3a1dcb7a467e0d958ee66dfb6fa12ed8e19225208e81"
+    },
+    {
+      "name": "assets/ui/banners/tr-geode-glow.png",
+      "source": "https://pokebonk.com/assets/ui/banners/tr-geode-glow.png",
+      "bytes": 301027,
+      "sha256": "e3bd2cf5c83bc2ec32be30014bfbafb6b436b7f94e4917a3eb8495935a06e7ba"
+    },
+    {
+      "name": "assets/ui/banners/tr-gothic-glow.png",
+      "source": "https://pokebonk.com/assets/ui/banners/tr-gothic-glow.png",
+      "bytes": 203373,
+      "sha256": "e24143b27999bfcdd6b6fb08d82bebda410263a5b13e1f42aae990e8c0230222"
+    },
+    {
+      "name": "assets/ui/banners/tr-toxic-glow.png",
+      "source": "https://pokebonk.com/assets/ui/banners/tr-toxic-glow.png",
+      "bytes": 174848,
+      "sha256": "be047cb324dacf967f022a6d50fc54da6f676e548a195dea00da1f3675aed1ba"
+    }
+  ],
+  "purpose": "Keep the reviewed gameplay/cosmetic artwork offline with documented original-art substitutions for confirmed 404s, without modifying pristine vendor snapshots.",
+  "capturedAt": "2026-11-25T00:06:08.390Z",
+  "statusIconCatalog": {
+    "required": [
+      "assets/ui/icons/st-burn.png",
+      "assets/ui/icons/st-charm.png",
+      "assets/ui/icons/st-chill.png",
+      "assets/ui/icons/st-confuse.png",
+      "assets/ui/icons/st-curse.png",
+      "assets/ui/icons/st-frozen.png",
+      "assets/ui/icons/st-healblock.png",
+      "assets/ui/icons/st-para.png",
+      "assets/ui/icons/st-poison.png",
+      "assets/ui/icons/st-pull.png",
+      "assets/ui/icons/st-root.png",
+      "assets/ui/icons/st-shield.png",
+      "assets/ui/icons/st-sleep.png",
+      "assets/ui/icons/st-stun.png",
+      "assets/ui/icons/st-wet.png"
+    ],
+    "capturedAt": "2026-11-25T06:40:02.465Z"
+  },
+  "aliases": [
+    {
+      "name": "assets/ui/frames/look-candy.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-candy.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-candy-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-candy-2.png",
+      "bytes": 43662,
+      "sha256": "79ff1d9a5cb27da014eee0b9081af09a4477ceebe58e86203377912d75fc3c05",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-circuit.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-circuit.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-circuit-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-circuit-2.png",
+      "bytes": 40913,
+      "sha256": "895d9c5c2b779552a2f0b640521d77c1d33e2159322cff84447361d0097c45b4",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-ember.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-ember.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-fire-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-fire-2.png",
+      "bytes": 39996,
+      "sha256": "abf9e04ac99ea20e31fa48dd2f7b2ab17f9408a9bf390089dab249158e517bcd",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-frost.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-frost.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-frost-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-frost-2.png",
+      "bytes": 48245,
+      "sha256": "9b2b1fbdf2f670abdf24ef0b2442060d9fb04ccf0f09683561124fd0c2f96fba",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-geode.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-geode.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-geode-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-geode-2.png",
+      "bytes": 45135,
+      "sha256": "880faddd45120be04d7090121c2787db88b7c034160026074a2f312f6c296010",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-gothic.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-gothic.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-gothic-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-gothic-2.png",
+      "bytes": 49536,
+      "sha256": "360f9c897c93b9b8fdc9b428a519637205d8ca885c1acf62f00c12b16af483e2",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-psionic.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-psionic.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-psychic-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-psychic-2.png",
+      "bytes": 56987,
+      "sha256": "caf881a38f2558ce11a46768656119a7a9569223261080ff2291e987f5de2232",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-spectre.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-spectre.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-ghost-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-ghost-2.png",
+      "bytes": 63093,
+      "sha256": "ecbf58ca2e0a78dec33ca7c10f5e3e7e13867456c27782362a24cb2a8bf9eae7",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-storm.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-storm.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-electric-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-electric-2.png",
+      "bytes": 53536,
+      "sha256": "b0d5d3afe12ccc76f0242ba7291ee6011d707a5a89936b981c3463dbc9f65e84",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-tidal.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-tidal.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-water-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-water-2.png",
+      "bytes": 44611,
+      "sha256": "1a84c246bc0caf05705d6c561a8de551d6496da499cefc9383e74d289f0a62e2",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-toxic.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-toxic.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-toxic-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-toxic-2.png",
+      "bytes": 46690,
+      "sha256": "3b0d8f3a37f5c76d170df01550817b1cd9d51d7470a88402e1921b0c039ba451",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    },
+    {
+      "name": "assets/ui/frames/look-verdant.png",
+      "originalSource": "https://pokebonk.com/assets/ui/frames/look-verdant.png",
+      "originalStatus": 404,
+      "sourceAsset": "assets/ui/frames/tr-grass-2.png",
+      "source": "https://pokebonk.com/assets/ui/frames/tr-grass-2.png",
+      "bytes": 43816,
+      "sha256": "7c11f4549d10778afcd5d1fc5cbed23d336a48302d7dd5c4587ba76a29903d38",
+      "reason": "The original style-frame URL returns 404. Reuse the matching original Treasures grand-prize frame; no cosmetic unlock is granted."
+    }
+  ],
+  "treasureImageCatalog": {
+    "required": [
+      "assets/ui/banners/tr-candy-glow.png",
+      "assets/ui/banners/tr-candy.jpg",
+      "assets/ui/banners/tr-circuit-glow.png",
+      "assets/ui/banners/tr-circuit.jpg",
+      "assets/ui/banners/tr-frost-glow.png",
+      "assets/ui/banners/tr-frost.jpg",
+      "assets/ui/banners/tr-geode-glow.png",
+      "assets/ui/banners/tr-geode.jpg",
+      "assets/ui/banners/tr-gothic-glow.png",
+      "assets/ui/banners/tr-gothic.jpg",
+      "assets/ui/banners/tr-toxic-glow.png",
+      "assets/ui/banners/tr-toxic.jpg",
+      "assets/ui/frames/look-aurora.png",
+      "assets/ui/frames/look-candy.png",
+      "assets/ui/frames/look-circuit.png",
+      "assets/ui/frames/look-crystal.png",
+      "assets/ui/frames/look-ember.png",
+      "assets/ui/frames/look-frost.png",
+      "assets/ui/frames/look-galaxy.png",
+      "assets/ui/frames/look-geode.png",
+      "assets/ui/frames/look-gothic.png",
+      "assets/ui/frames/look-holo.png",
+      "assets/ui/frames/look-metal.png",
+      "assets/ui/frames/look-neon.png",
+      "assets/ui/frames/look-psionic.png",
+      "assets/ui/frames/look-shadow.png",
+      "assets/ui/frames/look-spectre.png",
+      "assets/ui/frames/look-stone.png",
+      "assets/ui/frames/look-storm.png",
+      "assets/ui/frames/look-tidal.png",
+      "assets/ui/frames/look-toxic.png",
+      "assets/ui/frames/look-verdant.png",
+      "assets/ui/frames/tr-candy-1.png",
+      "assets/ui/frames/tr-candy-2.png",
+      "assets/ui/frames/tr-circuit-1.png",
+      "assets/ui/frames/tr-circuit-2.png",
+      "assets/ui/frames/tr-electric-1.png",
+      "assets/ui/frames/tr-electric-2.png",
+      "assets/ui/frames/tr-fire-1.png",
+      "assets/ui/frames/tr-fire-2.png",
+      "assets/ui/frames/tr-frost-1.png",
+      "assets/ui/frames/tr-frost-2.png",
+      "assets/ui/frames/tr-geode-1.png",
+      "assets/ui/frames/tr-geode-2.png",
+      "assets/ui/frames/tr-ghost-1.png",
+      "assets/ui/frames/tr-ghost-2.png",
+      "assets/ui/frames/tr-gothic-1.png",
+      "assets/ui/frames/tr-gothic-2.png",
+      "assets/ui/frames/tr-grass-1.png",
+      "assets/ui/frames/tr-grass-2.png",
+      "assets/ui/frames/tr-psychic-1.png",
+      "assets/ui/frames/tr-psychic-2.png",
+      "assets/ui/frames/tr-toxic-1.png",
+      "assets/ui/frames/tr-toxic-2.png",
+      "assets/ui/frames/tr-water-1.png",
+      "assets/ui/frames/tr-water-2.png"
+    ],
+    "capturedAt": "2026-11-25T07:06:47.515Z"
+  }
+}

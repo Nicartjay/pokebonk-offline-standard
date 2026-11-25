@@ -67,9 +67,9 @@ test("archived 0.10.23-complete preserves every earlier pristine byte and only a
   assert.equal(currentFiles.get("assets/items/clover-sweet.png").sha256,
     "c9d44bf0fb0b32620b7f8879cf8a51b936d224a145f8ba30d9b4800e33bfda6c");
 });
-test("the 0.10.26 payload contains the eleven new form appearances and the corrected Korean Abra name", async () => {
-  assert.equal(accepted.version, "0.10.26");
-  assert.equal(accepted.build, "mwsewi0r");
+test("the current payload retains the eleven 0.10.26 form appearances and the corrected Korean Abra name", async () => {
+  assert.equal(metadata.upstream.version, accepted.version);
+  assert.equal(metadata.upstream.build, accepted.build);
   const forms = JSON.parse(await readFile("build/standard-game/data/formsprites.json", "utf8"));
   for (const key of ["mega-26y", "mega-36", "mega-71", "mega-121", "mega-127", "mega-130",
     "gmax-94", "gmax-99", "gmax-131", "gmax-133", "gmax-143"]) {

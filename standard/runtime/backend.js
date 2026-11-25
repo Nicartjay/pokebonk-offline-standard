@@ -1,10 +1,13 @@
 // Local-only replacement for the published game's HTTP backend.
 // No official account, API, leaderboard, or multiplayer service is contacted.
 import {validateState} from "../common/state.mjs";
+import {coopMaps,coopGameConfig,coopConfig,resolveCoopConfig,coopRuleTime} from "../common/coop-rules.mjs";
 import {isEventMode, localEvents} from "./modes.js";
 import {addRecord, ensureRecords, personalRecords} from "./records.js";
 import {EVENT_POLICY, applyEventProgress, claimTrack, claimMission} from "./event-rewards.js";
-import {expeditionState, expeditionActions, beginExpedition, settleExpedition} from "./expedition.js";
+import {expeditionState, expeditionActions, beginExpedition, settleExpedition,cancelExpeditionPreparation} from "./expedition.js";
+import {beginTeamLedger,teamLedger,noteTeamPacket,applyTeamReturn,applyWaitingReturns} from "./expedition-ledger.js";
+import {RentalLibrary} from "./rentals.js";
 const STATE_KEY = "dev.nicartjay.pokebonk.offline.standard.state.v1";
 const PREFS = ["settings", "lastSpecies", "lastBiome", "avatar", "frame", "title", "banner", "skins", "team"];
 const copy = value => structuredClone(value);
@@ -14,7 +17,7 @@ const jsonCopy = value => JSON.parse(JSON.stringify(value));
 const randomId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 export class OfflineBackend {
-  constructor({ data, rules, config, cosmetics, modes, expedition, storage, transport, now } = {}) {
+  constructor({ data, rules, config, cosmetics, modes, expedition, storage, transport, now, rentals } = {}) {
     this.kind = "local";
     this.clockSkew = 0;
     this.data = data;
@@ -23,6 +26,7 @@ export class OfflineBackend {
     this.cosmetics = cosmetics;
     this.modes = modes ?? {};
     this.expedition = expedition;
+    this.rentals = rentals ?? new RentalLibrary();
     this.storage = storage ?? globalThis.localStorage;
     this.now = now ?? (() => Date.now());
     this.transport = transport ?? globalThis.PokeBonkStandardTransport;
@@ -130,6 +134,8 @@ export class OfflineBackend {
     });
   }
   recordsLocal(tab = "kos") { return copy(personalRecords(this.state, tab, this.modes.recordMetrics)); }
+  rentalBuilds(account, species) { return this.rentals.list(species); }
+  rentalIndex() { return this.rentals.index(); }
   claimEventTrack(account, id, index) {
     return this.change(profile => {
       claimTrack(profile, this.modes.eventDefinitions, id, index);
@@ -240,12 +246,14 @@ export class OfflineBackend {
         const ticket = this.state.activeRun?.ticket;
         if (session?.phase !== "playing" || session.match?.party !== config.party ||
             !ticket?.lan || ticket.lan.launched || ticket.party !== config.party ||
-            ticket.config.species !== config.species || config.mode !== "standard" ||
-            config.biome !== "forest" || config.tier !== 0 || config.boosts?.length ||
+            ticket.config.species !== config.species || config.mode !== ticket.config.mode ||
+            config.biome !== ticket.config.biome || config.tier !== ticket.config.tier || config.boosts?.length ||
+            ["mode","biome","tier"].some(key=>config[key]!==resolveCoopConfig(session.match,this.modes.dailyMutation)[key]) ||
             ticket.lan.size !== session.members.length) {
           throw new Error("No matching, durably prepared local co-op run.");
         }
         ticket.lan.launched = true;
+        if(ticket.config.mode==="expedition")teamLedger(this.state,ticket.party).ticket.lan.launched=true;
         return copy(ticket);
       }
       if (["hosting", "connecting", "lobby", "preparing", "playing"].includes(session?.phase)) {
@@ -297,7 +305,8 @@ export class OfflineBackend {
           !session.linked || !session.members.every(member => member.ready) ||
           !/^lan-[\w-]{1,80}$/.test(session.match?.party) ||
           !Number.isInteger(session.match.seed) || session.match.seed < 0 || session.match.seed > 0xffffffff ||
-          session.match.mode !== "standard" || session.match.biome !== "forest" || session.match.tier !== 0) {
+          !coopGameConfig(session.match) ||
+          ["mode","biome","tier"].some(key=>session.match[key]!==coopConfig(session.settings)[key])) {
         throw new Error("The native local co-op session is not ready.");
       }
       const active = this.state.activeRun;
@@ -306,23 +315,55 @@ export class OfflineBackend {
       if (active || this.state.suspended) throw new Error("Your unfinished run is preserved. Finish or explicitly end it first.");
       const mine = session.members.find(member => member.id === session.me);
       if (!mine || !profile.league.includes(mine.species)) throw new Error("Choose an owned Pokémon.");
+      const runConfig=resolveCoopConfig(session.match,this.modes.dailyMutation);
+      if(!["mutation","bossrush","expedition"].includes(runConfig.mode)&&(coopMaps(profile.biomes)[runConfig.biome]??-1)<runConfig.tier)
+        throw Error("This co-op map or difficulty has not been earned on this device.");
       const ticket = {
         id: `offline-${randomId()}`, seed: session.match.seed, party: session.match.party,
         local: true, ranked: true, clean: true, offline: false, started: this.now(), boosts: [],
-        config: {species: mine.species, biome: "forest", tier: 0, mode: "standard"},
-        lan: {version: 1, party: session.match.party, me: session.me, size: session.members.length, launched: false},
+        config: {species: mine.species,...runConfig},
+        coopRulesAt:coopRuleTime(session.match.rulesAt??this.now()),
+        ...(runConfig.mode==="mutation"?{mutation:runConfig.mutation}:{}),
+        ...(runConfig.mode==="bossrush"?{eventPolicy:EVENT_POLICY}:{}),
+        lan: {version: 2, party: session.match.party, me: session.me, size: session.members.length, launched: false},
       };
+      if(runConfig.mode==="expedition"){
+        beginExpedition(profile,this.expedition,ticket,this.now());
+        beginTeamLedger(this.state,ticket,session.members,this.now());
+      }
       this.state.activeRun = {ticket, status: "running"};
     });
   }
   cancelPreparedLan(party) {
-    return this.change(() => {
+    return this.change(profile => {
       const ticket = this.state.activeRun?.ticket;
-      if (ticket?.party === party && ticket.lan?.launched === false) this.state.activeRun = null;
+      if (ticket?.party === party && ticket.lan?.launched === false){
+        if(ticket.config.mode==="expedition"){
+          cancelExpeditionPreparation(profile,ticket);
+          delete this.state.expeditionTeams.parties[party];
+        }
+        this.state.activeRun = null;
+      }
+    });
+  }
+  recordExpeditionPacket(value){
+    return this.change(()=>noteTeamPacket(this.state,this.expedition,value,this.now()));
+  }
+  expeditionReturns(party){return copy(teamLedger(this.state,party).pending);}
+  receiveExpeditionReturn(party,peer,data){
+    return this.change(()=>applyTeamReturn(this.state,this.expedition,party,peer,data));
+  }
+  acknowledgeExpeditionReturn(party,peer,id){
+    return this.change(()=>{
+      const group=teamLedger(this.state,party);
+      group.pending=group.pending.filter(receipt=>receipt.to!==peer||receipt.id!==id);
     });
   }
   async finishRun(account, ticket, result) {
-    return this.change(profile => {
+    const room=globalThis.PokeBonkNativeApp?.coopRoom;
+    if(ticket.config?.mode==="expedition"&&ticket.lan)await room?.expeditionIO?.flush();
+    let newlySettled=false;
+    const settled=await this.change(profile => {
       if (this.state.finished[ticket.id]) {
         const info = copy(this.state.finished[ticket.id]);
         return {profile: this.profile(), ...info, local: true, ranked: !info.offlineChallenge};
@@ -356,7 +397,9 @@ export class OfflineBackend {
       }
       const legacyEvent = isEventMode(mode) && ticket.eventPolicy !== EVENT_POLICY;
       const previousEvents = copy(profile.events ?? {});
-      const expeditionInfo = mode === "expedition" ? settleExpedition(profile, this.expedition, ticket, normalized, this.now()) : null;
+      const team=mode==="expedition"&&ticket.lan?teamLedger(this.state,ticket.party):undefined;
+      const expeditionInfo = mode === "expedition" ? settleExpedition(profile, this.expedition, ticket, normalized, this.now(),{team}) : null;
+      if(team)applyWaitingReturns(this.state,this.expedition,team);
       const info = legacyEvent ? {
         // 0.1.3 tickets promised records-only settlement. Never silently turn
         // an imported/unfinished old challenge into a reward-bearing run.
@@ -391,10 +434,14 @@ export class OfflineBackend {
       for (const id of Object.keys(this.state.finished).slice(0, -100)) delete this.state.finished[id];
       this.state.activeRun = null;
       this.state.suspended = null;
+      newlySettled=true;
       // "ranked" is the original client's progression-eligibility flag here;
       // this local result is never submitted to a leaderboard.
       return { profile: this.profile(), ...info, local: true, ranked: !info.offlineChallenge };
     });
+    if(newlySettled&&ticket.config?.mode==="expedition"&&ticket.lan)room?.expeditionIO?.settled();
+    else if(newlySettled&&ticket.lan)globalThis.PokeBonkLocalCoop?.send?.("room-return",ticket.party);
+    return settled;
   }
   checkpoint(account, ticket, result) {
     if (ticket && result && this.state?.activeRun?.ticket.id === ticket.id &&
@@ -460,7 +507,14 @@ export class OfflineBackend {
         }};
         // Explicit abandonment is a defeat, never a free extraction. A saved
         // pocket/insured loadout can return, but unextracted loot cannot.
-        settleExpedition(profile, this.expedition, ticket, {...result, exp: {...result.exp, out: false}}, this.now(), {abandoned: true});
+        if(ticket.lan&&!ticket.lan.launched){
+          cancelExpeditionPreparation(profile,ticket);
+          delete this.state.expeditionTeams?.parties?.[ticket.party];
+        }else{
+          const team=ticket.lan?teamLedger(this.state,ticket.party):undefined;
+          settleExpedition(profile, this.expedition, ticket, {...result, exp: {...result.exp, out: false}}, this.now(), {abandoned: true,team});
+          if(team)applyWaitingReturns(this.state,this.expedition,team);
+        }
       }
       this.state.activeRun = this.state.suspended = null;
     });

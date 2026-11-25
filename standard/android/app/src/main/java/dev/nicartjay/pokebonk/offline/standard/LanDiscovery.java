@@ -49,8 +49,13 @@ final class LanDiscovery implements AutoCloseable {
                 for(int i=0;i<count;i++){JSONObject member=state.getJSONArray("members").getJSONObject(i);
                     if(me.equals(member.optString("id"))&&invite.contains(":")&&
                         LanDiscoveryPolicy.room(invite.substring(0,invite.indexOf(':')),invite,me,member.optString("name"),count))
-                        next=new JSONObject().put("id",me).put("name",member.getString("name")).put("count",count).put("invitation",invite);
+                        next=new JSONObject().put("id",me).put("name",member.getString("name")).put("count",count).put("invitation",invite)
+                            .put("discoverable",state.optJSONObject("seats")==null||state.getJSONObject("seats").optBoolean("discoverable"))
+                            .put("capacity",state.optJSONObject("seats")==null?4:state.getJSONObject("seats").getInt("capacity"))
+                            .put("settings",CoopRules.settings(state.optJSONObject("settings")));
                 }
+                if(next!=null&&count>=next.getInt("capacity"))next=null;
+                if(next!=null&&state.has("rulesAt"))next.put("rulesAt",CoopRules.time(state.get("rulesAt")));
             }
             room=next;
             if(next==null){if(host!=null)host.close();host=null;replies.clear();unlock();return;}
@@ -80,6 +85,9 @@ final class LanDiscovery implements AutoCloseable {
             JSONObject query=LanPolicy.parse(new String(packet.getData(),packet.getOffset(),packet.getLength(),StandardCharsets.UTF_8),LanDiscoveryPolicy.MAX_BYTES);
             if(!LanDiscoveryPolicy.MAGIC.equals(query.optString("magic"))||!"find".equals(query.optString("op"))||
                 !identity.equals(query.optString("identity"))||!LanDiscoveryPolicy.nonce(query.optString("nonce")))return;
+            String code=query.optString("code");
+            if(!code.isEmpty()?(!CoopCodes.valid(code,"lan")||!code.equals(CoopCodes.lan(room.getString("id")))):
+                !room.optBoolean("discoverable",true))return;
             String address=room.getString("invitation").split(":")[0],remote=packet.getAddress().getHostAddress();boolean local=false;
             for(LanNetwork.Network n:LanNetwork.networks())if(n.address.equals(address)&&LanPolicy.subnet(remote,address,n.prefix))local=true;
             if(!local)return;
@@ -92,13 +100,15 @@ final class LanDiscovery implements AutoCloseable {
             socket.send(new DatagramPacket(out,out.length,packet.getAddress(),packet.getPort()));
         }catch(Exception ignored){/* Invalid or unavailable peers are not game errors. */}
     }
-    synchronized void find(Consumer<Integer> progress,Consumer<List<JSONObject>> done,Consumer<String> error){
+    synchronized void find(String code,Consumer<Integer> progress,Consumer<List<JSONObject>> done,Consumer<String> error){
         cancel();if(disposed)return;
         try{
             MulticastSocket socket=new MulticastSocket();search=socket;socket.setTimeToLive(1);
             String nonce=UUID.randomUUID().toString().replace("-","");Map<String,JSONObject> rooms=new HashMap<>();
-            byte[] query=new JSONObject().put("magic",LanDiscoveryPolicy.MAGIC).put("op","find")
-                .put("identity",identity).put("nonce",nonce).toString().getBytes(StandardCharsets.UTF_8);
+            JSONObject question=new JSONObject().put("magic",LanDiscoveryPolicy.MAGIC).put("op","find")
+                .put("identity",identity).put("nonce",nonce);
+            if(code!=null)question.put("code",code);
+            byte[] query=question.toString().getBytes(StandardCharsets.UTF_8);
             Runnable send=()->{
                 synchronized(LanDiscovery.this){
                     if(search!=socket)return;
@@ -123,6 +133,9 @@ final class LanDiscovery implements AutoCloseable {
                                 !identity.equals(value.optString("identity"))||!nonce.equals(value.optString("nonce"))||
                                 !(count instanceof Integer)||!LanDiscoveryPolicy.room(remote,value.optString("invitation"),
                                 value.optString("id"),value.optString("name"),(Integer)count))continue;
+                            int capacity=value.optInt("capacity",4);
+                            if(capacity<2||capacity>4||(Integer)count>=capacity||
+                                (code!=null?!code.equals(CoopCodes.lan(value.getString("id"))):!value.optBoolean("discoverable",true)))continue;
                             if(rooms.size()>=32&&!rooms.containsKey(value.getString("id")))continue;
                             rooms.put(value.getString("id"),value);progress.accept(rooms.size());
                         }catch(Exception ignored){}

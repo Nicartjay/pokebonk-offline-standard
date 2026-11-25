@@ -10,6 +10,11 @@ import {patchTowerPage, patchMutationPage, patchBossRush} from "./event-pages.mj
 import {patchGuidePages} from "./guide.mjs";
 import {expeditionContract, patchExpeditionPages, patchSystemTheme} from "./expedition.mjs";
 import {patchLanRoom,patchLanLanding} from "./lan-room.mjs";
+import {requireCoopRecoveryContract} from "./coop-recovery.mjs";
+import {graphicsEdits, fpsSettingsReplacements} from "./graphics.mjs";
+import {patchRentalBuilds,patchRentalGallery} from "./rentals.mjs";
+import {patchExpeditionTeam} from "./expedition-team.mjs";
+import {coopBossHudEdits} from "./boss-hud.mjs";
 
 export function patchSnapshot(input, {bindings} = {}) {
 const output = new Map(input);
@@ -26,8 +31,12 @@ const config = module(source=>source.includes("slot-move")&&source.includes("dat
 const cosmetics = one(names.filter(name=>name.startsWith("cosmetics-")&&name.endsWith(".js")), "cosmetics module");
 const training = module(source=>source.includes("as trainingSetup"), "training setup");
 const parse = source => parseJS(source, { ecmaVersion: "latest", sourceType: "module" });
-const enableExpedition = input.get("index.html").toString().includes('content="mwsewi0r"');
+const enableExpedition = ["mwsewi0r", "mwv6wzyo"].some(build =>
+  input.get("index.html").toString().includes(`content="${build}"`));
 const expedition = enableExpedition ? expeditionContract(input) : null;
+const enableExpeditionTeam=input.get("index.html").toString().includes('content="mwv6wzyo"');
+const expeditionTeam=enableExpeditionTeam?module(source=>source.includes("xt-entry")&&source.includes("xt-slots")&&source.includes("exb-team-room"),
+  "original Expedition team UI"):null;
 const edits = new Map();
 const add = (file, node, text) => {
   if (file === menus && !bindings) {
@@ -50,6 +59,19 @@ function template(file, text, method = false) {
 const addTemplate = (file, node, text, method = false) => add(file, node, template(file, text, method));
 const sourceMain = get(main);
 const mainTree=parse(sourceMain);
+for (const edit of graphicsEdits(sourceMain,mainTree)) add(main,edit,edit.text);
+if(enableExpeditionTeam)
+  for (const edit of coopBossHudEdits(sourceMain,mainTree)) add(main,edit,edit.text);
+if(enableExpedition){
+  const {run}=requireCoopRecoveryContract(mainTree);
+  const constructor=one(run.body.body.filter(method=>maybeName(method.key)==="constructor"),"game run constructor");
+  const rush=one(nodesOf(constructor,"AssignmentExpression",node=>maybeName(node.left.property)==="rush"&&
+    node.right.type==="NewExpression"),"weekly co-op boss rotation");
+  const clock=rush.right.arguments[1];
+  if(clock?.type!=="CallExpression"||maybeName(clock.callee.property)!=="now")
+    throw Error("Unsupported upstream: weekly boss-rotation clock.");
+  add(main,clock,`(this.meta.ticket?.lan&&Number.isSafeInteger(this.meta.ticket.coopRulesAt)?this.meta.ticket.coopRulesAt:${sourceMain.slice(clock.start,clock.end)})`);
+}
 const factory=one(nodesOf(mainTree,"FunctionDeclaration",n=>sourceMain.slice(n.start,n.end).includes("https://api.pokebonk.com")),"HTTP backend factory");
 const backendClass=one(nodesOf(factory,"NewExpression"),"backend construction").callee.name;
 const backendDefinition=one(nodesOf(mainTree,"VariableDeclarator",node=>maybeName(node.id)===backendClass&&
@@ -150,9 +172,13 @@ for (const node of parse(sourceMain).body) {
           const text=sourceMain.slice(node.test.start,node.test.end);
           return text.includes("this.nextDraw")&&text.includes("this.r.needsDraw");
         }),"renderer frame-cap bypass");
-        if(!timestamp)throw new Error("Unsupported animation timestamp parameter.");
+        const interval=maybeName(one(nodesOf(loop,"VariableDeclarator",node=>
+          node.init?.type==="CallExpression"&&node.init.callee.type==="MemberExpression"&&
+          node.init.callee.object.type==="ThisExpression"&&node.init.arguments.length===0),
+          "animation frame interval").id);
+        if(!timestamp||!interval)throw new Error("Unsupported animation timestamp/interval parameter.");
         add(main,method,sourceMain.slice(method.start,guard.test.start)+
-          `globalThis.PokeBonkOfflineUI.skipBatteryFrame(this,${timestamp})||(${sourceMain.slice(guard.test.start,guard.test.end)})`+
+          `globalThis.PokeBonkOfflineUI.skipBatteryFrame(this,${timestamp},${interval})||(!this.saver&&(${sourceMain.slice(guard.test.start,guard.test.end)}))`+
           sourceMain.slice(guard.test.end,method.end-1)+";globalThis.PokeBonkNativeApp=this}");
       }
       if (method.key.name === "fpsCap") {
@@ -271,7 +297,7 @@ const offlineMenu = `function Lw(e){
   const endless=item("endless",K("moon-stone"),"Survival","Endless mode","#5a4cd8",()=>mT(e,"endless"));
   endless.querySelector(".mm-ic").append(...[0,1,2].map(index=>q("i",{class:"mm-star",style:{"--k":index}})));
   const coop=${enableExpedition ? 'item("endless coop offline-lan-entry",Z("friends",40),"Co-op","With friends","#1fa86a",()=>globalThis.PokeBonkOfflineUI.localCoop())' : "null"};
-  if(coop)coop.title="Co-op: play Classic with up to three friends on your local network";
+  if(coop)coop.title="Co-op: five modes with up to three friends over LAN or optional Internet connections";
   const hub=localModeHub(item,()=>localModeOptions(e));
   hub.querySelector(".mm-tx b").textContent="Modes";hub.querySelector(".mm-tx small").textContent="4 modes";
   hub.setAttribute("aria-label","Game modes");
@@ -286,7 +312,7 @@ const offlineMenu = `function Lw(e){
     ...[0,1,2].map(index=>q("i",{class:index<claimed?"on":""}))));
   const today=q("div",{class:"mm-today"},event,tasks);
   const tiles=q("div",{class:"mm-tiles"},
-    item("tile",K("ultra-ball"),"Pokédex",seen+"/"+total,"var(--blue)",()=>OT(e)),
+    item("tile",K("ultra-ball"),${input.get("index.html").toString().includes('content="mwv6wzyo"') ? '"Pokédex+"' : '"Pokédex"'},seen+"/"+total,"var(--blue)",()=>OT(e)),
     item("tile",K("rare-candy"),"Lab",U(n.stardust)+" dust","var(--purple)",()=>VT(e)),
     item("tile",K("star-piece"),"Achievements",String(Object.keys(n.quests).length)+" earned","var(--orange)",()=>XT(e),t.claimable()),
     item("tile",K("tm-case"),"Builds","Plan a build","#1fb7a6",()=>jm(e)));
@@ -326,11 +352,12 @@ const lanRoom = enableExpedition ? patchLanRoom(sourceMenus) : null;
 const lanLanding = enableExpedition ? patchLanLanding(sourceMenus) : null;
 if (lanRoom) add(menus, lanRoom.change, lanRoom.change.text);
 if (lanRoom) add(menus, lanRoom.cleanupChange, lanRoom.cleanupChange.text);
+if (lanRoom) add(menus, lanRoom.returnChange, lanRoom.returnChange.text);
 // Resolve UI entry points by their DOM/content contracts. The replacement
 // templates below use reviewed 0.10.20 bindings, translated to discovered names.
 // Unknown or ambiguous shapes fail BEFORE touching the previous built payload.
 const menuTree = parse(sourceMenus);
-const expeditionPages = enableExpedition ? patchExpeditionPages(sourceMenus) : null;
+const expeditionPages = enableExpedition ? patchExpeditionPages(sourceMenus,{team:enableExpeditionTeam}) : null;
 if (expeditionPages) for (const change of expeditionPages.changes) add(menus, change, change.text);
 const declarations = menuTree.body.filter(n=>n.type==="FunctionDeclaration");
 const roleActual = new Map();
@@ -387,6 +414,9 @@ roleActual.set("localGuidePages", one(declarations.filter(node =>
   nodesOf(node, "ObjectExpression", item => item.properties.some(property =>
     maybeName(property.key) === "title" && literal(property.value?.arguments?.[0]) === "¡Bienvenido a PokéBonk!")).length === 1),
 "illustrated trainer-guide content").id.name);
+roleActual.set("localRentalGallery",one(declarations.filter(node=>
+  nodesOf(node,"CallExpression",call=>maybeName(call.callee.property)==="rentalBuilds").length===1),
+  "rental gallery entry").id.name);
 const updaterWrapper=one(declarations.filter(n=>n.async&&n.end-n.start<200&&n.params.length===1&&
   !nodesOf(n,"AssignmentExpression").length&&calls(n,roleActual.get("gg"))),"website check wrapper");
 roleActual.set("yg",updaterWrapper.id.name);
@@ -427,8 +457,8 @@ for (const node of parse(sourceMenus).body) {
         sub:"Daily Mutation",desc:"Daily rules · local rewards",action:()=>localMutationView(e)},
       {id:"tower",icon:()=>Z("torre",50),title:"Lavender Tower",color:"#9a6aff",chip:"EVENT",
         sub:"Climb the tower",desc:"Earn Candles, pass rewards and missions",action:()=>localEventView(e,"halloween26")},
-      {id:"expedition",icon:()=>Z("exp-bag",50),title:"The Great Expedition",color:"#1f9a6a",chip:${enableExpedition ? '"SOLO"' : '"PREVIEW"'},
-        sub:"Solo loot & extraction",desc:${enableExpedition ? '"Keep the loot you extract"' : '"Offline adaptation in progress"'},action:()=>${enableExpedition ?
+      {id:"expedition",icon:()=>Z("exp-bag",50),title:"The Great Expedition",color:"#1f9a6a",chip:${enableExpeditionTeam?'"SOLO / CO-OP"':enableExpedition ? '"SOLO"' : '"PREVIEW"'},
+        sub:${enableExpeditionTeam?'"Solo or with friends"':'"Solo loot & extraction"'},desc:${enableExpedition ? '"Keep the loot you extract"' : '"Offline adaptation in progress"'},action:()=>${enableExpedition ?
           "globalThis.PokeBonkOpenExpedition(e)" : 'globalThis.PokeBonkOfflineUI.expeditionPreview(e,{mount:content=>UC(e,"dim ex exp3d exb offline-expedition",content)})'}}
     ];
   }`);
@@ -446,8 +476,9 @@ for (const node of parse(sourceMenus).body) {
   else if (name === "jE") addTemplate(menus, node, "function jE(e){return globalThis.PokeBonkOfflineUI.profile(e)}");
   else if (name === "dg") addTemplate(menus, node, "function dg(e){return globalThis.PokeBonkOfflineUI.unavailable(e)}");
   else if (name === "localGuidePages") add(menus, node, patchGuidePages(sourceMenus, node));
+  else if (name === "localRentalGallery") add(menus,node,patchRentalGallery(sourceMenus,node));
   else if (name === "LE") {
-    const replacements = [];
+    const replacements = fpsSettingsReplacements(sourceMenus,node);
     const offlineOnlyKeys = new Set(["mateFx", "showLadder", "teamChat", ...enableExpedition ? [] : ["lootMinRarity",
       "lootShinyMin", "lootMinLevel", "lootUse", "lootTreasure", "lootHideUse", "lootHideTreasure"]]);
     const unavailableRows = new Set(node.body.body.filter(statement=>statement.type==="VariableDeclaration")
@@ -469,34 +500,15 @@ for (const node of parse(sourceMenus).body) {
       if (textValue(child) === "Los que sigues desde Logros, bajo la tarjeta de la temporada") {
         replacements.push({ node: child, text: '"The achievements you track during a local run"' });
       }
+      if (textValue(child) === "Limita a 30 fps y baja la resolución: el móvil gasta menos batería") {
+        replacements.push({ node: child, text: '"Limits rendering to 30 FPS, lowers 3D resolution, and reduces glow."' });
+      }
     });
     rewriteFunction(node, replacements.filter(change=>!replacements.some(parent=>
       parent!==change&&parent.node.start<=change.node.start&&parent.node.end>=change.node.end)));
   }
   else if (name === "jm") {
-    const replacements = [];
-    walk(node, child => {
-      if (child.type === "VariableDeclarator" && child.id.name === "g" &&
-          sourceMenus.slice(child.init.start, child.init.start + 30).startsWith("()=>{if(G(m)")) {
-        replacements.push({ node: child.init, text: "()=>{}" });
-      }
-      if (child.type === "VariableDeclarator" && child.id.name === "O" &&
-          sourceMenus.slice(child.init.start, child.init.start + 40).startsWith("()=>G(E).append")) {
-        replacements.push({ node: child.init, text: "()=>G(E)" });
-      }
-      if (child.type === "Property" && child.key.name === "rent") {
-        replacements.push({ node: child.value, text: "null" });
-      }
-      if (child.type === "CallExpression" && child.callee.name === "Vo" &&
-          child.arguments[0]?.arguments?.[1]?.properties?.some(p =>
-            p.key.name === "class" && sourceMenus.slice(p.value.start, p.value.end).includes("bs-priv"))) {
-        replacements.push({ node: child, text: "null" });
-      }
-      if (textValue(child) === "Buscar Pokémon o creador…") {
-        replacements.push({ node: child, text: '"Search Pokémon…"' });
-      }
-    });
-    rewriteFunction(node, replacements);
+    add(menus,node,patchRentalBuilds(sourceMenus,node));
   }
   else if (name === "mT") {
     const replacements = [];
@@ -670,6 +682,7 @@ for (const file of names.filter(name => name.endsWith(".js"))) {
     });
     for (const change of changes.sort((a, b) => b.start - a.start)) source = source.slice(0, change.start) + change.text + source.slice(change.end);
   }
+  if(file===expeditionTeam)source=patchExpeditionTeam(source);
   try { source = withoutExternalDestinations(source); }
   catch(error){throw new Error(`Invalid offline rewrite in ${file}: ${error.message}`,{cause:error});}
   if (file === main) {
@@ -691,6 +704,7 @@ for (const file of names.filter(name => name.endsWith(".js"))) {
   if (file === main && expedition) source = 'import * as __OFFLINE_EXPEDITION__ from "../offline/upstream-expedition.js";\n' + source;
   if (file === menus && expeditionPages) source += `\nglobalThis.PokeBonkOpenExpedition=${expeditionPages.entry};\n`;
   if (file === menus && lanRoom) source += `\nglobalThis.PokeBonkOpenLocalRoom=${lanRoom.entry};\n`;
+  if (file === menus && lanRoom) source += `\nglobalThis.PokeBonkTrackRoomReturn=${lanRoom.returnEntry};\n`;
   if (file === menus && lanLanding) source += `\nglobalThis.PokeBonkOpenLanHome=${lanLanding.entry};\n`;
   if (file === menus) source += `\nglobalThis.PokeBonkOfflineUI.setScopePalette(${scopeBiomes}.map(map=>({id:map.id,sky:${scopeColor}(map.sky[0]),ground:${scopeColor}(map.ground[1])})));\n`;
   try { parse(source); }

@@ -78,10 +78,97 @@ test("v2 room listings are read-only, sanitized and isolated from legacy rooms; 
 test("six-character code lookups and room lists retain the shared IP rate limit and protocol validation",async()=>{
   const h=harness(),host=await h.create({protocolVersion:2});await h.socket(host);
   const query=h.player("Viewer",{protocolVersion:2});
-  assert.equal((await h.call("/v1/matchmaking/rooms",{...query,protocolVersion:3})).status,400);
+  assert.equal((await h.call("/v1/matchmaking/rooms",{...query,protocolVersion:4})).status,400);
   for(let i=0;i<20;i++)assert.equal((await h.call("/v1/matchmaking/rooms",query)).status,200);
   assert.equal((await h.call("/v1/matchmaking/rooms",query)).status,429);
   assert.equal((await h.call(`/v1/rooms/${host.code}/join`,query)).status,429);
+});
+test("v3 Find teammates changes directory visibility without ejecting members; private codes still join",async()=>{
+  const h=harness(),host=await h.create({protocolVersion:3,discoverable:false}),hs=await h.socket(host);
+  const query=h.player("Guest",{protocolVersion:3}),room=h.env.ROOMS.get(host.code);
+  assert.deepEqual((await h.call("/v1/matchmaking/rooms",query)).value.rooms,[]);
+  assert.equal((await h.call("/v1/matchmaking/find",query)).status,404);
+  const joined=await h.call(`/v1/rooms/${host.code}/join`,query);assert.equal(joined.status,200);
+  await h.socket(joined.value);
+  const before=(await room.ctx.storage.get("room")).members.map(member=>({id:member.id,hash:member.tokenHash}));
+  await room.message(hs,JSON.stringify({type:"seats",value:{discoverable:true,capacity:3}}));
+  assert.equal((await h.call("/v1/matchmaking/rooms",query)).value.rooms[0].capacity,3);
+  await room.message(hs,JSON.stringify({type:"seats",value:{discoverable:false,capacity:3}}));
+  assert.deepEqual((await h.call("/v1/matchmaking/rooms",query)).value.rooms,[]);
+  assert.equal((await h.call("/v1/matchmaking/find",query)).status,404);
+  assert.deepEqual((await room.ctx.storage.get("room")).members.map(member=>({id:member.id,hash:member.tokenHash})),before);
+  assert.equal(hs.readyState,1);
+  assert.equal((await h.call(`/v1/rooms/${host.code}/join`,query)).status,200);
+  assert.equal((await h.call(`/v1/rooms/${host.code}/join`,query)).status,409);
+});
+test("v3 Duo capacity is enforced for code joins and shrinking cannot kick a teammate",async()=>{
+  const h=harness(),host=await h.create({protocolVersion:3}),hs=await h.socket(host),room=h.env.ROOMS.get(host.code);
+  const query=h.player("Guest",{protocolVersion:3});
+  await room.message(hs,JSON.stringify({type:"seats",value:{discoverable:true,capacity:2}}));
+  const found=await h.call("/v1/matchmaking/find",query);assert.equal(found.status,200);
+  assert.equal((await h.call(`/v1/rooms/${host.code}/join`,query)).status,409);
+  assert.deepEqual((await h.call("/v1/matchmaking/rooms",query)).value.rooms,[]);
+  await room.message(hs,JSON.stringify({type:"seats",value:{discoverable:true,capacity:3}}));
+  assert.equal((await h.call(`/v1/rooms/${host.code}/join`,query)).status,200);
+  await room.message(hs,JSON.stringify({type:"seats",value:{discoverable:false,capacity:2}}));
+  const state=await room.ctx.storage.get("room");
+  assert.equal(state.members.length,3);assert.equal(state.capacity,3);assert.equal(state.discoverable,true);
+  assert.ok(hs.messages.some(message=>message.type==="notice"));
+});
+test("Expedition discovery stays on its selected map and a saved-round barrier returns the room to the lobby",async()=>{
+  const h=harness(),classic=await h.create({protocolVersion:3,discoverable:true});
+  const valley=await h.create({protocolVersion:3,discoverable:true,destination:"wilds"});
+  const safari=await h.create({protocolVersion:3,discoverable:true,destination:"safari"});
+  for(const lease of [classic,safari])await h.socket(lease);
+  const hs=await h.socket(valley),query=h.player("Guest",{protocolVersion:3,destination:"wilds"});
+  const listing=await h.call("/v1/matchmaking/rooms",query);
+  assert.deepEqual(listing.value.rooms.map(room=>room.code),[valley.code]);
+  assert.doesNotMatch(JSON.stringify(listing.value),/credential|tokenHash|sessionToken/);
+  const guest=(await h.call("/v1/matchmaking/find",query)).value,gs=await h.socket(guest),room=h.env.ROOMS.get(valley.code);
+  const ready=await room.ctx.storage.get("room");
+  ready.members.find(member=>member.id===guest.member).pending=false;
+  ready.links={[valley.member+"|"+guest.member]:true,[guest.member+"|"+valley.member]:true};
+  await room.persist(ready);
+  const summary={worn:[{b:"choice-band",r:1,lv:1}],bag:0,risk:25,ins:0};
+  for(const sock of [hs,gs])await room.message(sock,JSON.stringify({type:"loadout",value:summary}));
+  await room.message(gs,JSON.stringify({type:"ready",ready:true}));
+  await room.message(hs,JSON.stringify({type:"start"}));
+  let saved=await room.ctx.storage.get("room");assert.equal(saved.phase,"preparing");
+  assert.equal(saved.match.mode,"expedition");assert.equal(saved.match.biome,"wilds");
+  const party=saved.match.party;
+  for(const sock of [hs,gs])await room.message(sock,JSON.stringify({type:"prepared",party}));
+  await room.message(gs,JSON.stringify({type:"returned",party}));
+  assert.equal((await room.ctx.storage.get("room")).phase,"playing");
+  await room.message(hs,JSON.stringify({type:"returned",party}));
+  saved=await room.ctx.storage.get("room");
+  assert.equal(saved.phase,"lobby");assert.equal(saved.lastParty,party);assert.equal(saved.match,undefined);
+  assert.equal(saved.members.length,2);assert.equal(hs.readyState,1);assert.equal(gs.readyState,1);
+});
+test("v3 keeps a disconnected authenticated seat and its match until bounded recovery expires",async()=>{
+  const h=harness(),host=await h.create({protocolVersion:3}),hs=await h.socket(host);
+  const guest=(await h.call(`/v1/rooms/${host.code}/join`,h.player("Guest",{protocolVersion:3}))).value;
+  const gs=await h.socket(guest),room=h.env.ROOMS.get(host.code),state=await room.ctx.storage.get("room");
+  state.phase="playing";state.match={party:"lan-resume-test",seed:123,players:state.members.map(m=>m.id),mode:"standard",biome:"forest",tier:0};
+  for(const member of state.members){member.pending=false;member.socketEpoch=1;delete member.deadline;}
+  for(const socket of [hs,gs])socket.serializeAttachment({...socket.attachment,epoch:1});
+  await room.persist(state);gs.close();await room.webSocketClose(gs);
+  const held=await room.ctx.storage.get("room");
+  assert.equal(held.members.length,2);assert.deepEqual(held.match,state.match);
+  assert.equal(held.members[1].tokenHash,state.members[1].tokenHash);
+  assert.ok(held.members[1].reconnectUntil>Date.now());
+  assert.doesNotMatch(JSON.stringify(room.snapshot(held)),/tokenHash|sessionToken|joinSecret/);
+  assert.equal((await h.call(`/v1/rooms/${host.code}/join`,h.player("Other",{protocolVersion:3}))).status,409);
+  held.members[1].reconnectUntil=Date.now()-1;await room.ctx.storage.put("room",held);
+  await room.alarm();assert.equal(await room.ctx.storage.get("room"),undefined);
+});
+test("a superseded v3 socket close cannot remove the replacement connection",async()=>{
+  const h=harness(),host=await h.create({protocolVersion:3}),old=await h.socket(host),replacement=await h.socket(host);
+  const room=h.env.ROOMS.get(host.code),state=await room.ctx.storage.get("room");
+  state.members[0].socketEpoch=2;
+  old.serializeAttachment({...old.attachment,epoch:1});replacement.serializeAttachment({...replacement.attachment,epoch:2});
+  await room.persist(state);old.close();await room.webSocketClose(old);
+  const latest=await room.ctx.storage.get("room");
+  assert.equal(latest.members[0].reconnectUntil,undefined);assert.equal(replacement.readyState,1);
 });
 
 test("Internet find only reserves compatible, discoverable, listening, unexpired lobbies",async()=>{

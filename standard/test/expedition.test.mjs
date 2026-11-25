@@ -83,6 +83,52 @@ test("shop purchase, insufficient funds, inventory moves, locks and insurance pe
   await assert.rejects(f.backend.expAction(f.account, [{a: "lock", id: 1}, {a: "sell", ids: [1]}]), /disk full/);
   assert.deepEqual(f.backend.state, before); assert.deepEqual(f.disk, before);
 });
+test("wanted loot uses the upstream allowlist and persists without granting inventory", async () => {
+  const f = await fixture(), before = structuredClone(f.disk.profile.exp);
+  await f.backend.expAction(f.account, [{a: "want", b: "mat-ore", on: true}]);
+  await f.backend.expAction(f.account, [{a: "want", b: "mat-ore", on: true}]);
+  assert.deepEqual(f.disk.profile.exp.wl, ["mat-ore"]);
+  assert.deepEqual(f.disk.profile.exp.stash, before.stash);
+  assert.equal(f.disk.profile.exp.coins, before.coins);
+  const next = new OfflineBackend(f.runtime); await next.restore();
+  assert.deepEqual(next.state.profile.exp.wl, ["mat-ore"]);
+  for (const b of ["unknown-loot", "choice-band", "trophy-valley"]) {
+    await assert.rejects(f.backend.expAction(f.account, [{a: "want", b, on: true}]), /supported Expedition loot/);
+  }
+  const prior = structuredClone(f.disk); f.fail = true;
+  await assert.rejects(f.backend.expAction(f.account, [{a: "wants", list: []}]), /disk full/);
+  assert.deepEqual(f.disk, prior);
+  f.fail = false;
+  await f.backend.expAction(f.account, [{a: "wants", list: []}]);
+  assert.deepEqual(f.disk.profile.exp.wl, []);
+});
+test("sort and stack conserves quantities, locked stacks, equipment and safe-pocket identity", async () => {
+  const f = await fixture(); await kit(f);
+  await f.backend.change(p => {
+    const e = p.exp;
+    for (const q of [2, 3, 4]) e.stash.push(expedition.normalizeItem({
+      id: e.next++, b: "potion", lv: 1, r: 0, s: 123, q}));
+    e.stash.at(-1).lk = 1;
+    e.stash.at(-2).n = 1;
+    e.bag.push(expedition.normalizeItem({id: e.next++, b: "potion", lv: 1, r: 0, s: 456, q: 1}));
+  });
+  const prior = structuredClone(f.disk.profile.exp), sum = e =>
+    [...e.stash, ...e.over, ...e.bag, e.pocket].filter(i => i?.b === "potion").reduce((n, i) => n + i.q, 0);
+  await f.backend.expAction(f.account, [{a: "tidy"}]);
+  const after = f.disk.profile.exp;
+  assert.equal(sum(after), sum(prior));
+  assert.equal(after.stash.length, prior.stash.length - 1);
+  assert.deepEqual(after.stash.find(i => i.lk), prior.stash.find(i => i.lk));
+  assert.deepEqual(after.gear, prior.gear); assert.deepEqual(after.ins, prior.ins);
+  assert.deepEqual(after.pocket, prior.pocket); assert.equal(after.next, prior.next);
+  assert.equal(after.bag[0].q, 1);
+  const settled = structuredClone(f.disk);
+  await f.backend.expAction(f.account, [{a: "tidy"}]);
+  assert.deepEqual(f.disk.profile.exp, settled.profile.exp);
+  f.fail = true;
+  await assert.rejects(f.backend.expAction(f.account, [{a: "tidy"}]), /disk full/);
+  assert.deepEqual(f.backend.state, settled);
+});
 test("real seeded loot and worn gear survive extraction once, restart, export and import", async () => {
   const f = await fixture(); await kit(f);
   const before = structuredClone(f.disk), ticket = await start(f);

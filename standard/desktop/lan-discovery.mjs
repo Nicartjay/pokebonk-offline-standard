@@ -1,6 +1,7 @@
 import dgram from "node:dgram";
 import {randomBytes} from "node:crypto";
 import {invitation, sameSubnet} from "../common/lan-policy.mjs";
+import {lanRoomCode} from "../common/coop-mode.mjs";
 import {DISCOVERY_GROUP, DISCOVERY_PORT, DISCOVERY_MAGIC, DISCOVERY_BYTES, DISCOVERY_MS,
   discoveryQuery, discoveryRoom, advertisedRoom} from "../common/lan-discovery.mjs";
 const encode = value => Buffer.from(JSON.stringify(value), "utf8");
@@ -23,6 +24,7 @@ export class LanDiscovery {
       const room = this.room, query = decode(bytes);
       if (this.host !== socket || !room || !discoveryQuery(query, this.identity) ||
           remote.port < 1024 || remote.port > 65535) return;
+      if(query.code?query.code!==lanRoomCode(room.id):!room.discoverable)return;
       const address = invitation(room.invitation).address;
       if (!this.interfaces().some(n => n.address === address && sameSubnet(address, remote.address, n.netmask))) return;
       const now = Date.now(), last = this.replyTimes.get(remote.address) ?? 0;
@@ -41,7 +43,7 @@ export class LanDiscovery {
       }
     });
   }
-  find() {
+  find({code}={}) {
     this.cancel();
     const nonce = randomBytes(16).toString("hex"), rooms = new Map();
     const socket = this.socket({type: "udp4"}), timers = [];
@@ -57,14 +59,14 @@ export class LanDiscovery {
       socket.on("error", () => finish(false, new Error("Local discovery is unavailable. Use a host invitation instead.")));
       socket.on("message", (bytes, remote) => {
         const room = discoveryRoom(decode(bytes), {identity: this.identity, nonce,
-          remote: remote.address, interfaces: this.interfaces()});
+          remote: remote.address, interfaces: this.interfaces(),code});
         if (!room || this.search?.socket !== socket || rooms.size >= 32 && !rooms.has(room.id)) return;
         rooms.set(room.id, room); this.progress(rooms.size);
       });
       socket.bind(0, "0.0.0.0", () => {
         if (this.search?.socket !== socket) return;
         socket.setMulticastTTL(1);
-        const query = encode({magic: DISCOVERY_MAGIC, op: "find", identity: this.identity, nonce});
+        const query = encode({magic: DISCOVERY_MAGIC, op: "find", identity: this.identity, nonce,...(code?{code}:{})});
         const send = () => {
           if (this.search?.socket !== socket) return;
           for (const network of this.interfaces()) {

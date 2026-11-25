@@ -46,6 +46,26 @@ test('private destinations, canonical invitations and same-subnet policy reject 
   assert.throws(()=>invitation('8.8.8.8:42000#0123456789abcdef0123456789abcdef'));
   assert.equal(invitation('192.168.1.2:42000#0123456789abcdef0123456789abcdef').port,42000);
 });
+test("Expedition uses the existing mesh/start barrier and returns the same room only after both saved runs finish",async()=>{
+  const c=await cluster(2);try{
+    const [host,peer]=c.sessions;
+    host.action("settings",{biome:"wilds",tier:4});await sleep();
+    const summary={worn:[{b:"choice-band",r:1,lv:1}],bag:0,risk:30,ins:0};
+    host.action("loadout",summary);peer.action("loadout",summary);await sleep();
+    peer.action("ready");await sleep();
+    host.action("start");await sleep();
+    const party=host.value.match.party;
+    assert.equal(host.value.match.mode,"expedition");
+    for(const session of c.sessions)session.preparedLocal(party);await sleep();await sleep();
+    peer.action("return",party);await sleep();
+    assert.equal(host.value.phase,"playing");
+    host.action("return",party);await sleep();await sleep();
+    for(const session of c.sessions){assert.equal(session.value.phase,"lobby");assert.equal(session.value.match,undefined);assert.equal(session.value.lastParty,party);}
+    assert.deepEqual(c.errors,[]);
+    peer.action("ready");await sleep();host.action("start");await sleep();
+    assert.equal(host.value.phase,"preparing");assert.notEqual(host.value.match.party,party);
+  }finally{c.close();}
+});
 test('ICE accepts only local host candidates and data-only descriptions',()=>{
   const checked=lanDescription({type:'offer',sdp:sdp+'a=candidate:2 1 udp 99 8.8.8.8 4000 typ srflx\r\n'});
   assert.ok(!checked.sdp.includes('8.8.8.8'));
@@ -80,5 +100,25 @@ test('client disconnect during a run preserves the original roster and closes on
     c.sessions[0].closed('c3','left');await sleep();
     assert.equal(c.sessions[0].value.members.length,4);assert.deepEqual(c.sessions[0].value.disconnected,['lan-p3']);
     assert.equal(c.sessions[1].value.phase,'playing');assert.ok(c.events[1].some(e=>e.type==='peer-closed'&&e.peer==='lan-p3'));
+  }finally{c.close();}
+});
+test('a private LAN resume retains the original player, match and seed instead of starting a new run',async()=>{
+  const c=await cluster(2);try{
+    c.sessions[1].action('ready');await sleep();c.sessions[0].action('start');await sleep();
+    for(const session of c.sessions)session.preparedLocal(c.sessions[0].value.match.party);
+    await sleep();await sleep();
+    const before=structuredClone(c.sessions[0].value.match),me=c.sessions[1].value.me;
+    c.sessions[0].closed('c1','interrupted');c.sessions[1].closed('host','interrupted');await sleep();
+    assert.equal(c.sessions[1].value.phase,'playing');
+    c.sessions[0].opened('c1');c.sessions[1].opened('host');await sleep();await sleep();
+    for(let index=0;index<2;index++)for(const pair of c.sessions[index].pairs.values()){
+      const peer=pair.a===c.sessions[index].value.me?pair.b:pair.a;
+      c.sessions[index].rtcEvent({type:'link',peer,token:pair.token,state:'open'});
+    }
+    await sleep();await sleep();
+    assert.equal(c.sessions[0].value.linked,true);assert.equal(c.sessions[1].value.me,me);
+    assert.deepEqual(c.sessions[0].value.match,before);
+    assert.equal(c.sessions[0].value.members.length,2);assert.deepEqual(c.errors,[]);
+    assert.doesNotMatch(JSON.stringify(c.events.filter(Boolean).flat().filter(e=>e.type==='state')),/resumeToken|\"resume\"/);
   }finally{c.close();}
 });

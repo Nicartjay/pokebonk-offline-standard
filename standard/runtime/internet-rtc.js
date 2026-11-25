@@ -3,38 +3,39 @@ import {StunFirstPolicy} from "./stun-first.js";
 // Trusted broker only. No media tracks, assets, or issuer/analytics keys.
 const MAX_GENERATION=96, RATE=128*1024, BURST=256*1024;
 export class InternetMesh {
-  constructor({emit,relay,mode,Peer=globalThis.RTCPeerConnection}){Object.assign(this,{emit,relay,mode,Peer});this.peers=new Map();this.failedPeers=new Set();}
+  constructor({emit,relay,mode,Peer=globalThis.RTCPeerConnection}){Object.assign(this,{emit,relay,mode,Peer});this.peers=new Map();this.failedPeers=new Set();this.rounds=new Map();}
   drop(id){
     this.failedPeers.delete(id);
     const p=this.peers.get(id);if(!p)return;this.peers.delete(id);
-    clearTimeout(p.timeout);clearTimeout(p.renewTimer);p.policy.close();
+    clearTimeout(p.timeout);clearTimeout(p.renewTimer);clearTimeout(p.disconnectTimer);p.policy.close();
     p.ice?.removeEventListener("selectedcandidatepairchange",p.routeCheck);
     for(const c of [p.ctl,p.snap]){c.onmessage=c.onopen=c.onclose=null;try{c.close();}catch{}}
     p.pc.onconnectionstatechange=p.pc.oniceconnectionstatechange=null;try{p.pc.close();}catch{}
   }
-  close(){for(const id of [...this.peers.keys()])this.drop(id);this.failedPeers.clear();}
+  close(){for(const id of [...this.peers.keys()])this.drop(id);this.failedPeers.clear();this.rounds.clear();}
   fail(p,code="peer_link_failed"){
     if(this.peers.get(p.id)!==p)return;
     // Room snapshots continue to contain a timed-out peer until the server
     // removes its seat. Never turn those snapshots into blind ICE/API retries.
     this.drop(p.id);this.failedPeers.add(p.id);
-    this.emit({type:"link",peer:p.id,open:false});this.emit({type:"failed",peer:p.id,code});
+    this.emit({type:"link",peer:p.id,open:false,round:p.round});this.emit({type:"failed",peer:p.id,code,round:p.round});
   }
   armRenewal(p){
     clearTimeout(p.renewTimer);
     if(p.route!=="turn" || !p.expiresAt || p.restarting)return;
     p.renewTimer=setTimeout(()=>void this.restart(p.id,p.attempt+1),Math.max(1000,p.expiresAt-Date.now()-90000));
   }
-  async configure(id,offerer){
-    if(this.peers.has(id)||this.failedPeers.has(id))return;
+  async configure(id,offerer,round=0){
+    if(this.rounds.get(id)===round&&(this.peers.has(id)||this.failedPeers.has(id)))return;
+    this.drop(id);this.rounds.set(id,round);
     if(this.peers.size>=3)throw Error("Rooms support at most four players.");
     const policy=new StunFirstPolicy({mode:this.mode,requestRelay:()=>this.relay(id)});
     const pc=new this.Peer(policy.begin());
-    const p={id,pc,policy,offerer,attempt:0,route:"connecting",tokens:BURST,tokenAt:Date.now(),
+    const p={id,pc,policy,offerer,round,attempt:0,route:"connecting",tokens:BURST,tokenAt:Date.now(),
       ctl:pc.createDataChannel("ctl",{negotiated:true,id:0,ordered:true}),
       snap:pc.createDataChannel("snap",{negotiated:true,id:1,ordered:false,maxRetransmits:0})};
     this.peers.set(id,p);p.snap.binaryType="arraybuffer";
-    const emit=value=>{if(this.peers.get(id)===p)this.emit({...value,peer:id});};
+    const emit=value=>{if(this.peers.get(id)===p)this.emit({...value,peer:id,round:p.round});};
     p.routeCheck=()=>{
       if(typeof pc.getStats!=="function")return;
       void pc.getStats().then(stats=>{
@@ -49,10 +50,20 @@ export class InternetMesh {
     };
     const opened=()=>{
       if(p.ctl.readyState==="open"&&p.snap.readyState==="open"){
-        clearTimeout(p.timeout);p.policy.selected({kind:"direct"});emit({type:"link",open:true});
+        clearTimeout(p.disconnectTimer);
+        clearTimeout(p.timeout);p.policy.selected({kind:"direct"});
+        if(!p.linkOpen){p.linkOpen=true;emit({type:"link",open:true});}
         if(!p.ice){p.ice=pc.sctp?.transport?.iceTransport;p.ice?.addEventListener("selectedcandidatepairchange",p.routeCheck);}
         p.routeCheck();
       }
+    };
+    const disconnected=()=>{
+      if(!p.linkOpen)return;
+      p.linkOpen=false;emit({type:"link",open:false});
+      clearTimeout(p.disconnectTimer);
+      p.disconnectTimer=setTimeout(()=>{
+        if(this.peers.get(id)===p&&!["connected","completed"].includes(pc.iceConnectionState)&&pc.connectionState!=="connected")this.fail(p);
+      },2500);
     };
     for(const c of [p.ctl,p.snap]){c.onopen=opened;c.onclose=()=>{if(this.peers.get(id)===p)this.fail(p);};}
     p.ctl.onmessage=event=>{
@@ -70,11 +81,18 @@ export class InternetMesh {
         if(p.attempt===0)void this.fallback(id);else this.fail(p);
       }else if(pc.connectionState==="closed")this.fail(p);
       else if(pc.connectionState==="connected"){
-        clearTimeout(p.timeout);p.routeCheck();
+        clearTimeout(p.timeout);opened();p.routeCheck();
+      }else if(pc.connectionState==="disconnected"){
+        disconnected();
       }
     };
     pc.oniceconnectionstatechange=()=>{
-      if(["connected","completed"].includes(pc.iceConnectionState))p.routeCheck();
+      if(["connected","completed"].includes(pc.iceConnectionState)){opened();p.routeCheck();}
+      else if(pc.iceConnectionState==="disconnected")disconnected();
+      else if(pc.iceConnectionState==="failed"){
+        p.policy.selected({kind:"disconnected"});
+        if(p.attempt===0)void this.restart(id,1);else this.fail(p);
+      }
     };
     p.timeout=setTimeout(()=>void this.fallback(id),17000);
     if(offerer){
@@ -96,7 +114,7 @@ export class InternetMesh {
       function changed(){if(p.pc.iceGatheringState==="complete")done();}
       p.pc.addEventListener("icegatheringstatechange",changed);
     });
-    if(this.peers.get(p.id)===p&&p.attempt===attempt)this.emit({type:"signal",peer:p.id,attempt,
+    if(this.peers.get(p.id)===p&&p.attempt===attempt)this.emit({type:"signal",peer:p.id,round:p.round,attempt,
       description:internetDescription({type,sdp:p.pc.localDescription.sdp},this.mode)});
   }
   async fallback(id,attempt=1){
@@ -124,7 +142,7 @@ export class InternetMesh {
         p.pc.setConfiguration({iceServers:settings.iceServers,iceTransportPolicy:"all"});
         // Same bounded generation on both sides; only the lower-slot peer
         // creates offers. A live direct link elsewhere is never restarted.
-        if(!peerRequested)this.emit({type:"fallback",peer:id,attempt:generation});
+        if(!peerRequested)this.emit({type:"fallback",peer:id,round:p.round,attempt:generation});
         clearTimeout(p.timeout);clearTimeout(p.renewTimer);
         p.timeout=setTimeout(()=>this.fail(p),30000);
         stage="relay_signaling_failed";

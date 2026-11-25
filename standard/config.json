@@ -1,21 +1,23 @@
 {
   "applicationId": "dev.nicartjay.pokebonk.offline.standard",
   "productName": "PokéBonk Offline",
-  "version": "1.2.0",
-  "androidVersionCode": 12,
+  "version": "1.3.0",
+  "androidVersionCode": 13,
   "edition": "standard",
-  "internetCoop": {"enabled": true, "url": "https://pokebonk-offline-coop.nicartjay.workers.dev", "relayEnabled": true},
+  "internetCoop": {
+    "enabled": true,
+    "url": "https://pokebonk-offline-coop.nicartjay.workers.dev",
+    "relayEnabled": true
+  },
   "repository": "Nicartjay/pokebonk-offline-standard",
   "channelUrl": "https://github.com/Nicartjay/pokebonk-offline-standard/releases/download/standard-channel/standard-update.json",
   "saveSchema": 1,
   "upstream": {
-    "version": "0.10.26",
-    "build": "mwsewi0r"
+    "version": "0.10.31",
+    "build": "mwv6wzyo"
   },
   "compatibleRunBuilds": [
-    "mwsewi0r",
-    "mwro88g3",
-    "mwqb4pwz"
+    "mwv6wzyo"
   ],
   "updateKeyId": "standard-release-p256-v1",
   "updatePublicKey": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEUGDnhY1GoOGyd3fhLkESkn0swtx\nLSckD5KMvNLloznD0y7x57/YVCLcITcAICpptcsfYTdzyiFkY3TKzgbMmw==\n-----END PUBLIC KEY-----\n",

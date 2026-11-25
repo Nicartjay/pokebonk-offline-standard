@@ -44,13 +44,23 @@ An online update is a review request, not automatically trusted offline code.
    It verifies hashes/versioned requests and records a new pristine candidate in
    `upstream/standard-candidates/BUILD/`; it does not change accepted.json.
 5. Add/test a structural adapter under `standard/adapters/`. The current source
-   revision selects **0.10.26/mwsewi0r** in `vendor/pokebonk-standard-0.10.26`,
-   pinned to `e5136575172172b5c82df2b65aaf8b58b8b5b4768d32f63a3433984af3cdea77`.
-   It is a local-test candidate, NOT a release-approved payload.
+   revision selects **0.10.31/mwv6wzyo** in `vendor/pokebonk-standard-0.10.31`,
+   pinned to `4e20fcc6612cd5c2e3e010f45136bd5e1710be74aa9975d0741d0783ffb0f7d5`.
+   It is a development source candidate, NOT a tested or release-approved payload.
    Its lifecycle module initializes App internally rather than exporting it.
    Role matching explicitly handles this structure and its decoded-track audio
-   instance. Eleven new form sheets are required alongside the event resources.
-   The preceding 0.10.23 local-complete capture, events capture and
+   instance. The 0.10.31 binding review additionally resolves the changed
+   Pokédex+ entry, profile normalizer and earned-reward settlement by unique
+   semantic AST roles. This retains the original collection/move-history
+   backfill and future updates from earned runs, rather than replacing them
+   with unlock-all values. Its new Expedition `want`/`wants` and `tidy` actions
+   have local transactional handlers: use the original wanted-loot allowlist
+   and stack limits, retain locked items and equipment identities, and conserve
+   quantities without combining inventory with the safe pocket or escrow.
+   Four new collection-goal icons are hash-pinned in
+   `standard/asset-additions.json`; eleven form sheets remain required
+   alongside the event resources.
+   The preceding 0.10.26, 0.10.23 local-complete capture, events capture and
    **0.10.20/mwqb4pwz** remain immutable references; their partial
    event asset sets are not sufficient for a new event-enabled payload.
    The current adapter resolves changed bindings by reviewed AST
@@ -73,6 +83,179 @@ An online update is a review request, not automatically trusted offline code.
    `capture-candidate.mjs` accepts an optional third argument naming a pristine
    reuse snapshot. It may reuse hash-verified bytes only when the exact
    versioned asset-catalog key is unchanged; it never reuses patched payloads.
+
+### Keep local vendor storage small
+
+Run `node standard/scripts/compact-vendor.mjs` to preview duplicate storage, then
+add `--apply` to compact it. All snapshot hashes are verified before changes;
+identical game files on the same volume become read-only hard links. Every
+original version/path and manifest is retained for builds, tests and provenance.
+No game payload, installed application, save, release or signing file is changed.
+Never edit shared vendor files in place: import new snapshots instead.
+Fresh checkouts/captures may recreate copies; rerun compaction when needed.
+Reports are written under `evidence/vendor-compaction/`.
+
+### Boss/elite status artwork
+
+The original status renderer builds icon names from its finite status catalog
+(`st-` plus each status ID). Literal-only discovery missed this entire family
+in v1.2.0. `image-references.mjs` now resolves those catalog entries structurally
+through the real icon factory, including renamed imports, and refuses an
+unsupported dynamic status expression instead of guessing filenames.
+
+For an accepted/reviewed upstream build, run
+`node standard/scripts/capture-status-icons.mjs` when that contract identifies
+new missing statuses. It fetches only those public PNGs, pins their size/hash in
+`standard/asset-additions.json`, and keeps all pristine vendor files unchanged.
+The current set has 15 original status images. Review this catalog alongside
+future upstream updates; a cosmetic frame/banner with the same name cannot
+satisfy a missing status icon. Preparation includes this contract automatically.
+
+### Treasures portrait frames and animated banners
+
+`cosmetic-images.mjs` resolves the original finite wheel and look catalogs,
+portrait-frame image builder and animated banner renderer. It requires the
+ordinary prize frames, look-style frames, banner JPG backgrounds and separate
+glow PNGs. Seeing a banner's JPG is not proof that its glow layer was captured.
+
+For the accepted build, `node standard/scripts/capture-treasure-images.mjs`
+captures missing original artwork and pins its size/hash in the supplement.
+The six Series 2 banner glows are original downloads. The original site's
+twelve grand-look frame URLs return 404: those have explicitly recorded
+offline aliases to each wheel's already-captured matching original grand-prize
+frame. These aliases are not claimed to be downloaded style-frame originals,
+never grant cosmetics, and never modify a vendor file.
+
+Preparation verifies each alias's original snapshot path, size and hash, and
+refuses to overwrite different captured artwork. Review/retire these aliases
+when a later upstream version supplies its own style frames. Do not hide the
+game's graphics retry notice to mask missing resources.
+
+### Audit current artwork without creating/replacing a build
+
+Run `node standard/scripts/audit-images.mjs --source` for the exact accepted
+candidate adapted in memory. It does not replace `build/standard-game`, create
+an installer, read a native save or launch/close the installed game. The usual
+disk-writing preparation still refuses any missing required image.
+
+The image contract now resolves computed appearance/reward IDs, default
+look borders (not just Treasures), trainers, seasonal layers, ranks, relics and
+Expedition item/faction/pass/Refuge catalogs in the existing data-only VM.
+Do not assume a literal-path scan or a clean decoder result proves that no
+referenced image is absent.
+
+Optional `--probe-missing` checks only the bounded list of missing public URLs
+on pokebonk.com; a network failure is not recorded as an upstream 404.
+`--serve` exposes a local-only report with a one-pass browser decoder for all
+present images. It serves only the report and image inventory, not the game,
+save data or native files. Stop that server after capture.
+Results are under `evidence/image-audit-1.3.0/`.
+
+Missing references and corrupt/undecodable present files are separate findings.
+Vanguard/Mythic Pokémon looks are generated by the original renderer, not
+downloaded as `look-STYLE.png`. Their five decorative border attempts are
+reported separately as optional only after structurally verifying the original
+remove-on-error handler. Any explicit required use of the same path takes
+precedence. This does not exempt base sprites, materials, reward frames or
+unknown future tiers. No substitute artwork is added for these five borders.
+Other unresolved required original-site 404s remain blockers until reviewed;
+never relabel a missing required resource merely to get a green report.
+
+### Rental-build snapshots — refresh with every upstream game update
+
+The installed game never contacts the website's rental API. The original
+Builds → Rental browser reads a bundled, hash-checked snapshot. Creator names
+and attribution remain visible; website account IDs are replaced with local
+snapshot identifiers. Copying plans must not grant Pokémon, items, Lab upgrades,
+currency, rental payouts or leaderboard entries.
+
+Whenever bringing in a new upstream version/build, run:
+
+```sh
+node standard/scripts/capture-rentals.mjs --target-snapshot PATH_TO_REVIEWED_CANDIDATE
+```
+
+After accepting a version, `pnpm capture:rentals` defaults to its accepted
+snapshot. The command reads both playable catalogs structurally and captures
+every public per-Pokémon rental listing using sequential, rate-limited GETs,
+without account credentials. It honors Retry-After, stops on incomplete or
+unsupported data, and refuses to finish if the website build changes mid-capture.
+It does not retrieve private/unshared builds or claim a full database export.
+
+Raw provenance and hashes stay under `upstream/rental-snapshots/`. The reviewed
+runtime data is under `standard/resources/rentals/`, selected by
+`standard/rental-snapshot.json`. Preparation checks the target upstream
+version/build/digest and refuses a stale/missing snapshot, so a game update
+cannot silently reuse the previous rental library. Review any new data fields
+and incompatible references before packaging. All captured entries are
+preserved; incompatible entries are explicitly blocked from copying, never
+silently converted or used to unlock progression.
+
+The current capture is from online **0.10.31 / mwv6wzyo**, targeting the same
+**0.10.31 / mwv6wzyo** game snapshot: **1,104 builds across 138 Pokémon**.
+Refreshing the snapshot is a maintainer step in each upstream update; it is not
+an automatic background download, publication, or permission to contact
+official accounts.
+
+### November 25 development source refresh
+
+The new 0.10.31 engine, UI, data and fonts are captured independently of the old
+game payload. Offline app version **1.3.0**, Android code **13**, Standard identity,
+native storage keys and save schema **1** are unchanged. Do not mistake older
+local 1.3.0 installers for this source refresh.
+
+Completed progression profiles remain compatible. Until approved replay proves
+otherwise, only `mwv6wzyo` is in `compatibleRunBuilds`: an unfinished older run is
+preserved, not automatically loaded, converted or discarded. The user must
+finish it with the previous app version first. Never loosen this gate just to
+make a preview boot. Source previews use only isolated, in-memory sample saves.
+
+Show screenshots of the updated screens and obtain design approval **before**
+the single focused verification pass or native packaging. Publication and
+gateway deployment require separate authorization. In particular, the pending
+v1.3 co-op gateway protocol upgrade has not been deployed by this game refresh.
+
+### Expedition co-op source adaptation
+
+`standard/adapters/expedition-team.mjs` adapts the captured **original** team
+entry, trainer slots, map radios, chat and Ready/Enter bar. It removes the
+official room constructor, account/friends loader and website link sharing.
+The existing native LAN/STUN/TURN mode selector, room-code actions and
+Find teammates/capacity controls are reused, not a second multiplayer engine.
+Tier **4** is restricted to `wilds` and `safari` in JavaScript, Android and the
+signaling service. Random discovery from Expedition filters the selected map;
+code-only joins and all ordinary room privacy/budget policies are unchanged.
+
+Each device prepares its own equipment/insurance/route-card escrow atomically
+with the shared ticket. Actual gear, not a peer summary, is required. Failed or
+canceled preparation restores escrow; a launched run cannot be refunded that
+way. Current saves retain schema **1** with a validated additive
+`expeditionTeams.version = 1` ownership-receipt ledger. Unknown formats fail
+closed. The original `~` split references are quantity checked and assigned
+non-colliding local identities when settled.
+
+Original `xg` gifts and `xpk` backpacks cross peer links only after durable
+outbound receipts. Incoming receipts commit before the original game applies
+the message. Acknowledged retries survive temporary link loss without applying
+items twice. Extraction returns rescued items to their original owner;
+insurance cannot also produce a second copy. Receipts for a permanently
+departed teammate stay pending in the save. There is no server inventory
+mailbox, process-death room restoration or host migration: keep apps and the
+room open until returns are acknowledged. Do not claim parity with the
+website's account-based market, offline-delivery mailbox or competitive prizes.
+
+The native `room-return` command requires a matching durable finished-run
+record. A room resets only after all remaining trainers finish; a replay or
+room-code lookup must not mint a new ticket. Protocol-3 service **source**
+supports Expedition settings, equipment summaries and the completion barrier,
+but it has **not** been deployed. New Internet acceptance/admission requires
+separate authorization after tests; no TURN/signing/admin credentials were
+read, changed or transferred for this adaptation.
+
+Screenshots in `evidence/expedition-coop-1.3.0/` are isolated sample-save source
+previews, not real connected matches or physical-device acceptance. New
+receipt/escrow/mode/lobby tests are authored but await the user's screenshot
+approval before the single verification pass and any native builds.
 
 ### November 23 local-test continuation
 

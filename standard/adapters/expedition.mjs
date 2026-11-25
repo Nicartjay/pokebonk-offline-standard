@@ -31,7 +31,9 @@ export function expeditionContract(files) {
   const source = bytes.toString(), tree = parse(source, {ecmaVersion: "latest", sourceType: "module"});
   const declarations = tree.body.flatMap(n => n.type === "VariableDeclaration" ? n.declarations :
     n.type === "FunctionDeclaration" ? [n] : []);
-  const contract = JSON.parse(readFileSync(new URL("./expedition-contract.json", import.meta.url)));
+  const build = files.get("index.html")?.toString().match(/name="pokebonk-build" content="([\w-]+)"/)?.[1];
+  const contract = JSON.parse(readFileSync(new URL(build === "mwv6wzyo" ?
+    "./expedition-contract-mwv6wzyo.json" : "./expedition-contract.json", import.meta.url)));
   const exports = nodesOf(tree, "ExportSpecifier");
   const roles = Object.entries(contract.roles).map(([role, digest]) => {
     const node = one(declarations.filter(n => {
@@ -46,7 +48,7 @@ export function expeditionContract(files) {
   });
   return {file: name, bytes: Buffer.from(`export {${roles.join(",")}} from "../${name}";\n`)};
 }
-export function patchExpeditionPages(source) {
+export function patchExpeditionPages(source,{team=false}={}) {
   const tree = parse(source, {ecmaVersion: "latest", sourceType: "module"});
   const owner = one(tree.body.filter(n => n.type === "FunctionDeclaration" && nodesOf(n, "CallExpression", n => cls(n, "exb-frame")).length === 1),
     "Expedition hub");
@@ -69,14 +71,23 @@ export function patchExpeditionPages(source) {
     text: `if(!["home","prep","codex","market","contracts","pass","board"].includes(${requested}))${requested}="home";`});
   // Remove actual online surfaces/handlers, not just CSS-hide their buttons.
   const party = one(nodesOf(owner, "CallExpression", n => cls(n, "exb-party")), "Expedition party controls");
-  changes.push({...party, text: "null"},
-    {...one(nodesOf(owner, "CallExpression", n => cls(n, "exb-season")), "Expedition season card"), text: "null"});
+  if(!team)changes.push({...party,text:"null"});
+  changes.push({...one(nodesOf(owner, "CallExpression", n => cls(n, "exb-season")), "Expedition season card"), text: "null"});
   const teamPreference = one(nodesOf(party, "ConditionalExpression", n =>
     literal(n.consequent) === "" && literal(n.alternate) === "on"), "Expedition team preference");
   const teamFlag = one(nodesOf(owner, "VariableDeclarator", n =>
     maybeName(n.id) === maybeName(teamPreference.test) && n.init?.type === "CallExpression" &&
     n.init.arguments.length === 0), "Expedition team flag");
-  changes.push({...teamFlag.init, text: "false"});
+  if(!team)changes.push({...teamFlag.init,text:"false"});
+  if(team)changes.push({start:owner.body.start+1,end:owner.body.start+1,
+    text:`globalThis.PokeBonkOfflineUI.syncExpeditionRoom();`});
+  if(team){
+    const back=one(nodesOf(owner,"VariableDeclarator",node=>node.init?.type==="ArrowFunctionExpression"&&
+      node.init.body.type==="BlockStatement"&&node.init.end-node.init.start<160&&
+      nodesOf(node.init,"CallExpression",call=>call.arguments.length===1&&literal(call.arguments[0])===null).length===2),
+    "Expedition hub back/escape action");
+    changes.push({...back.init,text:`()=>globalThis.PokeBonkOfflineUI.expeditionBack(${app},()=>${source.slice(back.init.body.start,back.init.body.end)})`});
+  }
   // The season card's class includes attributes, so it still matches above.
   const scav = one(nodesOf(owner, "VariableDeclarator", n => n.init?.type === "ArrowFunctionExpression" &&
     has(n.init, "Elige tu Pokémon prestado")), "scavenger selector");
@@ -95,7 +106,7 @@ export function patchExpeditionPages(source) {
   for (const call of nodesOf(owner, "CallExpression", n => n.callee.type === "Identifier" && n.arguments.length &&
     has(n.arguments[1], "exb-refuge"))) changes.push({...call, text: "null"});
   const replacements = new Map([
-    ["Temporada {n}", "Offline · solo"],
+    ["Temporada {n}", team?"Offline · solo & co-op":"Offline · solo"],
     ["Gratis para todos. Ganas XP jugando expediciones, extrayendo con botín y cobrando encargos. Se reinicia con cada temporada; los cosméticos son tuyos para siempre.",
       "Earn XP in local expeditions, extractions and contracts. This offline pass never expires; earned cosmetics stay yours."],
     ["No tienes cartas de ruta: salen del botín o se fabrican en el Taller.", "Route cards drop as Expedition loot."],

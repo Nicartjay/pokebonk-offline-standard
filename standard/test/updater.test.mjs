@@ -141,3 +141,43 @@ test("a manual request joins an in-flight automatic check and still receives its
   await automatic;
   assert.equal(calls, 1, "Clicking while an automatic check runs cannot start a second network request.");
 });
+test("streamed progress reaches verification, not installation, and contains no destination", async t => {
+  const d = await directory(t), bytes = Buffer.from("verified update bytes"), updates = [];
+  const artifact = {name: "progress.zip", bytes: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"), url: "https://github.com/test"};
+  await downloadArtifact(artifact, d, async () => Readable.from([bytes.subarray(0, 5), bytes.subarray(5)]),
+    {onProgress: value => updates.push(value)});
+  assert.deepEqual(updates[0], {phase: "downloading", receivedBytes: 0, totalBytes: bytes.length});
+  assert.deepEqual(updates.at(-1), {phase: "verifying", receivedBytes: bytes.length, totalBytes: bytes.length});
+  assert.doesNotMatch(JSON.stringify(updates), /https:|file:|ready|install/);
+});
+test("install rechecks the signed file and rejects post-download tampering", async t => {
+  const d = await directory(t), bytes = Buffer.from("verified update bytes"), m = manifest(), feedback = [];
+  Object.assign(m.artifacts["darwin-arm64"], {bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex")});
+  const u = new StandardUpdater({config, directory: d, platform: "darwin-arm64", loadSave: async () => save(),
+    fetch: async () => signed(m), onFeedback: value => feedback.push(value),
+    download: (artifact, target, _get, options) => downloadArtifact(artifact, target, async () => Readable.from([bytes]), options)});
+  await assert.rejects(u.prepareInstall(), /Download and verify/);
+  await u.check(true);
+  const ready = await u.downloadPending();
+  assert.equal(feedback.at(-1).state, "ready");
+  assert.doesNotMatch(JSON.stringify(feedback), /https:|file:|"signed"|"file"/);
+  assert.equal((await u.prepareInstall()).file, ready.file);
+  const corrupt = Buffer.from(bytes); corrupt[0] ^= 1;
+  await writeFile(ready.file, corrupt);
+  await assert.rejects(u.prepareInstall(), /SHA-256/);
+  assert.equal(u.ready, null, "A modified file must no longer be installable.");
+});
+test("download lock covers asynchronous save reads and prevents duplicate transfers", async t => {
+  let unlock, transfers = 0;
+  const gate = new Promise(resolve => { unlock = resolve; });
+  const u = new StandardUpdater({config, directory: await directory(t), platform: "darwin-arm64",
+    loadSave: async () => { await gate; return save(); }, fetch: async () => signed(),
+    download: async () => { transfers++; return "/test-only/verified.dmg"; }});
+  await u.check(true);
+  const first = u.downloadPending();
+  await assert.rejects(u.downloadPending(), /already being processed/);
+  assert.deepEqual(await u.check(true), {active: true});
+  unlock(); await first;
+  assert.equal(transfers, 1);
+});

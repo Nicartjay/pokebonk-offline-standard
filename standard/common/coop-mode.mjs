@@ -1,4 +1,5 @@
 // Connection policy only; these values are not gameplay modes or server URLs.
+import {coopSettings,coopRuleTime} from "./coop-rules.mjs";
 export const COOP_CONNECTION_MODES = Object.freeze([
   Object.freeze({value:"lan", title:"LAN", subtitle:"Same Wi-Fi or hotspot"}),
   Object.freeze({value:"stun-only", title:"STUN only", subtitle:"Direct internet · never use TURN"}),
@@ -30,7 +31,11 @@ export function roomListing(value,mode="lan") {
     if(!room||!isCoopRoomCode(room.code,mode)||codes.has(room.code)||
       typeof room.name!=="string"||room.name.length>24||/[\u0000-\u001f\u007f]/.test(room.name)||
       !Number.isInteger(room.players)||room.players<1||room.players>=4)throw Error("Invalid listed room.");
-    codes.add(room.code);return {code:room.code,name:room.name,players:room.players};
+    if(room.capacity!==undefined&&(![2,3,4].includes(room.capacity)||room.players>=room.capacity))throw Error("Invalid room capacity.");
+    codes.add(room.code);return {code:room.code,name:room.name,players:room.players,
+      ...(room.capacity!==undefined?{capacity:room.capacity}:{}),
+      ...(room.settings!==undefined?{settings:coopSettings(room.settings)}:{}),
+      ...(room.rulesAt!==undefined?{rulesAt:coopRuleTime(room.rulesAt)}:{})};
   });
   return {status:value.status,rooms,...(typeof value.message==="string"?{message:value.message.slice(0,160)}:{})};
 }

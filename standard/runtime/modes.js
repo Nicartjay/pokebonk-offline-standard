@@ -37,8 +37,9 @@ export const MODE_NAMES = Object.freeze({
   mutation: "Daily Mutation", bossrush: "Boss Rush", tower: "Lavender Tower",
 });
 export const BIOME_NAMES = Object.freeze({
+  wilds:"Wild Valley",safari:"Safari Zone",
   forest: "Viridian Forest", desert: "Rocky Desert", coast: "Storm Coast",
-  glacier: "Cerulean Glacier", crater: "Cinnabar Island", cave: "Cerulean Cave",
+  glacier: "Celestial Glacier", canela: "Cinnabar Island", crater: "Cinnabar Island", cave: "Cerulean Cave",
   encina: "Ilex Forest", iris: "Ecruteak City", plateado: "Mt. Silver",
   furia: "Lake of Rage", newisland: "New Island", graveyard: "Lavender Tower",
 });

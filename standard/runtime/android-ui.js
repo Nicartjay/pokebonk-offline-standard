@@ -20,31 +20,6 @@ export function androidMinimapScale(requested, upstream, win = globalThis.window
   return Math.max(.6, Math.min(2, Number.isFinite(requested) ? requested : 1));
 }
 
-export function androidBatteryFpsCap(saver, upstream, win = globalThis.window) {
-  if (!isAndroidShell(win) || !saver) return upstream;
-  // Battery saver wins over a previously chosen 60/90/120/uncapped FPS option.
-  // A deliberately lower frame limit remains lower.
-  return Math.min(30, Number.isFinite(upstream) && upstream > 0 ? upstream : 30);
-}
-
-const androidFrames = new WeakMap();
-export function skipAndroidBatteryFrame(app, timestamp, win = globalThis.window) {
-  if (!isAndroidShell(win) || !app.saver || !Number.isFinite(timestamp)) {
-    androidFrames.delete(app);
-    return false;
-  }
-  // Later engines keep frameGap private/minified. fpsCap is the reviewed
-  // public policy; never depend on a build-specific private method name.
-  const cap = Number(app.fpsCap?.());
-  const gap = Math.max(1000 / 30, Number(app.frameGap?.()) || (cap > 0 ? 1000 / cap : 0));
-  const previous = androidFrames.get(app);
-  // Limit real simulation/render work, not just the displayed FPS counter.
-  // In particular, renderer.needsDraw must not bypass this battery-only cap.
-  if (previous !== undefined && timestamp >= previous && timestamp - previous < gap - .01) return true;
-  androidFrames.set(app, timestamp);
-  return false;
-}
-
 // Native insets arrive in physical pixels. Project into the current CSS
 // viewport instead of assuming every WebView has the same density/scale.
 export function projectAndroidInsets(value, width, height) {

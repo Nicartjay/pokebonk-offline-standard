@@ -1,12 +1,32 @@
 // Host/Join presentation. The native shell owns connections and pairing.
 import {LanLobby} from "./lan-lobby.js";
 import {createScopeDropdown} from "./dropdown.js";
+import {coopModeUnavailable,coopSettings} from "../common/coop-rules.mjs";
+import {BIOME_NAMES} from "./modes.js";
 import {COOP_CONNECTION_MODES, coopConnectionMode, coopModeMessage,coopRouteMessage,coopRoomCodeLength,isCoopRoomCode} from "../common/coop-mode.mjs";
 export function ownedLanSpecies(profile,chosen=0){
   const league=profile?.league??[];
   return league.includes(chosen)?chosen:league.includes(profile?.lastSpecies)?profile.lastSpecies:league[0]??0;
 }
 export function installLanUI(api, config, {el, button, modal}) {
+  api.coopModeUnavailable=coopModeUnavailable;
+  api.coopRoomCapacity=room=>[2,3,4].includes(room?.room?.want)?room.room.want:4;
+  api.coopRoomModeHint=mode=>({
+    classic:"Classic zones, shared bosses and your chosen difficulty. Progress is saved locally.",
+    survival:"Survive the growing horde together. Your team’s best runs stay on this device.",
+    relay:"Each trainer rotates their own Relay team. Shared waves and bosses; local progression.",
+    mutation:"The same Daily Mutation, map and difficulty for the whole room. Local rewards only.",
+    rush:"Fight the same five weekly bosses together against the clock. No online ranking or prizes.",
+    expedition:"Explore Wild Valley or Safari together. Each trainer risks their own equipment and keeps their own extracted loot.",
+  })[mode]??"Choose a co-op mode.";
+  api.coopRoomModeIcon=(room,mode,fallback,size=24)=>{
+    if(mode!=="mutation")return fallback();
+    const daily=globalThis.PokeBonkNativeApp?.backend?.modes?.dailyMutation?.(room.room.rulesAt);
+    if(!daily)return fallback();
+    const image=el("img",null,"uiicon cp-mode-ic");
+    image.src="assets/ui/icons/"+daily.mutation.icon+".png";image.alt="";
+    image.style.width=size+"px";image.style.height=size+"px";return image;
+  };
   let current, lobby, roomPicker, leavePrompt, roomBack, networkPicker, networkValue, form = {tab: "host", invitation: "", address: "", species: 0, connectionMode:"lan"};
   const state = () => api.lan?.state() ?? {phase: "unavailable", interfaces: [], members: []};
   const internetReady=()=>state().capabilities?.internetReady===true;
@@ -23,7 +43,55 @@ export function installLanUI(api, config, {el, button, modal}) {
       lobby = new LanLobby(s, (channel, data) => api.lan?.send?.(channel, data));
     }
     else lobby.update(s, false);
-    globalThis.PokeBonkOpenLocalRoom(globalThis.PokeBonkNativeApp, lobby);
+    if(s.settings?.tier===4&&globalThis.PokeBonkUseExpeditionRoom)
+      globalThis.PokeBonkUseExpeditionRoom(globalThis.PokeBonkNativeApp,lobby);
+    else globalThis.PokeBonkOpenLocalRoom(globalThis.PokeBonkNativeApp, lobby);
+  };
+  let expeditionSync=false,expeditionStateKey;
+  api.syncExpeditionRoom=()=>{
+    if(expeditionSync)return;
+    const app=globalThis.PokeBonkNativeApp,s=state();
+    if(s.settings?.tier!==4||!active(s)||app?.run?.state==="play")return;
+    expeditionSync=true;
+    try{
+      const key=JSON.stringify(s);
+      if(!lobby||lobby.me!==s.me||!lobby.open){lobby?.retire();lobby=new LanLobby(s,(channel,data)=>api.lan?.send?.(channel,data));}
+      else if(expeditionStateKey!==key)lobby.update(s,false);
+      expeditionStateKey=key;app.coopRoom=lobby;
+    }finally{expeditionSync=false;}
+  };
+  api.expeditionStartReason=room=>{
+    if(room.preview)return "Design preview only. No devices are connected.";
+    if(room.phase==="preparing")return "Committing each trainer’s loadout before entering…";
+    if(room.room.state==="playing")return "The current Expedition is still running. Wait for your team to return.";
+    if(room.room.members.some(member=>!member.loadout))return "Waiting for every trainer’s equipment summary…";
+    return null;
+  };
+  api.expeditionBack=(app,back)=>{
+    const room=app?.coopRoom;
+    if(room?.open&&room.room?.tier===4){
+      api.confirmLanLeave(room,()=>void Promise.resolve(room.leave()).then(back));return;
+    }
+    back();
+  };
+  api.expeditionInvite=room=>{
+    const pane=el("div",null,"xt-invite");api.lanInviteHelp(pane,room);return pane;
+  };
+  api.expeditionRoomTools=room=>{
+    const tools=el("div",null,"offline-exp-team-tools");
+    tools.append(modeField({locked:true,value:room.connectionMode??"lan",transport:room.transport}));
+    const seek=button(room.room.pub===2?"Find teammates: On":"Find teammates: Off",()=>{
+      void room.openSeats(room.room.pub!==2,room.room.want??4).catch(error=>globalThis.PokeBonkNativeApp.notice(error.message));
+    },"pill"+(room.room.pub===2?" on":""));
+    seek.disabled=!room.isHost||room.preview||room.room.state==="playing";
+    seek.setAttribute("aria-pressed",String(room.room.pub===2));tools.append(seek);
+    const seats=el("div",null,"seg");seats.setAttribute("aria-label","Expedition team size");
+    for(const [capacity,label]of [[2,"Duo"],[3,"Trio"],[4,"Squad"]]){
+      const pick=button(label,()=>void room.openSeats(room.room.pub===2,capacity).catch(error=>
+        globalThis.PokeBonkNativeApp.notice(error.message)),"pill"+(room.room.want===capacity?" on":""));
+      pick.disabled=!room.isHost||room.preview||capacity<room.room.members.length||room.room.state==="playing";seats.append(pick);
+    }
+    tools.append(seats);return tools;
   };
   api.confirmLanLeave = (room, leave) => {
     if (!room?.open || room.retired) { leave(); return; }
@@ -87,18 +155,20 @@ export function installLanUI(api, config, {el, button, modal}) {
     const image = el("img"); image.src = "assets/ui/icons/friends.png"; image.alt = ""; image.className = "uiicon";
     if (room.preview) {
       help.append(image, el("b", "Four-player room preview"),
-        el("span", "You can inspect the original room layout and change your preview Pokémon."),
-        el("span", "No lobby is hosted. Join, invites, chat and multiplayer gameplay are not available in this local build yet."),
-        el("small", "Planned LAN support: 2–4 players"),
-        el("small", "Single-player remains playable. This preview does not change your progress."));
+        el("span", "Inspect the room controls using sample data."),
+        el("span",room.room.pub===2?"Sample setting: random matching and Pick Rooms can discover this room.":
+          "Sample setting: code-only; hidden from random matching and Pick Rooms."),
+        el("span", "No room is hosted. Start, invites and chat are disabled in this design preview."),
+        el("small", "Changes here do not alter your real progress."));
       container.append(help); return;
     }
     const lan=!room.connectionMode||room.connectionMode==="lan";
     help.append(image, el("b",lan?"Invite on your local network":"Invite over the Internet"),
       el("span",lan?"Connect both devices to the same private Wi-Fi or local hotspot.":
         "Use the same app build and connection mode on every device."),
-      el("span", "Share the room code above, or choose this room from Pick Rooms."),
-      el("small", "2–4 players · Classic · Forest · Normal"),
+      el("span",room.room.pub===2?"Share the room code, or let friends find this room in Pick Rooms.":
+        "Code-only room. Share the room code; random matching and Pick Rooms cannot find it."),
+      el("small", "Classic · Survival · Relay · Daily Mutation · Boss Rush"),
       el("small",lan?"Local matchmaking · no Internet required":
         room.connectionMode==="stun-only"?"Direct/STUN only · no TURN relay":"Direct first · TURN only if authorized and needed"));
     container.append(help);
@@ -200,7 +270,8 @@ export function installLanUI(api, config, {el, button, modal}) {
   const pickerFields = app => {
     const fields=el("div");fields.hidden=true;
     const mode=el("input");mode.type="hidden";mode.dataset.lanField="connection-mode";mode.value=form.connectionMode;
-    fields.append(defaultPick(app),mode);
+    const destination=el("input");destination.type="hidden";destination.dataset.lanField="destination";destination.value=form.destination??"";
+    fields.append(defaultPick(app),mode,destination);
     return fields;
   };
   const renderRoomPicker = () => {
@@ -245,11 +316,16 @@ export function installLanUI(api, config, {el, button, modal}) {
     const list=el("div",null,"offline-lan-room-list");list.setAttribute("role","list");
     for(const room of rooms){
       const row=el("div",null,"offline-lan-room-row");row.setAttribute("role","listitem");
-      const art=el("img",null,"offline-lan-room-art");art.src="assets/ui/maps/forest.webp";art.alt="";
+      const selection=coopSettings(room.settings);
+      const daily=selection.tier===6?globalThis.PokeBonkNativeApp?.backend?.modes.dailyMutation?.(room.rulesAt):null;
+      const biome=daily?.biome??selection.biome;
+      const art=el("img",null,"offline-lan-room-art");
+      art.src=selection.tier===4?"assets/ui/exp/hero-"+biome+".jpg":"assets/ui/maps/"+biome+".webp";art.alt="";
       const details=el("div",null,"offline-lan-room-details");
       const heading=el("div",null,"offline-lan-room-heading");
-      heading.append(el("b",room.name||"Trainer"),el("span",room.players+"/4 trainers","offline-lan-room-count"));
-      details.append(heading,el("small","Classic · Viridian Forest · Normal","muted"),el("code",room.code,"offline-lan-room-id"));
+      heading.append(el("b",room.name||"Trainer"),el("span",room.players+"/"+(room.capacity??4)+" trainers","offline-lan-room-count"));
+      const mode=({3:"Survival",4:"Expedition",5:"Relay",6:daily?.mutation.name??"Daily Mutation",7:"Boss Rush"})[selection.tier]??"Classic";
+      details.append(heading,el("small",mode+" · "+BIOME_NAMES[biome]+(selection.tier<3?" · "+["Normal","Hard","Nightmare"][selection.tier]:""),"muted"),el("code",room.code,"offline-lan-room-id"));
       const join=action("Join","join","btn blue offline-lan-room-join");
       join.href="/__native__/lan/join/"+room.code;join.dataset.lanRoomCode=room.code;
       join.setAttribute("aria-label","Join "+(room.name||"Trainer")+" · "+room.code);
@@ -281,39 +357,43 @@ export function installLanUI(api, config, {el, button, modal}) {
     });
     return link;
   };
-  api.lanHomeTools = app => {
+  api.lanHomeTools = (app,{destination=""}={}) => {
+    form.destination=destination;
     const group=el("div",null,"offline-lan-fields");
     group.append(defaultPick(app));
+    const selected=el("input");selected.type="hidden";selected.dataset.lanField="destination";selected.value=destination;group.append(selected);
     group.append(modeField(),networkField("Host on this network"));
     return group;
   };
+  api.expeditionHomeTools=(app,map)=>api.lanHomeTools(app,{destination:map});
   const networkOptions = () => {
     const list=(state().interfaces??[]).map(network=>({value:network.address,title:network.label,
       subtitle:network.address,icon:"globe",group:"Local networks"}));
     return list.length?list:[{value:"",title:"No private network",subtitle:"Connect to Wi-Fi or a hotspot",icon:"globe",disabled:true}];
   };
   function modeField({locked=false,value=form.connectionMode,transport}={}) {
+    if(locked){
+      const mode=COOP_CONNECTION_MODES.find(option=>option.value===coopConnectionMode(value));
+      const label=el("b",mode.title,"offline-lan-connection");
+      label.dataset.lanConnection="true";
+      label.setAttribute("aria-label","Connection: "+mode.title);
+      label.title=coopRouteMessage(transport??(value==="lan"?"lan":"waiting"));
+      return label;
+    }
     const wrap=el("div",null,"lan-field offline-lan-mode");
     wrap.append(el("span","Connection"));
     const input=el("input");input.type="hidden";input.dataset.lanField="connection-mode";
     input.value=coopConnectionMode(value);
     const picker=createScopeDropdown({label:"Co-op connection mode",value:input.value,
       options:COOP_CONNECTION_MODES.map(option=>({...option,
-        ...(locked&&option.value===value?{subtitle:coopRouteMessage(transport??(value==="lan"?"lan":"waiting"))}:
-          option.value==="turn-fallback"&&internetReady()&&state().capabilities?.relayReady!==true?{subtitle:"Direct first · relay currently disabled"}:{})})),
+        ...(option.value==="turn-fallback"&&internetReady()&&state().capabilities?.relayReady!==true?{subtitle:"Direct first · relay currently disabled"}:{})})),
       onChange:next=>{
-        if(locked)return;
         const previousLength=coopRoomCodeLength(form.connectionMode);
         form.connectionMode=coopConnectionMode(next);input.value=form.connectionMode;
         if(coopRoomCodeLength(form.connectionMode)!==previousLength)form.invitation="";
         api.lan?.send?.("cancel-find");
         syncModeControls();
       }});
-    if(locked){
-      picker.button.disabled=true;
-      picker.button.title="Leave the room before changing the connection mode.";
-      const route=picker.button.querySelector("small");if(route)route.dataset.lanRoute="true";
-    }
     wrap.append(input,picker.el);
     return wrap;
   }
@@ -341,8 +421,8 @@ export function installLanUI(api, config, {el, button, modal}) {
       if(find)find.textContent=findMessage();
       const finder=root.querySelector(".cp-find p");if(finder)finder.textContent=lan?"Automatically join a compatible open room on your Wi-Fi or hotspot.":"Find an open Internet room with a matching build and connection mode.";
       const tag=root.querySelector(".cp-find .cp-beta");if(tag)tag.textContent=lan?"LAN":form.connectionMode==="stun-only"?"STUN":"STUN + TURN";
-      const hostLocal="Classic · Forest · Normal. Devices on this private network can find your open room.";
-      const hostOnline="Classic · Forest · Normal. Matching Internet players can find your open room.";
+      const hostLocal="Choose the map, mode and difficulty. Share a code, or turn on Find teammates.";
+      const hostOnline=hostLocal;
       for(const text of root.querySelectorAll("h1,h2,h3,b,p,small")){
         if([hostLocal,hostOnline].includes(text.textContent))text.textContent=lan?hostLocal:hostOnline;
         if(["Join a local room","Join an Internet room"].includes(text.textContent))text.textContent=lan?"Join a local room":"Join an Internet room";
@@ -363,8 +443,8 @@ export function installLanUI(api, config, {el, button, modal}) {
           "Choose the same connection mode on every device, then create a room and share its 6-character code.";
         help.querySelector("[data-lan-help=join]").textContent="Enter the "+length+"-character room code, choose a room in Pick Rooms, or use Find a random match.";
         help.querySelector("[data-lan-help=network]").textContent=lan?
-          "Classic · Viridian Forest · Normal. Keep the host open. Guest/isolated Wi-Fi and VPNs may prevent direct connections.":
-          "Classic · Viridian Forest · Normal. Keep the host open. STUN-only can fail on restrictive networks; it never uses TURN.";
+          "The host selects the map and mode. Keep the host open; isolated Wi-Fi or VPNs may block direct connections.":
+          "The host selects the map and mode. Keep the host open. STUN-only can fail on restrictive networks; it never uses TURN.";
         help.querySelector("[data-lan-help=permissions]").textContent=lan?
           "Allow Local Network access or the app’s private-network firewall prompt if your system asks. Do not open ports on your router.":
           "No online game account is required. TURN fallback remains subject to service availability and budget controls.";
@@ -391,7 +471,7 @@ export function installLanUI(api, config, {el, button, modal}) {
       el("b","1 · Host"),helpText("host","Choose your local network, create a room and share its 4-character code."),
       el("b","2 · Join"),helpText("join","Enter the 4-character room code, choose a room in Pick Rooms, or use Find a random match."),
       el("b","3 · Choose & ready up"),el("p","Change your Pokémon in the room. Wait for direct peer connections, choose Ready, then let the host start. Each trainer keeps their own earned progress."),
-      helpText("network","Classic · Viridian Forest · Normal. Keep the host open. Guest/isolated Wi-Fi and VPNs may prevent direct connections.","lan-notice"),
+      helpText("network","Keep the host open. Turn on Find teammates for random matching and Pick Rooms; otherwise share the room code.","lan-notice"),
       helpText("permissions","Allow Local Network access or the app’s private-network firewall prompt if your system asks. Do not open ports on your router.","muted"));
     const status=el("p",state().error??modeMessage(),"lan-notice");status.dataset.lanStatus="true";status.setAttribute("role","status");
     if(!api.lan)status.textContent="This browser has no native LAN bridge. Open the new local app to Host or Join.";
@@ -411,7 +491,7 @@ export function installLanUI(api, config, {el, button, modal}) {
     const intro = el("div", null, "lan-intro");
     intro.append(el("span",form.connectionMode==="lan"?"LOCAL CO-OP":"INTERNET CO-OP","lan-kicker"),
       el("h3",form.connectionMode==="lan"?"Adventure together. No internet needed.":"Adventure together. Across networks."),
-      el("p", "2–4 players · Classic · Forest · Normal.", "muted"));
+      el("p", "2–4 players · five co-op modes.", "muted"));
     body.append(intro);
     const unavailable = s.phase === "unavailable";
     const busySave = app?.backend?.state?.activeRun || app?.backend?.state?.suspended;
@@ -472,7 +552,7 @@ export function installLanUI(api, config, {el, button, modal}) {
     if (app.run) { app.notice("Return to the homepage to preview the room."); return; }
     current?.close();
     const sample = {preview: true, phase: "lobby", role: "host", me: "preview-self",
-      code:form.connectionMode==="lan"?"BONK":"BONK23",connectionMode:form.connectionMode,linked: false,
+      code:form.connectionMode==="lan"?"BONK":"BONK23",connectionMode:form.connectionMode,linked: false,rulesAt:Date.now(),
       members: [{id: "preview-self", slot: 0, name: profile.name, species, ready: false}]};
     lobby = new LanLobby(sample, (channel, data) => {
       if (channel === "room-pick" && profile.league.includes(data)) {
@@ -485,9 +565,12 @@ export function installLanUI(api, config, {el, button, modal}) {
   document.addEventListener("standard:lan-state", () => {
     if (!lobby?.preview) lobby?.update(state());
     const s=state(),home=document.querySelector(".offline-lan-home");
+    if(!globalThis.PokeBonkNativeApp?.run&&s.settings?.tier===4&&document.querySelector(".screen.cp.lobby")){
+      showRoom(s);return;
+    }
     renderRoomPicker();
-    for(const label of document.querySelectorAll?.(".offline-lan-room [data-lan-route]")??[])
-      label.textContent=coopRouteMessage(s.transport??(s.connectionMode==="lan"?"lan":"waiting"));
+    for(const label of document.querySelectorAll?.(".offline-lan-room [data-lan-connection]")??[])
+      label.title=coopRouteMessage(s.transport??(s.connectionMode==="lan"?"lan":"waiting"));
     if(home){
       if(active(s)&&!globalThis.PokeBonkNativeApp?.run){showRoom(s);return;}
       home.classList.toggle("lan-busy",s.phase==="connecting");

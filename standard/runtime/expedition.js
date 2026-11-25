@@ -1,5 +1,6 @@
 // Local Expedition economy. The original engine and reviewed item-generation
 // rules remain authoritative; no server, player market or simulated rivals.
+import {expeditionOwnRefs,teamRefs,queueRescue} from "./expedition-ledger.js";
 export const EXPEDITION_POLICY = "local-expedition-v1";
 const clone = value => structuredClone(value);
 const dayOf = now => Math.floor(now / 86400000);
@@ -17,6 +18,46 @@ function put(e, item) {
 }
 function refill(e) {
   while (e.over.length && e.stash.length < e.slots) e.stash.push(e.over.shift());
+}
+// Consolidate only ordinary, unlocked stacks in the same container. Retain
+// surviving item identities, every unit and all gear/lock/insurance metadata.
+// Never combine inventory with the safe pocket or an escrowed run loadout.
+function tidy(e, rules) {
+  if (!integer(rules.stackLimits?.cap, 100) || !rules.stackLimits.cap)
+    fail("This build has no reviewed Expedition stacking rules.");
+  const order = ["held", "band", "charm", "gem", "use", "loot", "mat", "gem-socket", "key", "card"];
+  const kind = item => rules.isGear(item) ? rules.slotOf(item) : rules.catalog.get(item.b)?.kind;
+  const sort = (a, b) => (order.indexOf(kind(a)) - order.indexOf(kind(b))) ||
+    b.r - a.r || rules.value(b) - rules.value(a) || b.lv - a.lv ||
+    a.b.localeCompare(b.b) || a.id - b.id;
+  const compact = items => {
+    const result = [], partial = new Map();
+    for (const item of items) {
+      const cap = Math.min(rules.stackLimits.cap, rules.catalog.get(item.b)?.stack ?? 1);
+      if (rules.isGear(item) || item.lk || cap <= 1) { result.push(item); continue; }
+      let target = partial.get(item.b);
+      if (target) {
+        const amount = Math.min(cap - target.q, item.q ?? 1);
+        target.q += amount; item.q = (item.q ?? 1) - amount;
+        if (item.n) target.n = 1;
+        if (target.q >= cap) partial.delete(item.b);
+        if (!item.q) continue;
+      }
+      result.push(item);
+      if ((item.q ?? 1) < cap) { item.q ??= 1; partial.set(item.b, item); }
+    }
+    return result.sort(sort);
+  };
+  const pc = compact([...e.stash, ...e.over]);
+  e.stash = pc.slice(0, e.slots); e.over = pc.slice(e.slots);
+  e.bag = compact(e.bag);
+}
+function wantedList(rules, list) {
+  if (!Array.isArray(list) || list.length > 24 || new Set(list).size !== list.length ||
+      typeof rules.wantedAllowed !== "function" ||
+      list.some(key => typeof key !== "string" || !rules.wantedAllowed(key)))
+    fail("Choose up to 24 different supported Expedition loot types.");
+  return [...list];
 }
 function take(e, id) {
   for (const list of [e.stash, e.over, e.bag]) {
@@ -178,6 +219,15 @@ export function expeditionActions(profile, rules, actions, now) {
       case "reload":
         if (typeof a.off !== "boolean") fail("Invalid loadout preference.");
         e.rlOff = a.off; break;
+      case "want": {
+        if (typeof a.on !== "boolean") fail("Invalid wanted-loot preference.");
+        wantedList(rules, [a.b]);
+        const selected = new Set(e.wl ?? []);
+        if (a.on) selected.add(a.b); else selected.delete(a.b);
+        e.wl = wantedList(rules, [...selected]); break;
+      }
+      case "wants": e.wl = wantedList(rules, a.list); break;
+      case "tidy": tidy(e, rules); break;
       case "seen": for (const i of all(e)) delete i.n; break;
       default: fail("That system is not available in the solo offline Expedition.");
     }
@@ -192,11 +242,16 @@ export function beginExpedition(profile, rules, ticket, now) {
   if (e.over.length) fail("Make room for the items waiting in your PC before entering.");
   if (e.raid) fail("An unfinished Expedition is preserved.");
   const insured = [...Object.values(e.gear), ...e.bag].filter(item => rules.isGear(item) && e.ins.includes(item.id));
-  pay(e, insured.reduce((total, item) => total + rules.insuranceCost(item), 0));
+  const insurance=insured.reduce((total,item)=>total+rules.insuranceCost(item),0);
+  if(ticket.lan&&!Object.values(e.gear).some(item=>rules.isGear(item)&&(item.d??100)>0))
+    fail("Equip at least one usable piece of gear before entering Expedition co-op.");
+  ticket.expEscrow={insurance,ins:clone(e.ins),...(e.card?{card:e.card}:{})};
+  pay(e, insurance);
   const card = e.stash.find(i => i.id === e.card);
   if (card) {
     if (rules.catalog.get(card.b)?.kind !== "card") fail("Invalid route card.");
     take(e, card.id);
+    ticket.expEscrow.route=clone(card);
   }
   ticket.expeditionPolicy = EXPEDITION_POLICY;
   ticket.exp = {gear: clone(e.gear), bag: clone(e.bag), pocket: clone(e.pocket), echoes: [],
@@ -207,30 +262,35 @@ export function beginExpedition(profile, rules, ticket, now) {
   e.gear = {}; e.bag = []; e.pocket = null; e.ins = [];
   delete e.card; e.raid = ticket.id;
 }
-export function settleExpedition(profile, rules, ticket, result, now, {abandoned = false} = {}) {
+export function cancelExpeditionPreparation(profile,ticket){
+  const e=profile.exp;
+  if(!ticket.exp||!ticket.expEscrow||e?.raid!==ticket.id)fail("Prepared Expedition escrow is missing.");
+  // Preparation is reversible only before launch. No new loot has been
+  // generated, and equipment edits have been blocked while escrowed.
+  if(ticket.lan?.launched)fail("A launched Expedition cannot be canceled.");
+  Object.assign(e,{gear:clone(ticket.exp.gear),bag:clone(ticket.exp.bag),pocket:clone(ticket.exp.pocket),
+    ins:clone(ticket.expEscrow.ins)});
+  e.coins+=ticket.expEscrow.insurance;
+  if(ticket.expEscrow.route){put(e,clone(ticket.expEscrow.route));e.card=ticket.expEscrow.card;}
+  delete e.raid;
+}
+export function settleExpedition(profile, rules, ticket, result, now, {abandoned = false,team} = {}) {
   if (ticket.expeditionPolicy !== EXPEDITION_POLICY || !ticket.exp) fail("This Expedition needs its original app version. The run is preserved.");
   const e = expeditionState(profile, rules, now), raw = result.exp;
   if (!raw || typeof raw.out !== "boolean" || !Array.isArray(raw.loot) || raw.loot.length > 8000 ||
       !raw.gear || typeof raw.gear !== "object" || Array.isArray(raw.gear) ||
       !Array.isArray(raw.bag) || raw.bag.length > rules.runLimits.bag ||
       !Number.isFinite(result.time) || result.time < 0 || result.time > 7200 ||
-      raw.give?.length || raw.take?.length || raw.pack?.length || raw.echo?.length) fail("Invalid solo Expedition result. Your run is preserved.");
-  const entry = ticket.exp, worn = [...rules.slots.map(s => entry.gear[s]), entry.pocket].filter(Boolean);
-  const find = rules.lootFind(worn, entry.card), bonus = rules.lootLevel(worn, entry.card);
-  const refs = new Map([...Object.values(entry.gear), ...entry.bag, ...entry.pocket ? [entry.pocket] : []].map(i => ["e" + i.id, clone(i)]));
-  const keys = new Set();
-  for (const [i, loot] of raw.loot.entries()) {
-    if (!loot || !["mob", "elite", "alpha", "boss", "crate", "vault", "room", "convoy", "comet", "trophy"].includes(loot.k) ||
-        !integer(loot.i) || !integer(loot.j ?? 0, 32) || !integer(loot.t, 3) || loot.t < 1 ||
-        !integer(loot.m, Math.floor(result.time / 60)) ) fail("Invalid Expedition loot descriptor.");
-    const key = `${loot.k}:${loot.i}:${loot.j ?? 0}`;
-    if (keys.has(key)) fail("A loot claim was repeated.");
-    keys.add(key);
-    refs.set("l" + i, rules.generateLoot(ticket.seed, loot, find, bonus, entry.card));
-  }
+      !team&&(raw.give?.length||raw.take?.length||raw.pack?.length||raw.rescue?.length)||
+      raw.echo?.length) fail("Invalid Expedition result. Your run is preserved.");
+  const {refs,claims}=expeditionOwnRefs(rules,ticket,result);
+  for(const [ref,item]of teamRefs(team,raw))refs.set(ref,item);
+  const base=ref=>typeof ref==="string"&&/^(?:[elgr]\d{1,7})(?:~[1-9]\d{0,2})?$/.test(ref)?ref.split("~")[0]:null;
   const decode = ref => {
-    if (typeof ref !== "string" || !refs.has(ref)) fail("An Expedition item does not belong to this run.");
-    const item = clone(refs.get(ref));
+    const source=base(ref);
+    if(!source||!refs.has(source))fail("An Expedition item does not belong to this run.");
+    const item=clone(refs.get(source));
+    if(ref!==source&&rules.isGear(item))fail("Equipment cannot be split.");
     if (!rules.isGear(item)) {
       const quantity = raw.q?.[ref] ?? item.q ?? 1;
       if (!integer(quantity, item.q ?? 1) || quantity < 1) fail("Invalid remaining item quantity.");
@@ -246,6 +306,20 @@ export function settleExpedition(profile, rules, ticket, result, now, {abandoned
   for (const ref of pouch) if (rules.isGear(decode(ref))) fail("Equipment cannot enter the material pouch.");
   const carried = [...gear.map(([, ref]) => ref), ...raw.bag, ...pouch, ...raw.pocket ? [raw.pocket] : []];
   if (new Set(carried).size !== carried.length) fail("The same item occupies more than one slot.");
+  const totals=new Map();
+  const packed=new Map();
+  if(team)for(const [key,item]of Object.entries(team.packs)){
+    const ref=key[0]==="e"?key:claims.get(key);
+    if(!ref)fail("A dropped backpack source is missing.");
+    packed.set(ref,item.q??1);
+  }
+  for(const ref of carried){
+    const item=decode(ref),source=base(ref),total=(totals.get(source)??0)+(item.q??1);
+    if(total>(refs.get(source).q??1))fail("Split stacks exceed the owned quantity.");
+    totals.set(source,total);
+    const gifted=team?Object.values(team.gifts).filter(gift=>gift.ref===source).reduce((sum,gift)=>sum+(gift.item.q??1),0):0;
+    if(total+gifted+(packed.get(source)??0)>(refs.get(source).q??1))fail("Gifted loot or dropped quantities cannot also be kept.");
+  }
   const kept = new Set(raw.out ? carried : raw.pocket ? [raw.pocket] : []);
   const insured = [];
   if (!raw.out) for (const id of ticket.expInsured ?? []) {
@@ -257,15 +331,20 @@ export function settleExpedition(profile, rules, ticket, result, now, {abandoned
   const got = [], lost = [];
   let value = 0;
   const returned = new Map();
+  const identities=new Set();
   for (const ref of kept) {
     const item = decode(ref);
-    if (ref[0] === "l") { item.id = nextId(e); item.n = 1; if (raw.out) value += rules.value(item); }
+    if(ref[0]==="r"){if(raw.out&&team)queueRescue(team,base(ref),item);continue;}
+    if(ref[0]!=="e"||identities.has(item.id)){item.id=nextId(e);item.n=1;}
+    identities.add(item.id);
+    if(["l","g"].includes(ref[0])&&raw.out)value+=rules.value(item);
+    if(team&&ref[0]==="e"&&rules.isGear(item))team.restored[base(ref)]=true;
     got.push(clone(item)); returned.set(ref, item);
     if (!e.codex.includes(item.b)) e.codex.push(item.b);
     put(e, item);
   }
   for (const ref of new Set([...carried, ...[...refs.keys()].filter(ref => ref[0] === "e")])) {
-    if (kept.has(ref) || raw.q?.[ref] === 0) continue;
+    if (kept.has(ref) || raw.q?.[ref] === 0||ref[0]==="r"||carried.some(part=>base(part)===ref)) continue;
     lost.push(decode(ref));
   }
   if (!e.rlOff) {
@@ -288,5 +367,6 @@ export function settleExpedition(profile, rules, ticket, result, now, {abandoned
     time: result.time, kills: result.kills, out: raw.out, got, lost, ins: insured, value, rep, contracts, xp};
   e.last = summary; e.history.unshift(clone(summary)); e.history = e.history.slice(0, 50);
   delete e.raid; refill(e);
+  if(team)team.settled=true;
   return summary;
 }

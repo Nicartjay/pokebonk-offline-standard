@@ -93,6 +93,8 @@ public final class MainActivity extends Activity {
                 JSONObject value=envelope.getJSONObject("state");
                 return new JSONObject().put("name",value.getJSONObject("profile").getString("name"))
                     .put("league",value.getJSONObject("profile").getJSONArray("league"))
+                    .put("completedParties",CoopRules.completed(value))
+                    .put("maps",CoopRules.maps(value.getJSONObject("profile").optJSONObject("biomes")))
                     .put("unfinished",!value.isNull("activeRun")||!value.isNull("suspended"))
                     .put("ticket",value.optJSONObject("activeRun")==null?JSONObject.NULL:value.getJSONObject("activeRun").getJSONObject("ticket"));
             },this::lanBrokerInput,this::lanEvent);
@@ -202,7 +204,7 @@ public final class MainActivity extends Activity {
     @Override @SuppressLint("GestureBackNavigation") public void onBackPressed() { back(); }
     private void back() {
         if (dialogOpen) return;
-        web.evaluateJavascript("globalThis.PokeBonkOfflineUI?.lanBack?.()===true",handled->{
+        web.evaluateJavascript("(globalThis.PokeBonkOfflineUI?.dismissUpdate?.() || globalThis.PokeBonkOfflineUI?.lanBack?.())===true",handled->{
             if(!"true".equals(handled))backOutsideRoom();
         });
     }
@@ -219,6 +221,22 @@ public final class MainActivity extends Activity {
         if (isFinishing() || isDestroyed() || !resumed || !hasWindowFocus()) return;
         String allowed = recoveryMode ? "!globalThis.PokeBonkNativeApp?.run" : IDLE;
         web.evaluateJavascript(allowed, value -> { if ("true".equals(value) && !isFinishing() && resumed) action.run(); });
+    }
+    void whenUpdateIdle(Runnable action, Runnable deferred) {
+        if (isFinishing() || isDestroyed() || !resumed || !hasWindowFocus() || web == null) { deferred.run(); return; }
+        web.evaluateJavascript(IDLE, value -> {
+            boolean room = true;
+            try { room = new JSONObject(lan.state()).optString("phase").matches("connecting|hosting|lobby|preparing|playing"); }
+            catch (Exception ignored) { /* Failed state reads cannot authorize installation. */ }
+            if ("true".equals(value) && !room && !isFinishing() && !isDestroyed() && resumed && hasWindowFocus()) action.run();
+            else deferred.run();
+        });
+    }
+    void updateChanged() {
+        handler.post(() -> {
+            if (web != null && resumed && hasWindowFocus() && !dialogOpen && !isFinishing() && !isDestroyed())
+                whenIdle(this::presentUpdate);
+        });
     }
     private void showDialog(AlertDialog.Builder builder) {
         if (isFinishing() || isDestroyed() || dialogOpen) return;
@@ -245,6 +263,14 @@ public final class MainActivity extends Activity {
         nativeMenuAction(action);
     }
     private void nativeMenuAction(String action) {
+        if ("download-update".equals(action) || "install-update".equals(action)) {
+            whenIdle(() -> web.evaluateJavascript("Boolean(document.querySelector('.offline-update-card a[data-standard-native-action=\"" +
+                action + "\"][href=\"/__native__/" + action + "\"]'))", visible -> {
+                if (!"true".equals(visible) || !resumed || !hasWindowFocus()) return;
+                if ("download-update".equals(action)) updater.download(); else updater.install();
+            }));
+            return;
+        }
         if(action.startsWith("lan/")){
             if(!resumed||!hasWindowFocus()||dialogOpen)return;
             if("lan/leave".equals(action)){lan.command("leave",new JSONObject());return;}
@@ -261,7 +287,7 @@ public final class MainActivity extends Activity {
             final String code=NativeMenuAction.joinCode(action),verb=code==null?action.substring(4):"join";
             final String form="(()=>{if(globalThis.PokeBonkNativeApp?.run)return null;const r=document.querySelector('.offline-lan-rooms')||document.querySelector('.offline-lan-home,.offline-lan-card');"+
                 "if(!r)return null;const f=n=>r.querySelector('[data-lan-field=\"'+n+'\"]')?.value??'';"+
-                "return {species:Number(f('species')),address:f('address'),invitation:f('invitation'),connectionMode:f('connection-mode')||'lan'}})()";
+                "return {species:Number(f('species')),address:f('address'),invitation:f('invitation'),connectionMode:f('connection-mode')||'lan',destination:f('destination')}})()";
             web.evaluateJavascript(form,text->{
                 try{if(text.length()<=512&&!"null".equals(text)){
                     JSONObject fields=new JSONObject(text);if(code!=null)fields.put("invitation",code);lan.command(verb,fields);
@@ -291,40 +317,13 @@ public final class MainActivity extends Activity {
         String event = updater.takeEvent();
         if (event == null) return;
         if ("feedback".equals(event)) presentUpdateFeedback(updater.feedback());
-        if ("message".equals(event)) showDialog(new AlertDialog.Builder(this).setTitle("PokéBonk Offline updates").setMessage(updater.message()).setPositiveButton("OK", null));
-        if ("available".equals(event)) {
-            web.evaluateJavascript("globalThis.PokeBonkOfflineUI?.updateFeedback({state:'handoff'})", null);
-            JSONObject candidate = updater.candidate();
-            showDialog(new AlertDialog.Builder(this).setTitle("PokéBonk Offline " + candidate.optString("version") + " available")
-                .setMessage("Installed app: v" + BuildConfig.VERSION_NAME + "\nLatest public release: v" +
-                    candidate.optString("version") + "\n\n" + candidate.optString("notes") +
-                    "\n\nDownloading will not install the update or replace the app. Your saves stay on this device.")
-                .setNegativeButton("Later", null).setPositiveButton("Download update", (dialog, which) -> {
-                    updater.download(); Toast.makeText(this, "Downloading and verifying update…", Toast.LENGTH_LONG).show();
-                }));
-        }
-        if ("ready".equals(event)) showDialog(new AlertDialog.Builder(this).setTitle("Verified APK ready")
-            .setMessage("Open Android’s system installer? Installation is optional. Your app identity and native saves are retained.")
-            .setNegativeButton("Later", null).setPositiveButton("Open installer", (dialog, which) -> updater.install()));
     }
     private void presentUpdateFeedback(JSONObject value) {
         if (value == null) return;
         web.evaluateJavascript("globalThis.PokeBonkOfflineUI?.updateFeedback(" + value + ") ?? false", handled -> {
-            if ("true".equals(handled)) return;
-            // Recovery when the game UI itself cannot boot. Ordinary checks
-            // use the bundled game-styled modal, not this native fallback.
-            String state = value.optString("state"), latest = value.optString("latestVersion", "Not available");
-            if ("checking".equals(state)) { notice("Checking GitHub for the latest PokéBonk Offline app release…"); return; }
-            String title = "error".equals(state) ? "Couldn’t check for updates" :
-                "ahead".equals(state) ? "No newer public release" : "You’re up to date";
-            String explanation = "error".equals(state) ? "Check your connection and try again. You can keep playing offline.\n\n" + value.optString("detail") :
-                "ahead".equals(state) ? "You’re using a newer test build than the latest public release. No newer published update is available." :
-                "Your installed app matches the latest public release. No update is needed.";
-            whenIdle(() -> showDialog(new AlertDialog.Builder(this).setTitle(title).setMessage(explanation +
-                "\n\nInstalled app: v" + BuildConfig.VERSION_NAME + "\nLatest public release: " +
-                ("Not available".equals(latest) ? latest : "v" + latest) +
-                "\nBundled game: v" + BuildConfig.UPSTREAM_VERSION +
-                "\n\nYour installed app and saves have not changed.").setPositiveButton("OK", null)));
+            // Queue until the game can display it. No native update alerts,
+            // toasts or silent loss of feedback while gameplay owns the screen.
+            if (!"true".equals(handled)) updater.retryFeedback(value);
         });
     }
     private void exportSave() {
@@ -377,7 +376,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume(); resumed = true; hideBars();
         if (web != null) { web.onResume(); publishSystemTheme(); }
-        if (updater != null) updater.check(false);
+        if (updater != null) { updater.resumed(); updater.check(false); }
         dispatchRecoveryWhenFocused();
     }
     @Override protected void onPause() {
@@ -456,7 +455,7 @@ public final class MainActivity extends Activity {
     public final class LanBridge{
         @JavascriptInterface public String state(){return lan.state();}
         @JavascriptInterface public void send(String channel,String text){
-            if(channel==null||!channel.matches("ctl|snap|prepared|failed|leave|refresh|cancel-find|room-ready|room-start|room-pick|room-chat")||text==null||text.length()>48000)return;
+            if(channel==null||!channel.matches("ctl|snap|prepared|failed|leave|refresh|cancel-find|room-ready|room-start|room-pick|room-chat|room-settings|room-seats|room-loadout|room-return")||text==null||text.length()>48000)return;
             if(pendingLan.incrementAndGet()>96){pendingLan.decrementAndGet();return;}
             handler.post(()->{pendingLan.decrementAndGet();if(!isFinishing()&&!isDestroyed())lan.fromGame(channel,text);});
         }

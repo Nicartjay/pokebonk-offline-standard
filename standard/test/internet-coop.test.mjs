@@ -143,6 +143,7 @@ function brokerFixture(){
   const broker=new InternetBroker(value=>events.push(value),{request,Socket,Mesh});
   const command={type:"find",epoch:7,gateway,identity:"fixture-build",player:{name:"Guest"},data:{connectionMode:"stun-only",species:4}};
   const room=(n,pending=true)=>({type:"room",code:"AAAAA"+"BCDE"[n-1],buildId:"fixture-build",connectionMode:"stun-only",phase:"lobby",
+    peerRounds:{},recoveryUntil:0,
     host:"lan-host",linked:!pending,chat:[],members:[
       {id:"lan-host",slot:0,name:"Host",species:1,ready:true,pending:false,connected:true},
       {id:"lan-guest"+n,slot:1,name:"Guest",species:4,ready:false,pending,connected:true}]});
@@ -180,7 +181,7 @@ test("a six-character public join does not pass an invitation secret to the serv
   const h=brokerFixture();h.command.type="join";h.command.data.invitation="AAAAAB";
   const running=h.broker.begin(h.command);await until(()=>h.sockets.length===1);
   assert.ok(h.requests[0].url.endsWith("/v1/rooms/AAAAAB/join"));
-  assert.equal(h.requests[0].data.protocolVersion,2);assert.equal(h.requests[0].data.joinSecret,undefined);
+  assert.equal(h.requests[0].data.protocolVersion,3);assert.equal(h.requests[0].data.joinSecret,undefined);
   h.sockets[0].receive(h.room(1,false));await running;
   assert.equal(h.events.at(-1).value.code,"AAAAAB");assert.equal(h.events.at(-1).value.invitation,undefined);
   await h.broker.close();
@@ -269,8 +270,8 @@ test("one peer's ICE gathering does not block another peer's signaling in a four
   h.sockets[0].receive(room);await running;await until(()=>h.meshes[0].peers.size===2);
   const started=[],release=new Map();
   h.meshes[0].signal=async id=>{started.push(id);await new Promise(resolve=>release.set(id,resolve));};
-  h.sockets[0].receive({type:"signal",from:"lan-host",description:sdp("offer"),attempt:0});
-  h.sockets[0].receive({type:"signal",from:"lan-other",description:sdp("answer"),attempt:0});
+  h.sockets[0].receive({type:"signal",from:"lan-host",description:sdp("offer"),attempt:0,round:0});
+  h.sockets[0].receive({type:"signal",from:"lan-other",description:sdp("answer"),attempt:0,round:0});
   await until(()=>started.length===2);
   assert.deepEqual(new Set(started),new Set(["lan-host","lan-other"]));
   release.get("lan-host")();release.get("lan-other")();await tick();await h.broker.close();

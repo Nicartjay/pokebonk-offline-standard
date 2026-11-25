@@ -43,7 +43,7 @@ function localFixture(rooms=[room()]){
 test("LAN browsing reserves no seat, and four-character joining resolves only a discovered private host",async()=>{
   const f=localFixture();
   await f.native.command("browse",{species:4,connectionMode:"lan"});
-  assert.deepEqual(f.native.state().roomListing,{status:"ready",rooms:[{code:"O85T",name:"Host",players:1}]});
+  assert.deepEqual(f.native.state().roomListing,{status:"ready",rooms:[{code:"O85T",name:"Host",players:1,capacity:4}]});
   assert.equal(f.joins.length,0);assert.equal(f.sent.length,0);
   assert.equal(JSON.stringify(f.events).includes("a".repeat(32)),false);
   await f.native.command("join",{species:4,connectionMode:"lan",invitation:"O85T"});
@@ -77,7 +77,7 @@ test("Internet browsing uses one metadata request and no sockets, ICE or TURN cr
     });
     await broker.begin({type:"browse",gateway:"https://fixture.example.workers.dev",identity:"fixture",epoch:1,player:{name:"Guest"},data:{species:4,connectionMode:mode}});
     assert.equal(events.at(-1).value.roomListing.status,"ready");assert.equal(requests.length,1);
-    assert.ok(requests[0].url.endsWith("/v1/matchmaking/rooms"));assert.equal(JSON.parse(requests[0].options.body).protocolVersion,2);
+    assert.ok(requests[0].url.endsWith("/v1/matchmaking/rooms"));assert.equal(JSON.parse(requests[0].options.body).protocolVersion,3);
     assert.equal(requests[0].options.headers.Authorization,undefined);await broker.close();assert.equal(requests.length,1);
   }
 });

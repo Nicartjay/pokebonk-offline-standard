@@ -6,18 +6,24 @@ import {readSnapshot} from "../../scripts/upstream-snapshot.ts";
 import {patchSnapshot as patch01020} from "../adapters/mwqb4pwz.mjs";
 import {patchSnapshot as patch01023} from "../adapters/mwro88g3.mjs";
 import {patchSnapshot as patch01026} from "../adapters/mwsewi0r.mjs";
+import {patchSnapshot as patch01031} from "../adapters/mwv6wzyo.mjs";
 import {isMain} from "../../scripts/is-main.mjs";
+import {addReviewedImages} from "./asset-additions.mjs";
+import {collectImageReferences} from "./image-references.mjs";
+import {readRentalSnapshot} from "./rental-snapshot.mjs";
 export const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 export function payloadDigest(entries) {
   return sha(JSON.stringify(entries.map(({name, bytes, sha256}) => ({name, bytes, sha256})).sort((a, b) => a.name < b.name ? -1 : 1)));
 }
-export async function prepare() {
+export async function prepare({write=true}={}) {
+  if(typeof write!=="boolean")throw Error("Invalid preparation mode.");
   const config = JSON.parse(await readFile("standard/config.json", "utf8"));
   const accepted = JSON.parse(await readFile("standard/accepted.json", "utf8"));
   const adapters = {
     mwqb4pwz: {version: "0.10.20", digest: "22a345dabfc541a31e9a4c0b886db81b70caa30c6603989a205a7714ac46fa60", patch: patch01020},
     mwro88g3: {version: "0.10.23", digest: "0ee2d25545fac35c9fa1cc626544695f26796b58bb76e2de7636c69b553273bd", patch: patch01023},
     mwsewi0r: {version: "0.10.26", digest: "e5136575172172b5c82df2b65aaf8b58b8b5b4768d32f63a3433984af3cdea77", patch: patch01026},
+    mwv6wzyo: {version: "0.10.31", digest: "4e20fcc6612cd5c2e3e010f45136bd5e1710be74aa9975d0741d0783ffb0f7d5", patch: patch01031},
   };
   const reviewed = Object.hasOwn(adapters, accepted.build) ? adapters[accepted.build] : null;
   if (accepted.build !== config.upstream.build || accepted.version !== config.upstream.version ||
@@ -31,14 +37,20 @@ export async function prepare() {
   if (eventResources.reviewedBuild !== accepted.build || !Array.isArray(eventResources.required) ||
       eventResources.required.some(name => !pristine.has(name))) throw new Error("Missing reviewed offline event resources; preparation stopped.");
   const {files, modules, changed} = reviewed.patch(pristine);
-  for (const name of ["backend.js", "expedition.js", "event-rewards.js", "guard.js", "ui.js", "dropdown.js", "lan.js", "lan-lobby.js", "lan-ui.js", "lan.css", "lan-rtc.js", "lan-session.js", "lan-broker.js", "lan-broker.html", "internet-broker.js", "internet-rtc.js", "stun-first.js", "startup.js", "modes.js", "records.js", "android-ui.js", "transport.js", "offline.css", "home.css", "entry.js"]) {
+  const additionalImages=await addReviewedImages(files,accepted.build);
+  const rentals=await readRentalSnapshot(accepted);
+  files.set("offline/rentals/catalog.json",rentals.bytes);
+  for (const name of ["expedition-ledger.js", "expedition-team.js", "backend.js", "rentals.js", "expedition.js", "event-rewards.js", "guard.js", "ui.js", "graphics.js", "boss-hud.js", "boss-hud.css", "dropdown.js", "lan.js", "run-recovery.js", "lan-lobby.js", "lan-ui.js", "lan.css", "lan-rtc.js", "lan-session.js", "lan-broker.js", "lan-broker.html", "internet-broker.js", "internet-rtc.js", "stun-first.js", "startup.js", "modes.js", "records.js", "android-ui.js", "transport.js", "offline.css", "home.css", "entry.js"]) {
     files.set("offline/" + name, await readFile("standard/runtime/" + name));
   }
   files.set("common/state.mjs", await readFile("standard/common/state.mjs"));
   files.set("common/update-feedback.mjs", await readFile("standard/common/update-feedback.mjs"));
   files.set("common/lan-policy.mjs", await readFile("standard/common/lan-policy.mjs"));
   files.set("common/coop-mode.mjs", await readFile("standard/common/coop-mode.mjs"));
+  files.set("common/coop-rules.mjs", await readFile("standard/common/coop-rules.mjs"));
+  files.set("common/coop-recovery.mjs", await readFile("standard/common/coop-recovery.mjs"));
   files.set("common/internet-coop.mjs", await readFile("standard/common/internet-coop.mjs"));
+  files.set("common/rentals.mjs", await readFile("standard/common/rentals.mjs"));
   // No secrets, URLs or updater API are passed into the game.
   const history = JSON.parse(await readFile("standard/history.json", "utf8"));
   if (!Array.isArray(history) || history[0]?.version !== config.version ||
@@ -46,7 +58,7 @@ export async function prepare() {
       history[0]?.upstream?.version !== config.upstream.version) throw new Error("Offline changelog and game version do not match.");
   const gameConfig = {productName: config.productName, version: config.version, edition: config.edition,
     saveSchema: config.saveSchema, upstream: config.upstream,
-    compatibleRunBuilds: config.compatibleRunBuilds, history,
+    compatibleRunBuilds: config.compatibleRunBuilds, history, rentals:rentals.publicInfo,
     pokemonNames: Object.fromEntries(JSON.parse(files.get("data/pokemon.json")).map(mon => [mon.id, mon.name]))};
   files.set("offline/config.js", Buffer.from(`export default ${JSON.stringify(gameConfig)};\n`));
   files.set("offline/bindings.js", Buffer.from(`export const boot=${JSON.stringify("../assets/" + modules.boot)};\n`));
@@ -59,7 +71,7 @@ export async function prepare() {
 <meta name="color-scheme" content="only light"><meta name="supported-color-schemes" content="light">
 <title>${config.productName}</title><link rel="icon" href="/favicon.ico">
 ${css.map(name => `<link rel="stylesheet" href="/${name}">`).join("\n")}
-<link rel="stylesheet" href="/offline/offline.css"><link rel="stylesheet" href="/offline/home.css"><link rel="stylesheet" href="/offline/lan.css"><script src="/offline/guard.js"></script>
+<link rel="stylesheet" href="/offline/offline.css"><link rel="stylesheet" href="/offline/home.css"><link rel="stylesheet" href="/offline/lan.css"><link rel="stylesheet" href="/offline/boss-hud.css"><script src="/offline/guard.js"></script>
 <script type="module" src="/offline/entry.js"></script></head><body>
 <noscript>JavaScript and WebGL are required.</noscript><canvas id="game"></canvas><div id="ui"></div></body></html>\n`));
   files.set("LICENSE.txt", await readFile("LICENSE"));
@@ -71,21 +83,33 @@ ${css.map(name => `<link rel="stylesheet" href="/${name}">`).join("\n")}
 <p><a href="/creditos.txt">Original artist credits and licensing notices</a> · <a href="/">Return to game</a></p></body></html>`));
   let sourceCommit = null;
   try { sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {encoding: "utf8"}).trim(); } catch {}
+  const imageContract=collectImageReferences(files);
+  if(write&&imageContract.missing.length)throw Error("Unbundled required images: "+imageContract.missing.slice(0,30).join(", "));
   const metadata = {edition: "standard", applicationId: config.applicationId, appVersion: config.version,
     saveSchema: config.saveSchema, upstream: config.upstream, pristineDigest: manifest.digest, sourceCommit,
     modes: ["standard", "endless", "relay", "training", "mutation", "bossrush", "tower", ...(modules.backendExpedition ? ["expedition"] : [])],
     ...(modules.backendExpedition ? {expeditionPolicy: "local-expedition-v1"} : {}),
     ...(modules.backendExpedition ? {coop: {status: config.internetCoop?.enabled?"internet-test":"lan-experimental",
       targetPlayers: {min: 2, max: 4},networkingEnabled: true, policy:"native-coop-v2",
-      roomCodes:{lan:4,internet:6},roomPicker:true,lobbyProtocol:2,
+      roomCodes:{lan:4,internet:6},roomPicker:true,lobbyProtocol:3,reconnectWindowMs:90000,
+      roomSelection:{modes:["standard","endless","relay","mutation","bossrush","expedition"],expeditionMaps:["wilds","safari"],individualLoadoutEscrow:true,durableItemReceipts:true,classicTiers:[0,1,2],earnedMaps:true,sharedRuleClock:true,
+        discoverableToggle:true,capacities:[2,3,4],defaultVisibility:"code-only",ticketVersion:2},
       connectionModes:["lan","stun-only","turn-fallback"],relayEnabled:config.internetCoop?.relayEnabled===true}} : {}),
-    eventRewards: "local-earned-v1", localProgression: true, rendererNetwork: "local-only",
+    eventRewards: "local-earned-v1", localProgression: true, rendererNetwork: "local-only",additionalImages,rentals:rentals.publicInfo,
+    imageContract:{requiredReferences:imageContract.required.size,iconFactoryBindings:imageContract.iconFactories,
+      optionalMissing:[...imageContract.optional].filter(([name])=>!files.has(name))
+        .map(([name,reasons])=>({name,reasons:[...reasons]}))},
     modules, changedModules: changed, missingCandidates: manifest.missingCandidates};
   files.set("offline-build.json", Buffer.from(JSON.stringify(metadata, null, 2) + "\n"));
   const entries = [...files].map(([name, bytes]) => ({name, bytes: bytes.length, sha256: sha(bytes)}))
     .sort((a, b) => a.name < b.name ? -1 : 1);
   const gameDigest = payloadDigest(entries);
-  files.set("asset-manifest.json", Buffer.from(JSON.stringify({edition: "standard", gameDigest, files: entries}, null, 2) + "\n"));
+  const inventory={edition:"standard",gameDigest,files:entries};
+  files.set("asset-manifest.json", Buffer.from(JSON.stringify(inventory, null, 2) + "\n"));
+  // Audit the exact current candidate without replacing a prepared payload or
+  // touching an installed/running app. Missing images are findings in this
+  // read-only mode; the ordinary disk-writing preparation still fails closed.
+  if(!write)return {metadata,gameDigest,inventory,files,diagnostic:true};
   const output = path.resolve("build/standard-game"), staging = output + ".preparing";
   await rm(staging, {recursive: true, force: true});
   for (const [name, bytes] of files) {

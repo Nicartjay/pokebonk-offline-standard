@@ -1,10 +1,12 @@
-import {androidPresentationSettings, androidMinimapScale, androidBatteryFpsCap,
-  skipAndroidBatteryFrame, isAndroidShell} from "./android-ui.js";
+import {androidPresentationSettings, androidMinimapScale, isAndroidShell} from "./android-ui.js";
+import {batteryFpsCap, skipBatteryFrame, graphicsQuality, renderPixelRatio,
+  fpsSettingsRow, syncGraphicsSettings} from "./graphics.js";
 import {MODE_NAMES, BIOME_NAMES} from "./modes.js";
 import {waitForStartupMusic} from "./startup.js";
 import {updateFeedbackView} from "../common/update-feedback.mjs";
 import {installLanUI} from "./lan-ui.js";
 import {createScopeDropdown} from "./dropdown.js";
+import {syncCoopBossHud} from "./boss-hud.js";
 const OFFLINE_CREATOR = "Nicartjay";
 const biomePalette = new Map();
 const mapScopeOption = (value, subtitle, group = "By map") => ({
@@ -91,7 +93,7 @@ function saveFile(name, data) {
 // Desktop's isolated preload / Android's navigation client require a real
 // user gesture and the native host independently checks that play is idle.
 function nativeAction(text, action, close) {
-  if (!["check-for-updates", "export-backup", "import-backup", "report-bug"].includes(action)) throw new Error("Unknown native menu action.");
+  if (!["check-for-updates", "download-update", "install-update", "export-backup", "import-backup", "report-bug"].includes(action)) throw new Error("Unknown native menu action.");
   const link = el("a", text, "btn offline-native-action");
   link.href = "/__native__/" + action;
   link.dataset.standardNativeAction = action;
@@ -175,15 +177,89 @@ export function createFullscreenButton({document: doc = globalThis.document, win
 }
 
 export function installOfflineUI(config) {
-  let updateModal;
+  let updateModal, updateHidden = false, reconnectNotice;
   const api = {
     lan: globalThis.PokeBonkLocalCoop,
+    rentalSnapshotInfo(app,panel) {
+      const data=config.rentals;
+      panel.classList.add("offline-rental-snapshot");
+      const heading=el("b","Offline rental library");
+      const detail=el("small",data?
+        `${data.totalEntries.toLocaleString()} saved builds · ${data.species} Pokémon · online v${data.source.version} snapshot`:
+        "The rental snapshot is not bundled in this preview.");
+      if(data)detail.title="Captured "+new Date(data.capturedAt).toLocaleString();
+      const policy=el("small","Refreshed whenever a new online game version is brought into this app. No live rankings or rental payouts.");
+      panel.replaceChildren(icon("download"),el("div",null,"offline-rental-snapshot-text"));
+      panel.lastChild.append(heading,detail,policy);
+    },
+    allowRental(app,row) {
+      if(row.compatible)return true;
+      app.notice("This captured build needs game data not present in the bundled version. It is preserved for a future update; copying is disabled.");
+      return false;
+    },
+    rentalCompatibilityNotice(row) {
+      return el("span","Requires newer game data · preserved in snapshot","bd-none");
+    },
+    coopRecovery(value) {
+      if(value?.state==="connected"){
+        reconnectNotice?.remove();reconnectNotice=null;return;
+      }
+      if(!["reconnecting","syncing","giving-up","save-error"].includes(value?.state))return;
+      if(!globalThis.PokeBonkNativeApp?.run?.coop&&value.preview!==true){
+        reconnectNotice?.remove();reconnectNotice=null;return;
+      }
+      if(reconnectNotice?.isConnected&&reconnectNotice.dataset.state===value.state)return;
+      reconnectNotice?.remove();
+      const card=el("section",null,"panel offline-coop-recovery");
+      card.dataset.state=value.state;card.setAttribute("role","status");card.setAttribute("aria-live","polite");
+      // Keep button input out of the frozen game, including Escape/Enter.
+      card.addEventListener("keydown",event=>event.stopPropagation());
+      card.addEventListener("pointerdown",event=>event.stopPropagation());
+      const ending=value.state==="giving-up",failed=value.state==="save-error";
+      const head=el("header",null,"offline-coop-recovery-head");
+      const spinner=el("span",failed?"!":null,"offline-coop-recovery-icon");
+      if(!failed)spinner.classList.add("offline-update-spinner");
+      spinner.setAttribute("aria-hidden","true");
+      head.append(spinner,el("h3",failed?"Couldn’t save the result":ending?
+        value.reason==="manual"?"Giving up":"Couldn’t reconnect":value.state==="syncing"?"Team reconnected":"Connection interrupted"));
+      const body=el("div",null,"offline-coop-recovery-body");
+      body.append(el("strong",failed?"Your last saved checkpoint is kept.":ending?"Ending this run…":
+        value.state==="syncing"?"Synchronizing the same run…":"Reconnecting to your team…"),
+        el("p",failed?"The run has stopped, but its result could not be saved. Check your device’s storage. Your unfinished run has not been deleted.":
+          ending?"Leaving the room and saving earned progress. Your results will appear next.":
+          value.state==="syncing"?"Your Pokémon, party and run progress are kept. Play resumes automatically after the team synchronizes.":
+          "The run is paused. Keep the apps open and restore the connection. We’ll retry for up to 90 seconds."));
+      if(failed)body.append(button("Show results",()=>value.showResults?.(),"btn ghost"));
+      else if(!ending){
+        const giveUp=button("Give up",()=>{
+          if(value.preview===true)return; // Visual-only fixture never ends a real run.
+          giveUp.disabled=true;
+          void value.giveUp?.();
+        },"btn red offline-coop-give-up");
+        body.append(giveUp,el("small","If reconnection fails, the run ends automatically and earned progress is saved.","muted"));
+        queueMicrotask(()=>{if(card.isConnected&&value.preview!==true)giveUp.focus({preventScroll:true});});
+      }
+      card.append(head,body);document.body.append(card);reconnectNotice=card;
+    },
+    dismissUpdate() {
+      if (!updateModal?.overlay.isConnected) return false;
+      updateModal.close();
+      return true;
+    },
     updateFeedback(value) {
       if (value?.state === "handoff") { updateModal?.close(); updateModal = null; return true; }
       const view = updateFeedbackView(value, config);
       if (!view || globalThis.PokeBonkNativeApp?.run) return false;
+      if (value.open === true || view.checking) updateHidden = false;
+      if (updateHidden && !updateModal?.overlay.isConnected && ["downloading", "verifying"].includes(view.state)) return true;
+      if (!["downloading", "verifying"].includes(view.state)) updateHidden = false;
       if (!updateModal?.overlay.isConnected) {
-        const current = modal("App updates", () => { if (updateModal === current) updateModal = null; });
+        const current = modal("App updates", () => {
+          if (updateModal === current) {
+            updateHidden = ["downloading", "verifying"].includes(current.panel.dataset.updateState);
+            updateModal = null;
+          }
+        });
         current.panel.classList.add("offline-player-card", "offline-update-card");
         current.body = el("div", null, "offline-player-body offline-update-body");
         current.body.setAttribute("aria-live", "polite");
@@ -192,13 +268,26 @@ export function installOfflineUI(config) {
         updateModal = current;
       }
       const {panel, body, close} = updateModal;
+      // Native transfer updates must not rebuild the modal, steal focus, or
+      // reset its scroll position on every chunk.
+      if (view.state === "downloading" && panel.dataset.updateState === "downloading") {
+        const progress = body.querySelector(".offline-update-progress");
+        if (progress) {
+          progress.setAttribute("aria-valuenow", String(view.percent));
+          progress.setAttribute("aria-valuetext", `${view.percent}% — ${view.progressText}`);
+          progress.firstElementChild.style.width = `${view.percent}%`;
+          body.querySelector(".offline-update-percent").textContent = `${view.percent}%`;
+          body.querySelector(".offline-update-bytes").textContent = view.progressText;
+          return true;
+        }
+      }
       panel.dataset.updateState = view.state;
-      panel.setAttribute("aria-busy", String(view.checking));
-      panel.querySelector(".offline-card-head button").textContent = view.checking ? "Hide" : "Close";
+      panel.setAttribute("aria-busy", String(view.busy));
+      panel.querySelector(".offline-card-head button").textContent = view.busy ? "Hide" : "Close";
       const hero = el("div", null, "offline-update-hero");
-      const symbol = el("span", view.checking ? null : view.state === "error" ? "!" : "✓", "offline-update-symbol");
+      const symbol = el("span", view.busy ? null : view.state === "error" ? "!" : view.state === "available" ? "↓" : "✓", "offline-update-symbol");
       symbol.setAttribute("aria-hidden", "true");
-      if (view.checking) symbol.classList.add("offline-update-spinner");
+      if (view.busy) symbol.classList.add("offline-update-spinner");
       const heading = el("div");
       heading.append(el("h3", view.title), el("p", view.summary));
       hero.append(symbol, heading);
@@ -207,24 +296,45 @@ export function installOfflineUI(config) {
         const row = el("div"); row.append(el("dt", label), el("dd", text)); rows.append(row);
       }
       body.replaceChildren(hero);
-      if (view.checking) {
-        const progress = el("div", null, "offline-update-progress");
+      if (view.busy) {
+        const progress = el("div", null, "offline-update-progress" + (view.state === "downloading" ? " determinate" : ""));
         progress.setAttribute("role", "progressbar");
-        progress.setAttribute("aria-label", "Checking for updates");
-        progress.setAttribute("aria-valuetext", "Contacting GitHub and verifying release information");
+        progress.setAttribute("aria-label", view.title);
+        if (view.state === "downloading") {
+          const status = el("div", null, "offline-update-transfer");
+          status.setAttribute("aria-live", "off");
+          status.append(el("strong", `${view.percent}%`, "offline-update-percent"),
+            el("span", view.progressText, "offline-update-bytes"));
+          body.append(status);
+          progress.setAttribute("aria-valuemin", "0");
+          progress.setAttribute("aria-valuemax", "100");
+          progress.setAttribute("aria-valuenow", String(view.percent));
+          progress.setAttribute("aria-valuetext", `${view.percent}% — ${view.progressText}`);
+        } else progress.setAttribute("aria-valuetext", view.summary);
         progress.append(el("span")); body.append(progress);
+        if (view.state === "downloading") progress.firstElementChild.style.width = `${view.percent}%`;
       }
+      if (view.state === "ready") body.append(el("p", "✓  Signed release · file size · checksum verified", "offline-update-verified"));
       body.append(rows, el("p", view.note, "offline-update-note"));
+      if (view.notes && view.state === "available") {
+        const notes = el("details", null, "offline-update-release-notes");
+        notes.open = true;
+        const text = el("div", view.notes.replace(/^#{1,6}\s+/gm, "").replace(/\*\*/g, ""), "offline-update-notes-text");
+        notes.append(el("summary", "What’s new"), text); body.append(notes);
+      }
       if (view.detail) {
         const details = el("details", null, "offline-update-details");
         details.append(el("summary", "Technical details"), el("p", view.detail));
         body.append(details);
       }
-      if (!view.checking) {
-        const actions = el("div", null, "offline-update-actions");
-        actions.append(nativeAction("Check again", "check-for-updates", close), button("Done", close, "btn blue"));
-        body.append(actions);
+      const actions = el("div", null, "offline-update-actions");
+      actions.append(button(view.busy ? "Hide" : view.primary && !["current", "ahead", "error"].includes(view.state) ? "Later" : "Done", close, "btn ghost"));
+      if (view.primary) {
+        const primary = nativeAction(view.primary.label, view.primary.action);
+        primary.classList.add(view.state === "ready" ? "primary" : "blue");
+        actions.append(primary);
       }
+      body.append(actions);
       return true;
     },
     creatorCredit() {
@@ -258,8 +368,8 @@ export function installOfflineUI(config) {
     },
     presentationSettings(settings) { return androidPresentationSettings(settings); },
     minimapScale(requested, upstream) { return androidMinimapScale(requested, upstream); },
-    batteryFpsCap(saver, upstream) { return androidBatteryFpsCap(saver, upstream); },
-    skipBatteryFrame(app, timestamp) { return skipAndroidBatteryFrame(app, timestamp); },
+    batteryFpsCap, skipBatteryFrame, graphicsQuality, renderPixelRatio, fpsSettingsRow, syncGraphicsSettings,
+    syncCoopBossHud,
     fullscreenButton() {
       return createFullscreenButton({onError: error => globalThis.PokeBonkNativeApp?.notice?.(error.message)});
     },

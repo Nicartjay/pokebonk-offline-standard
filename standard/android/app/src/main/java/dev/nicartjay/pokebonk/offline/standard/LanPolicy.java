@@ -62,7 +62,15 @@ final class LanPolicy {
             JSONObject room=incoming.getJSONObject(i);String code=room.getString("code"),name=room.getString("name");int players=room.getInt("players");
             require(CoopCodes.valid(code,mode)&&codes.add(code)&&name.length()<=24&&!name.matches("(?s).*[\\x00-\\x1f\\x7f].*")&&
                 room.opt("players") instanceof Number&&((Number)room.get("players")).doubleValue()==players&&players>=1&&players<4,"Invalid listed room.");
-            rooms.put(new JSONObject().put("code",code).put("name",name).put("players",players));
+            JSONObject entry=new JSONObject().put("code",code).put("name",name).put("players",players);
+            if(room.has("capacity")){
+                int capacity=room.getInt("capacity");require(room.opt("capacity") instanceof Number&&
+                    ((Number)room.get("capacity")).doubleValue()==capacity&&capacity>=2&&capacity<=4&&players<capacity,"Invalid listed capacity.");
+                entry.put("capacity",capacity);
+            }
+            if(room.has("settings"))entry.put("settings",CoopRules.settings(room.getJSONObject("settings")));
+            if(room.has("rulesAt"))entry.put("rulesAt",CoopRules.time(room.get("rulesAt")));
+            rooms.put(entry);
         }
         JSONObject out=new JSONObject().put("status",source.getString("status")).put("rooms",rooms);
         if(source.opt("message") instanceof String){String message=source.getString("message");out.put("message",message.substring(0,Math.min(160,message.length())));}
@@ -74,13 +82,35 @@ final class LanPolicy {
         for(int i=0;i<members.length();i++){
             JSONObject m=members.getJSONObject(i);int species=m.getInt("species"),slot=m.getInt("slot");
             require(id(m.optString("id"))&&ids.add(m.getString("id"))&&m.getString("name").length()<=24&&species>0&&species<=10000&&slot>=0&&slot<=3&&slots.add(slot)&&m.opt("ready") instanceof Boolean,"Invalid local player.");
+            m.put("maps",CoopRules.maps(m.optJSONObject("maps")));
+            if(m.has("loadout"))m.put("loadout",CoopRules.loadout(m.getJSONObject("loadout")));
         }
+        value.put("settings",CoopRules.settings(value.optJSONObject("settings")));
+        value.put("seats",CoopRules.seats(value.optJSONObject("seats"),members.length()));
+        if(value.has("rulesAt"))value.put("rulesAt",CoopRules.time(value.get("rulesAt")));
+        if(value.has("lastParty"))require(id(value.optString("lastParty")),"Invalid completed co-op party.");
         if(value.has("me"))require(id(value.getString("me"))&&value.optString("role").matches("host|client"),"Invalid local identity.");
         JSONObject match=value.optJSONObject("match");if(match!=null){
-            JSONArray players=match.getJSONArray("players");long seed=match.getLong("seed");require(id(match.optString("party"))&&seed>=0&&seed<=4294967295L&&"standard".equals(match.optString("mode"))&&"forest".equals(match.optString("biome"))&&match.optInt("tier",-1)==0&&players.length()==members.length()&&players.length()>=2,"Invalid shared local match.");
+            JSONArray players=match.getJSONArray("players");long seed=match.getLong("seed");require(id(match.optString("party"))&&seed>=0&&seed<=4294967295L&&CoopRules.game(match)&&players.length()==members.length()&&players.length()>=2,"Invalid shared local match.");
             for(int i=0;i<players.length();i++)require(players.getString(i).equals(members.getJSONObject(i).getString("id")),"Mismatched local roster.");
+            if(match.has("rulesAt"))match.put("rulesAt",CoopRules.time(match.get("rulesAt")));
+            if(match.optString("mode").matches("mutation|bossrush"))require(match.has("rulesAt"),"Missing shared co-op rule clock.");
         }
         JSONArray chat=value.optJSONArray("chat");if(chat!=null){require(chat.length()<=40,"Oversized local chat.");for(int i=0;i<chat.length();i++){JSONObject m=chat.getJSONObject(i);require(id(m.optString("from"))&&m.optString("name").length()<=24&&m.optString("text").length()<=140,"Invalid local chat.");}}
+        for(String key:new String[]{"peerLinks","departed"})if(value.has(key)){
+            JSONArray incoming=value.getJSONArray(key),checked=new JSONArray();Set<String> seen=new HashSet<>();
+            require(incoming.length()<=3,"Too many recovery peers.");
+            for(int i=0;i<incoming.length();i++){String peer=incoming.getString(i);
+                require(ids.contains(peer)&&!peer.equals(value.optString("me"))&&seen.add(peer),"Invalid recovery peer.");checked.put(peer);}
+            value.put(key,checked);
+        }
+        if(value.has("recovery")){
+            JSONObject raw=value.getJSONObject("recovery");long until=raw.getLong("until");int attempt=raw.getInt("attempt");
+            require(raw.optString("status").matches("reconnecting|resynchronizing")&&until>0&&until<=9007199254740991L&&attempt>=0&&attempt<=1000&&
+                raw.opt("until") instanceof Number&&((Number)raw.get("until")).doubleValue()==until&&
+                raw.opt("attempt") instanceof Number&&((Number)raw.get("attempt")).doubleValue()==attempt,"Invalid recovery status.");
+            value.put("recovery",new JSONObject().put("status",raw.getString("status")).put("until",until).put("attempt",attempt));
+        }
         return new JSONObject(value.toString());
     }
     private LanPolicy(){}
