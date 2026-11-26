@@ -2,6 +2,7 @@
 // renderer and not the existing LAN broker. No networking or keys live here.
 import {coopConnectionMode} from "../common/coop-mode.mjs";
 const STUN = Object.freeze([{urls: ["stun:stun.cloudflare.com:3478"]}]);
+export {STUN as STUN_VOICE_SERVERS};
 const turnURL = /^turns?:turn\.cloudflare\.com:(?:3478|5349|443)\?transport=(?:udp|tcp)$/;
 export class StunFirstPolicy {
   constructor({requestRelay, now = () => Date.now(), directTimeoutMs = 12000, mode = "turn-fallback"}) {

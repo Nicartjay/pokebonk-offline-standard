@@ -1,0 +1,1 @@
+export{kt as DESKTOP_APP,At as androidAppVersion,jt as apkUrl,Mt as desktopAppButton,Nt as offerDesktopApp,Pt as osIcon,Ft as showDesktopApp}from"./menus-CX-RLSLD-mwxeoqzj.js";

@@ -11,8 +11,8 @@ import {CSP} from "../desktop/protocol.mjs";
 import {addRecord} from "../runtime/records.js";
 
 const accepted = JSON.parse(await readFile("standard/accepted.json", "utf8"));
-if (accepted.build !== "mwv6wzyo") throw Error("Review this preview for the next candidate.");
-const {patchSnapshot} = await import("../adapters/mwv6wzyo.mjs");
+if (accepted.build !== "mwxeoqzj") throw Error("Review this preview for the next candidate.");
+const {patchSnapshot} = await import("../adapters/mwxeoqzj.mjs");
 const snapshot = await readSnapshotManifest(accepted.snapshot);
 if (snapshot.digest !== accepted.digest) throw Error("Preview snapshot identity mismatch.");
 const vendor = path.resolve(accepted.snapshot, "game");
@@ -26,7 +26,7 @@ async function pristine(name) {
 }
 const input = new Map(await Promise.all(snapshot.files.filter(entry =>
   entry.name === "index.html" || entry.name.endsWith(".js")).map(async entry => [entry.name, await pristine(entry.name)])));
-const {files, modules} = patchSnapshot(input);
+const {files, modules} = patchSnapshot(input, {artworkNames: inventory.keys()});
 await addReviewedImages(files, accepted.build);
 const rentals = await readRentalSnapshot(accepted);
 files.set("offline/rentals/catalog.json", rentals.bytes);
@@ -44,6 +44,7 @@ const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>PokéBonk Offline · ${accepted.version} source preview</title>${styles}
 <link rel="stylesheet" href="/offline/offline.css"><link rel="stylesheet" href="/offline/home.css"><link rel="stylesheet" href="/offline/lan.css"><link rel="stylesheet" href="/offline/boss-hud.css">
 <link rel="stylesheet" href="/offline/cloud.css">
+<link rel="stylesheet" href="/offline/appearance.css"><link rel="stylesheet" href="/offline/seasonal-mail.css"><link rel="stylesheet" href="/offline/voice.css">
 <script src="/__preview.js"></script><script src="/offline/guard.js"></script>
 <script type="module" src="/offline/entry.js"></script></head><body><canvas id="game"></canvas><div id="ui"></div></body></html>`;
 const sample = {version: 1, playerId: "offline-upstream-design-preview", updatedAt: Date.now(),
@@ -69,6 +70,7 @@ const bootstrap = `(()=>{
   const bossesPreview=new URL(location.href).searchParams.has("bosses-preview")||statusPreview||textPreview||resultsPreview;
   const cloudPreview=new URL(location.href).searchParams.has("cloud-preview");
   const optionsPreview=new URL(location.href).searchParams.has("app-options-preview");
+  const showcasePreview=new URL(location.href).searchParams.has("showcase-preview");
   let previewRoom;
   const previewRoomChanged=()=>document.dispatchEvent(new CustomEvent("standard:lan-state",{detail:JSON.stringify(previewRoom)}));
   if(resultsPreview)window.PokeBonkLAN=Object.freeze({
@@ -91,6 +93,11 @@ const bootstrap = `(()=>{
     saved.state.profile.seen.push(43);saved.state.profile.lastSpecies=43;
   }
   if(statusPreview)saved.state.profile.biomes={forest:0,desert:0}; // Disposable scene fixture only.
+  if(showcasePreview)Object.assign(saved.state.profile,{
+    lastSpecies:95,league:[4,95],unlocked:[4,95,208],seen:[4,95,208],
+    cosmetics:["card:np:mood2:95"],card:{np:"mood2:95",pt:95,sc:["runs"]},
+    counters:{runs:12,kills:456,wins:3},wins:{95:7},
+  });
   const android=new URL(location.href).searchParams.get("platform")==="android";
   if(android)window.PokeBonkStandardAndroid=Object.freeze({
     loadState:()=>JSON.stringify({ok:true,value:saved}),
@@ -105,7 +112,7 @@ const bootstrap = `(()=>{
     document.documentElement.dataset.standardPlatform=android?"android":"darwin";
     document.documentElement.dataset.standardFullscreen="true";
     const note=document.createElement("span");
-    note.textContent="SOURCE PREVIEW · "+(optionsPreview?"app options · SAMPLE update data / no download or cloud service":resultsPreview?"co-op results · staged run / no connected devices":textPreview?"Android text outlines · sample save / staged combat labels":statusPreview?"restored status artwork · staged Poison/Paralysis":cloudPreview?"optional cloud UI · no service connected":bossesPreview?"integrated compact boss HUD · not a connected match":recordsPreview?"sample save & records":"sample save")+" · game ${accepted.version} · not a packaged build";
+    note.textContent="SOURCE PREVIEW · "+(showcasePreview?"Trainer Card Showcase · sample save":optionsPreview?"app options · SAMPLE update data / no download or cloud service":resultsPreview?"co-op results · staged run / no connected devices":textPreview?"Android text outlines · sample save / staged combat labels":statusPreview?"restored status artwork · staged Poison/Paralysis":cloudPreview?"optional cloud UI · no service connected":bossesPreview?"integrated compact boss HUD · not a connected match":recordsPreview?"sample save & records":"sample save")+" · v${config.version} · game ${accepted.version} · not a packaged build";
     Object.assign(note.style,{position:"fixed",bottom:"3px",left:"8px",zIndex:"50000",padding:"3px 7px",
       borderRadius:"5px",background:"#19152ae8",color:"#fff",font:"700 9px system-ui",pointerEvents:"none"});
     document.body.append(note);

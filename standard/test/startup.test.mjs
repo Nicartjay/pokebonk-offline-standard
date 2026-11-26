@@ -67,8 +67,8 @@ test("first-guide marker is optional/additive, but unknown marker formats are no
 test("first-use Guide waits for the homepage, opens once after 1.2 seconds and avoids active/preserved runs", async t => {
   const original=Object.fromEntries(["window","document","addEventListener"].map(key=>[key,globalThis[key]]));
   t.after(()=>{for(const [key,value]of Object.entries(original)) if(value===undefined)delete globalThis[key];else globalThis[key]=value;});
-  t.mock.timers.enable({apis:["setTimeout"]});
-  globalThis.window={};
+  t.mock.timers.enable({apis:["setTimeout","setInterval"]});
+  globalThis.window=new EventTarget();
   let blocked=false, manualGuide=false;
   globalThis.document=Object.assign(new EventTarget(),{
     documentElement:{dataset:{}},querySelector:selector=>selector===".pb-guide"?manualGuide:blocked});
@@ -116,13 +116,13 @@ test("first-use Guide waits for the homepage, opens once after 1.2 seconds and a
 test("initial name setup follows guide dismissal, never covers it and preserves existing custom names", async t => {
   const original=Object.fromEntries(["window","document","addEventListener"].map(key=>[key,globalThis[key]]));
   t.after(()=>{for(const [key,value]of Object.entries(original)) if(value===undefined)delete globalThis[key];else globalThis[key]=value;});
-  t.mock.timers.enable({apis:["setTimeout"]});
+  t.mock.timers.enable({apis:["setTimeout","setInterval"]});
   let guideVisible=false, names=0, endGuide;
   const element=()=>({classList:{add(){}},append(){},addEventListener(){},focus(){},remove(){},
     querySelector:()=>({textContent:""}),setAttribute(key,value){
       if(key==="aria-label"&&value==="Choose your player name")names++;
     }});
-  globalThis.window={};
+  globalThis.window=new EventTarget();
   globalThis.document={documentElement:{dataset:{}},body:{append(){}},createElement:element,
     addEventListener(){},removeEventListener(){},querySelector:selector=>selector.includes(".pb-guide")&&guideVisible};
   globalThis.addEventListener=()=>{};

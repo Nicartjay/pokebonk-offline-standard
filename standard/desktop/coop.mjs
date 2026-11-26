@@ -3,6 +3,7 @@ import {coopConnectionMode} from "../common/coop-mode.mjs";
 import {gatewayOrigin,internetState,internetInvitation} from "../common/internet-coop.mjs";
 import {lanFrame} from "../common/lan-policy.mjs";
 import {coopMaps,coopSeats,requireCoopUnlocks,coopDestination,coopLoadout} from "../common/coop-rules.mjs";
+import {emptyVoiceState,voiceState,voiceRoomActive,VOICE_ACTIONS,voiceAvailable,validVoiceVolume,DEFAULT_VOICE_VOLUME} from "../common/voice-state.mjs";
 const occupied=value=>["connecting","hosting","lobby","preparing","playing"].includes(value.phase);
 export class NativeInternet {
   constructor({identity,profile,emit,broker,gateway}){
@@ -90,17 +91,33 @@ export class NativeInternet {
 export class NativeCoop {
   constructor(options){
     this.active="lan";this.gateway=gatewayOrigin(options.config);
+    this.voice=emptyVoiceState();this.voiceOwner=null;this.microphoneVolume=DEFAULT_VOICE_VOLUME;
     this.relayReady=Boolean(this.gateway&&options.config?.internetCoop?.relayEnabled===true);
     const emit=(type,value)=>{
       if(this.active!==type)return;
-      options.emit(value.type==="state"?{...value,value:{...value.value,capabilities:{internetReady:Boolean(this.gateway),relayReady:this.relayReady}}}:value);
+      if(value.type==="state"){
+        if(!voiceRoomActive(value.value)||value.value.me!==this.voiceOwner){this.voice=emptyVoiceState();this.voiceOwner=value.value.me??null;}
+        options.emit({...value,value:{...value.value,voice:structuredClone(this.voice),capabilities:{
+          internetReady:Boolean(this.gateway),relayReady:this.relayReady,voiceReady:type==="lan"||value.value.voiceAvailable===true}}});
+      }else options.emit(value);
     };
+    this.emit=options.emit;
     this.local=new NativeLan({...options,emit:value=>emit("lan",value)});
     this.internet=new NativeInternet({...options,gateway:this.gateway,emit:value=>emit("internet",value)});
   }
   get controller(){return this.active==="lan"?this.local:this.internet;}
   get value(){return this.controller.value;}
-  state(){return {...this.controller.state(),connectionMode:this.active==="lan"?"lan":this.internet.mode,capabilities:{internetReady:Boolean(this.gateway),relayReady:this.relayReady}};}
+  state(){return {...this.controller.state(),voice:structuredClone(this.voice),
+    connectionMode:this.active==="lan"?"lan":this.internet.mode,
+    capabilities:{internetReady:Boolean(this.gateway),relayReady:this.relayReady,voiceReady:this.active==="lan"||this.value.voiceAvailable===true}};}
+  voiceAction(action){
+    if(![...VOICE_ACTIONS,"press","release","suspend","permission-denied"].includes(action))return;
+    const current=["press","release"].includes(action)?
+      {...this.value,connectionMode:this.active==="lan"?"lan":this.internet.mode}:this.state();
+    if(!voiceRoomActive(current)||!current.me||(!voiceAvailable(current)&&!["disable","mute","release","suspend"].includes(action)))return;
+    if(action==="press"&&(!this.voice.enabled||this.voice.mode!=="ptt"||this.voice.microphone!=="ready"))return;
+    this.controller.input({type:"voice-action",owner:current.me,action,volume:this.microphoneVolume});
+  }
   publish(){this.controller.publish();}
   stop(...args){this.controller.stop(...args);}
   cancelFind(){this.controller.cancelFind();}
@@ -115,8 +132,26 @@ export class NativeCoop {
     }
     return this.controller.command(action,data);
   }
-  fromGame(channel,data){return this.controller.fromGame(channel,data);}
+  async fromGame(channel,data){
+    if(channel==="voice-volume"){
+      if(!validVoiceVolume(data))return;
+      this.microphoneVolume=data;
+      if(voiceRoomActive(this.value)&&this.value.me)
+        this.controller.input({type:"voice-volume",owner:this.value.me,volume:data});
+      return;
+    }
+    return this.controller.fromGame(channel,data);
+  }
   fromBroker(value){
+    if(value.type==="voice"){
+      if((this.active==="internet")!==(value.scope==="internet")||
+          value.scope==="internet"&&value.epoch!==this.internet.epoch||value.owner!==this.value.me)return;
+      try{
+        this.voice=voiceState(value.value,this.value.members,this.value.me);this.voiceOwner=value.owner;
+        this.emit({type:"voice",value:structuredClone(this.voice)});
+      }catch{/* Optional voice failure never terminates a game. */}
+      return;
+    }
     if(value.scope==="internet"){if(this.active==="internet")this.internet.fromBroker(value);}
     else if(this.active==="lan")this.local.fromBroker(value);
   }

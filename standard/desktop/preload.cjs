@@ -8,6 +8,10 @@ let lan = {phase:"idle",members:[],interfaces:[],linked:false};
 contextBridge.exposeInMainWorld("PokeBonkLAN", Object.freeze({
   state: () => structuredClone(lan),
   send: (channel,data) => {
+    if(channel==="voice-volume"){
+      if(Number.isInteger(data)&&data>=0&&data<=100)ipcRenderer.send("standard:lan-game",channel,data);
+      return;
+    }
     if(!["ctl","snap","prepared","failed","leave","refresh","cancel-find","room-ready","room-start","room-pick","room-chat","room-settings","room-seats","room-loadout","room-return"].includes(channel))return;
     const text=JSON.stringify(data??null);
     if(text.length<=48000)ipcRenderer.send("standard:lan-game",channel,data);
@@ -16,9 +20,90 @@ contextBridge.exposeInMainWorld("PokeBonkLAN", Object.freeze({
 ipcRenderer.on("standard:lan-event",(_event,value)=>{
   if(!value||JSON.stringify(value).length>48000)return;
   if(value.type==="state")lan=value.value;
-  const suffix={state:"state",frame:"frame","peer-closed":"peer-closed",notice:"notice"}[value.type];
-  if(suffix)document.dispatchEvent(new CustomEvent("standard:lan-"+suffix,{detail:JSON.stringify(value.type==="state"?value.value:value)}));
+  if(value.type==="voice")lan.voice=value.value;
+  const suffix={state:"state",voice:"voice",frame:"frame","peer-closed":"peer-closed",notice:"notice"}[value.type];
+  if(suffix)document.dispatchEvent(new CustomEvent("standard:lan-"+suffix,{detail:JSON.stringify(["state","voice"].includes(value.type)?value.value:value)}));
 });
+// PTT is driven by trusted input in the isolated preload, never a callable
+// renderer microphone API. A short broker watchdog expires missing releases.
+const voiceHeld=new Set();let voiceHoldTimer,voiceHoldElement,hudGesture,hudClickUntil=0;
+function finishHudVoice(cancel=false){
+  const gesture=hudGesture;if(!gesture)return;hudGesture=null;
+  clearTimeout(gesture.timer);clearInterval(gesture.pulse);hudClickUntil=Date.now()+800;
+  if(gesture.holding||performance.now()-gesture.downAt>=280){
+    ipcRenderer.send("standard:voice-gesture","hold-end");ipcRenderer.send("standard:voice-hold",false);
+  }else if(!cancel)ipcRenderer.send("standard:voice-action","toggle");
+}
+function beginHudVoice(source,node,immediate=false){
+  if(hudGesture||!lan.voice?.enabled||node.getAttribute("aria-disabled")==="true")return;
+  const gesture={source,node,holding:false,downAt:performance.now()};hudGesture=gesture;
+  const hold=()=>{
+    if(hudGesture!==gesture||!node.isConnected||!document.hasFocus())return;
+    gesture.holding=true;ipcRenderer.send("standard:voice-gesture","hold-start");
+    const pulse=()=>{
+      if(hudGesture!==gesture)return;
+      if(!node.isConnected||!document.hasFocus()||!lan.voice?.enabled){finishHudVoice(true);return;}
+      ipcRenderer.send("standard:voice-hold",true);
+    };
+    pulse();gesture.pulse=setInterval(pulse,200);
+  };
+  if(immediate)hold();else gesture.timer=setTimeout(hold,280);
+}
+function releaseVoice(){
+  finishHudVoice(true);
+  voiceHeld.clear();voiceHoldElement=null;clearInterval(voiceHoldTimer);voiceHoldTimer=null;
+  ipcRenderer.send("standard:voice-hold",false);
+}
+function pressVoice(source,element){
+  if(!lan.voice?.enabled||lan.voice.mode!=="ptt"||lan.voice.microphone!=="ready")return;
+  voiceHeld.add(source);if(element)voiceHoldElement=element;
+  ipcRenderer.send("standard:voice-hold",true);
+  voiceHoldTimer??=setInterval(()=>{
+    if(!voiceHeld.size||!document.hasFocus()||!lan.voice?.enabled||lan.voice.mode!=="ptt"||
+        voiceHoldElement&&!voiceHoldElement.isConnected){releaseVoice();return;}
+    ipcRenderer.send("standard:voice-hold",true);
+  },250);
+}
+document.addEventListener("pointerdown",event=>{
+  const mic=event.target.closest?.(".offline-voice-hud a.offline-voice-button");
+  if(event.isTrusted&&event.button===0&&mic&&mic.getAttribute("aria-disabled")!=="true"){
+    event.preventDefault();event.stopImmediatePropagation();
+    beginHudVoice("pointer:"+event.pointerId,mic);
+    try{mic.setPointerCapture(event.pointerId);}catch{}return;
+  }
+  const hold=event.target.closest?.("button.offline-voice-hold");
+  if(!event.isTrusted||event.button!==0||!hold||hold.disabled||!hold.closest(".offline-voice-controls"))return;
+  event.preventDefault();event.stopImmediatePropagation();
+  pressVoice("pointer",hold);try{hold.setPointerCapture(event.pointerId);}catch{}
+},true);
+for(const name of ["pointerup","pointercancel","lostpointercapture"])window.addEventListener(name,event=>{
+  if(event.isTrusted&&hudGesture?.source==="pointer:"+event.pointerId){
+    const bounds=hudGesture.node.getBoundingClientRect();
+    const outside=event.clientX<bounds.left||event.clientX>bounds.right||event.clientY<bounds.top||event.clientY>bounds.bottom;
+    finishHudVoice(name!=="pointerup"||outside);return;
+  }
+  if(!event.isTrusted||!voiceHeld.has("pointer"))return;
+  voiceHeld.delete("pointer");if(!voiceHeld.size)releaseVoice();
+},true);
+window.addEventListener("keydown",event=>{
+  if(!event.isTrusted||event.repeat||/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)||
+      document.activeElement?.isContentEditable||!lan.voice?.enabled)return;
+  const mic=document.querySelector(".offline-voice-hud a.offline-voice-button");
+  if(mic&&(event.code==="Backquote"||["Space","Enter"].includes(event.code)&&document.activeElement===mic)){
+    event.preventDefault();event.stopImmediatePropagation();
+    beginHudVoice("key:"+event.code,mic,event.code==="Backquote");return;
+  }
+  if(event.code!=="Backquote"||lan.voice.mode!=="ptt"||lan.voice.microphone!=="ready")return;
+  event.preventDefault();event.stopImmediatePropagation();pressVoice("key");
+},true);
+window.addEventListener("keyup",event=>{
+  if(event.isTrusted&&hudGesture?.source==="key:"+event.code){
+    event.preventDefault();event.stopImmediatePropagation();finishHudVoice();return;
+  }
+  if(!event.isTrusted||event.code!=="Backquote"||!voiceHeld.has("key"))return;
+  event.preventDefault();event.stopImmediatePropagation();voiceHeld.delete("key");if(!voiceHeld.size)releaseVoice();
+},true);
+window.addEventListener("blur",releaseVoice);
 
 // One-way, validated window presentation state. The game still receives only
 // loadState/saveState as callable native methods, never arbitrary IPC.
@@ -62,6 +147,16 @@ window.addEventListener("DOMContentLoaded", () => {
 // cannot request it. The main process separately validates sender and idle.
 document.addEventListener("click", event => {
   if (!event.isTrusted || event.button !== 0) return;
+  const voice=event.target.closest?.("a[data-standard-voice-action]");
+  if(voice&&voice.closest(".offline-voice-controls")){
+    const action=voice.dataset.standardVoiceAction;
+    if(!["enable","disable","mute","ptt","open-mic","toggle"].includes(action)||
+        voice.getAttribute("aria-disabled")==="true"||voice.getAttribute("href")!=="/__native__/voice/"+action)return;
+    event.preventDefault();event.stopImmediatePropagation();
+    if(action==="toggle"&&Date.now()<hudClickUntil)return;
+    if(["disable","mute"].includes(action))releaseVoice();
+    ipcRenderer.send("standard:voice-action",action);return;
+  }
   const cloud=event.target.closest?.("a[data-standard-cloud-action]");
   if(cloud&&cloud.closest(".offline-cloud-card")){
     const action=cloud.dataset.standardCloudAction,selection=cloud.dataset.cloudRevision;

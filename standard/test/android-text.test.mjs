@@ -66,7 +66,7 @@ test("fallback rules remain Android-only and retain media/supports conditions, n
   assert.doesNotMatch(css,/keyframes|\] from/);
 });
 
-test("all 63 accepted upstream stroke declarations, including Pokédex+, popups and later event/Relay CSS, are convertible",async()=>{
+test("all reviewed upstream stroke declarations, including Pokédex+, popups and later event/Relay CSS, are convertible",async()=>{
   const accepted=JSON.parse(await readFile("standard/accepted.json","utf8"));
   const snapshot=JSON.parse(await readFile(accepted.snapshot+"/snapshot.json","utf8"));
   const selectors=new Set();let count=0;
@@ -81,9 +81,9 @@ test("all 63 accepted upstream stroke declarations, including Pokédex+, popups 
       for(const selector of splitTextCSS(match[1]))selectors.add(selector);
     }
   }
-  assert.equal(count,63,"Review coverage when upstream adds or changes outlined text.");
+  assert.equal(count,64,"Review coverage when upstream adds or changes outlined text.");
   for(const selector of [".dm-id h1",".dmv-id h1",".popup",".floater",".streak b",".rc-tx b",
-    ".rr-pace-tx b",".exp5-badge b",".exb-pod-step span",".screen.exb .exr5-head h2"])
+    ".rr-pace-tx b",".exp5-badge b",".exb-pod-step span",".screen.exb .exr5-head h2","html.no-po *"])
     assert.ok(selectors.has(selector),selector);
 });
 

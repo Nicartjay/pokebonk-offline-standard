@@ -1,0 +1,47 @@
+/* Match the original mailbox, leaving scenery visible around the cards. */
+.screen.ml.offline-seasonal-mail .offline-mail-wrap { gap:14px; padding:12px 12px 20px; }
+.offline-mail-wrap .ml-card { width:min(1000px,100%); }
+.offline-mail-current {
+  width:min(1000px,100%); display:flex; align-items:center; gap:12px;
+  padding:12px 18px; margin-bottom:4px; flex:none;
+}
+.offline-mail-current > .uiicon { flex:none; }
+.offline-mail-current > div { flex:1; min-width:0; }
+.offline-mail-current b { font:900 17px var(--font-title); }
+.offline-mail-current p { margin:2px 0 0; font-size:12.5px; font-weight:700; color:var(--ink-2); line-height:1.4; }
+.offline-mail-season-chip {
+  flex:none; border-radius:999px; padding:5px 10px; background:var(--paper-2);
+  color:var(--blue-t,var(--blue)); font-size:11px; font-weight:900; white-space:nowrap;
+}
+.offline-mail-card { flex:none; }
+.offline-mail-preview { flex:none; display:grid; place-items:center; width:106px; min-height:108px; padding:14px; }
+.offline-mail-card .ml-tx { gap:5px; }
+.offline-mail-card .ml-tx .offline-mail-includes { color:var(--ink-2); font-size:12px; }
+.offline-mail-claim,.offline-mail-state { flex:none; white-space:nowrap; }
+.offline-mail-frame-gallery { display:flex; flex-wrap:wrap; gap:6px; padding:4px 0 0; }
+.offline-mail-frame { display:grid; place-items:center; width:54px; height:54px; padding:10px; }
+.offline-mail-wrap .offline-mail-note { text-align:center; max-width:1000px; line-height:1.45; }
+.offline-mail-empty { width:min(1000px,100%); }
+.screen.mm.offline-menu .trainer .offline-mail-entry { width:32px; height:32px; }
+.screen.mm.offline-menu .trainer .offline-mail-entry > .uiicon { width:22px!important; height:22px!important; }
+.offline-mail-entry:focus-visible { outline:3px solid var(--yellow); outline-offset:3px; }
+@media(max-width:700px) {
+  .offline-mail-current { align-items:flex-start; flex-wrap:wrap; padding:10px 12px; }
+  .offline-mail-current > div { flex-basis:calc(100% - 50px); }
+  .offline-mail-season-chip { margin-left:40px; }
+  .offline-mail-wrap .offline-mail-card { display:grid; grid-template-columns:80px minmax(0,1fr); gap:10px 12px; padding:12px 14px; }
+  .offline-mail-preview { width:80px; min-height:100px; padding:12px 4px; }
+  .offline-mail-card .ml-tx h3 { font-size:18px; line-height:1.2; }
+  .offline-mail-card .ml-tx p { line-height:1.4; }
+  .offline-mail-claim,.offline-mail-state { grid-column:2; justify-self:start; }
+}
+@media(max-height:520px) and (min-width:701px) {
+  .screen.ml.offline-seasonal-mail .offline-mail-wrap { gap:10px; padding-top:6px; }
+  .offline-mail-current { padding:8px 14px; }
+  .offline-mail-wrap .offline-mail-card { padding:10px 16px; gap:14px; }
+  .offline-mail-preview { min-height:96px; }
+  .offline-mail-card .ml-tx h3 { font-size:19px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .offline-mail-card,.offline-mail-entry.new .uiicon { animation:none!important; }
+}

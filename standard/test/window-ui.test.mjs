@@ -72,7 +72,7 @@ test("preload native actions require trusted primary clicks in the exact matchin
   let onClick;
   const sent = [];
   vm.runInNewContext(source, {
-    document: {addEventListener(type, listener) { assert.equal(type, "click"); onClick = listener; }},
+    document: {addEventListener(type, listener) { if(type==="click")onClick = listener; }},
     window: {addEventListener() {}},
     require: () => ({contextBridge: {exposeInMainWorld() {}},
       ipcRenderer: {on() {}, send: (...args) => sent.push(args)}}),

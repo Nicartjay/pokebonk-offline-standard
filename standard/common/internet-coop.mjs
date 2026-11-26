@@ -67,6 +67,7 @@ export function internetState(value,mode) {
   // Legacy invitation inputs remain native-only. Never expose their secret.
   if(invitation!==undefined)internetInvitation(invitation);
   state.connectionMode=mode;
+  state.voiceAvailable=value?.voiceAvailable===true;
   if(["lan","stun","turn","direct","waiting","connecting"].includes(value?.transport))state.transport=value.transport;
   const discovery=value?.discovery;
   if(discovery&&["idle","searching","joining","empty","error"].includes(discovery.status))

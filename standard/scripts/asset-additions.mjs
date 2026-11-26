@@ -8,7 +8,7 @@ export async function addReviewedImages(files,build){
     !Array.isArray(contract.files)||contract.files.length>256)throw Error("Review the additional-image contract for this upstream build.");
   const root=await realpath("standard/resources/game-assets"),seen=new Set(),added=[];
   for(const entry of contract.files){
-    if(!/^assets\/(?:ui\/(?:icons|frames|banners)|items)\/[a-z0-9-]+\.(?:png|jpg)$/.test(entry.name)||seen.has(entry.name)||
+    if(!/^assets\/(?:ui\/(?:icons|frames|banners|avatars)|items)\/[a-z0-9-]+\.(?:png|jpg)$/.test(entry.name)||seen.has(entry.name)||
       entry.source!=="https://pokebonk.com/"+entry.name||!Number.isSafeInteger(entry.bytes)||entry.bytes<32||
       !/^[a-f0-9]{64}$/.test(entry.sha256))throw Error("Invalid reviewed image addition.");
     seen.add(entry.name);

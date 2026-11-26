@@ -32,7 +32,7 @@ export function expeditionContract(files) {
   const declarations = tree.body.flatMap(n => n.type === "VariableDeclaration" ? n.declarations :
     n.type === "FunctionDeclaration" ? [n] : []);
   const build = files.get("index.html")?.toString().match(/name="pokebonk-build" content="([\w-]+)"/)?.[1];
-  const contract = JSON.parse(readFileSync(new URL(build === "mwv6wzyo" ?
+  const contract = JSON.parse(readFileSync(new URL(["mwv6wzyo","mwxeoqzj"].includes(build) ?
     "./expedition-contract-mwv6wzyo.json" : "./expedition-contract.json", import.meta.url)));
   const exports = nodesOf(tree, "ExportSpecifier");
   const roles = Object.entries(contract.roles).map(([role, digest]) => {

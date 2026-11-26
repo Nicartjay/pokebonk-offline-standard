@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
-  "file": "3e767b6acaa51a1a3837fdc5289b5e1eac2c986b3ccac8ad46ad1df123824bbb.json",
-  "sha256": "3e767b6acaa51a1a3837fdc5289b5e1eac2c986b3ccac8ad46ad1df123824bbb",
-  "bytes": 2043875,
-  "capturedAt": "2026-11-25T00:06:35.668Z",
+  "file": "7db60cd831f6fb584af592efb97daa55e9eb79dcd14426578935e57d07a92752.json",
+  "sha256": "7db60cd831f6fb584af592efb97daa55e9eb79dcd14426578935e57d07a92752",
+  "bytes": 2123037,
+  "capturedAt": "2026-11-26T15:11:16.531Z",
   "source": {
-    "version": "0.10.31",
-    "build": "mwv6wzyo"
+    "version": "0.10.36",
+    "build": "mwxeoqzj"
   },
   "target": {
-    "version": "0.10.31",
-    "build": "mwv6wzyo",
-    "digest": "4e20fcc6612cd5c2e3e010f45136bd5e1710be74aa9975d0741d0783ffb0f7d5",
+    "version": "0.10.36",
+    "build": "mwxeoqzj",
+    "digest": "1e9733726a187b9f1fc5b58a7b4d5b638d965e30df789657978454dda4402a6f",
     "species": [
       1,
       4,
@@ -156,6 +156,6 @@
   "species": 138,
   "totalEntries": 1104,
   "compatibleEntries": 1104,
-  "captureSha256": "ee141487d8f41e872ecb749b2e50e4b2fdc6cba3a00adc345b25aede4a3810b3",
+  "captureSha256": "897f20ca1d5d540ce15b1b290ee9deed1d1e364d8816c55f41eada326d236f6c",
   "refreshPolicy": "Refresh and review the public rental snapshot with every upstream game version/build update; never fetch rental data during gameplay."
 }

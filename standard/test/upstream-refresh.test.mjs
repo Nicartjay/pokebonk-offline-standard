@@ -5,6 +5,8 @@ import {readFile} from "node:fs/promises";
 import {readSnapshot} from "../../scripts/upstream-snapshot.ts";
 import {ast, nodesOf, maybeName, literal, one, edits} from "../../scripts/source.ts";
 import {patchSnapshot} from "../adapters/mwv6wzyo.mjs";
+import {patchSnapshot as refresh01036} from "../adapters/mwxeoqzj.mjs";
+import {readRentalSnapshot} from "../scripts/rental-snapshot.mjs";
 import {structuralHash} from "../adapters/expedition.mjs";
 import {validateEnvelope, envelope} from "../common/state.mjs";
 
@@ -16,8 +18,8 @@ let adapted;
 const candidate = () => adapted ??= patchSnapshot(snapshot.files);
 
 test("0.10.31 is explicitly pinned and its new original collection/reward roles remain in the offline source", () => {
-  assert.equal(accepted.build, "mwv6wzyo");
-  assert.equal(config.upstream.version, "0.10.31");
+  assert.equal(snapshot.manifest.upstreamBuild, "mwv6wzyo");
+  assert.equal(snapshot.manifest.upstreamVersion, "0.10.31");
   const {files, modules} = candidate(), source = files.get("assets/" + modules.menus).toString();
   const pokedex = one(ast(source).body.filter(node => node.type === "FunctionDeclaration" &&
     nodesOf(node, "TemplateLiteral", value => literal(value) === "dh-shell").length === 1), "original Pokédex+ hub");
@@ -30,6 +32,22 @@ test("0.10.31 is explicitly pinned and its new original collection/reward roles 
   assert.match(files.get("offline/upstream-expedition.js").toString(), /as stackLimits/);
   assert.match(files.get("assets/" + modules.main).toString(), /PokeBonkOfflineBackend/);
   assert.doesNotMatch(files.get("assets/" + modules.main).toString(), /https:\/\/api\.pokebonk\.com/);
+});
+test("0.10.36 retains the local backend after the upstream services split and keeps trainer cards local", async () => {
+  assert.deepEqual(config.upstream, {version:"0.10.36", build:"mwxeoqzj"});
+  assert.equal(accepted.build, config.upstream.build);
+  const {files: pristine} = await readSnapshot(accepted.snapshot, accepted.digest);
+  const {files, modules} = refresh01036(pristine);
+  const [services] = [...files].filter(([name]) => /^assets\/services-.*\.js$/.test(name)).map(([, bytes]) => bytes.toString());
+  assert.match(services, /new globalThis\.PokeBonkOfflineBackend/);
+  assert.match(services, /\.backend\.uploadSave/);
+  assert.doesNotMatch(services, /https:\/\/api\.pokebonk\.com/);
+  const [card] = [...files].filter(([name]) => /^assets\/cardcustom-.*\.js$/.test(name)).map(([, bytes]) => bytes.toString());
+  assert.match(card, /Your local trainer card/);
+  assert.doesNotMatch(card, /\.backend\.(?:player|clanCardFrame)\(/);
+  assert.match(files.get("assets/" + modules.menus).toString(), /Button transparency|Transparencia de los botones/);
+  assert.match(files.get("offline/upstream-rules.js").toString(), /as buyCard/);
+  assert.equal((await readRentalSnapshot(accepted)).info.source.build, accepted.build);
 });
 test("0.10.31 adapter refuses a different upstream build and changed Expedition wanted-loot rules", async () => {
   const files = new Map(snapshot.files);
@@ -116,11 +134,11 @@ test("completed old progress imports, but unfinished old-engine runs are preserv
   const state = {version: 1, playerId: "offline-refresh-test", updatedAt: 1,
     profile: {name: "Trainer", settings: {}, league: [4], unlocked: [4], seen: [4], stardust: 123},
     stash: {}, finished: {}, spins: {}, activeRun: null, suspended: null};
-  const old = {...envelope(state, config), upstream: {version: "0.10.26", build: "mwsewi0r"}};
+  const old = {...envelope(state, config), upstream: {version: "0.10.31", build: "mwv6wzyo"}};
   assert.equal(validateEnvelope(old, config).state.profile.stardust, 123);
   old.state.activeRun = {status: "running", ticket: {id: "offline-previous-run", seed: 123}};
   const preserved = structuredClone(old);
   assert.throws(() => validateEnvelope(old, config), /Complete it in the previous app version/);
   assert.deepEqual(old, preserved);
-  assert.deepEqual(config.compatibleRunBuilds, ["mwv6wzyo"]);
+  assert.deepEqual(config.compatibleRunBuilds, ["mwxeoqzj"]);
 });

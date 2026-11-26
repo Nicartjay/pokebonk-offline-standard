@@ -3,6 +3,7 @@ import {readFile,writeFile} from "node:fs/promises";
 import {lanIdentity} from "../common/lan-policy.mjs";
 import {gatewayOrigin} from "../common/internet-coop.mjs";
 import {readAccountUsage} from "../../services/coop-gateway/src/usage.mjs";
+import {POLICY} from "../../services/coop-gateway/src/policy.mjs";
 const guarded=process.argv.includes("--enable-guarded-turn"),stun=process.argv.includes("--enable-stun");
 if(guarded===stun)throw Error("Choose exactly one: --enable-stun or --enable-guarded-turn.");
 if(guarded&&!process.argv.includes("--accept-payg-risk"))throw Error("Guarded TURN requires explicit --accept-payg-risk; this is not a hard billing cap.");
@@ -27,7 +28,10 @@ if(guarded){
 const identity=lanIdentity(config,inventory.gameDigest);
 const previous=process.argv.includes("--replace-test-builds")?[]:JSON.parse(worker.vars.ACCEPTED_BUILD_IDS);
 if(!Array.isArray(previous)||previous.some(id=>typeof id!=="string"||!/^[A-Za-z0-9|_.-]{16,256}$/.test(id)))throw Error("Invalid existing build allowlist.");
-worker.vars.ACCEPTED_BUILD_IDS=JSON.stringify([...new Set([identity,...previous])].slice(0,8));
+const accepted=[...new Set([identity,...previous])];
+if(accepted.length>POLICY.maxAcceptedBuilds)
+  throw Error("The build allowlist is full. Review retired builds explicitly; no releases were removed.");
+worker.vars.ACCEPTED_BUILD_IDS=JSON.stringify(accepted);
 worker.vars.SERVICE_ENABLED="true";worker.vars.PUBLIC_MATCHMAKING_ENABLED="true";
 await writeFile(file,JSON.stringify(worker,null,2)+"\n");
 console.log(`Configured ${guarded?"guarded TURN fallback":"STUN matchmaking"} for ${identity}. ${guarded?"Meter probe passed; deployment and operator gate review are still separate.":"TURN remains disabled. Deploy separately."}`);

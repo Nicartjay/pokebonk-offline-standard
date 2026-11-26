@@ -1,5 +1,22 @@
 [
   {
+    "version": "1.4.0",
+    "date": "2026-11-27",
+    "status": "Release build",
+    "upstream": {
+      "version": "0.10.36",
+      "build": "mwxeoqzj"
+    },
+    "changes": [
+      "Updated the bundled game to 0.10.36. The original engine includes the touch-button opacity control, critical captures, the Meowth Shop Buy all action, and new co-op overtime and fused-rift rules. The website's Community Ideas and ranking services are not included.",
+      "Adapted the original trainer-card editor for local customization, including the [OFF] tag, nameplates and companion options. Purchases use the original local unlock and Stardust rules; public profiles and clan features are excluded.",
+      "Trainer Card nameplates use the normal Pokémon portrait when the optional mood artwork is not bundled. This prevents unnecessary graphics retries in Showcase and the other trainer-card tabs.",
+      "Refreshed 1,104 public Rental builds for 138 Pokémon. The app reads the bundled snapshot offline.",
+      "Added optional direct voice for local and Internet co-op without TURN audio. Voice enabled uses 10% of normal BGM, 50% of SFX and 40% of cries. The Android phone co-op home uses two columns where space permits.",
+      "The save format and app identity are unchanged. Finish any suspended run in the build that started it before replaying on a different engine."
+    ]
+  },
+  {
     "version": "1.3.1",
     "date": "2026-11-26",
     "status": "Stable release",

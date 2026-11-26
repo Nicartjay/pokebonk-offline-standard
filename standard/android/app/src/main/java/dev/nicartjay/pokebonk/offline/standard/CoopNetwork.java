@@ -17,6 +17,8 @@ final class CoopNetwork implements AutoCloseable {
     private volatile boolean internet,disposed,starting,finding;
     private volatile long epoch;
     private volatile String mode="stun-only",current="{\"phase\":\"idle\",\"members\":[],\"linked\":false}";
+    private volatile String voice=VoicePolicy.empty().toString(),voiceOwner="";
+    private int microphoneVolume=VoicePolicy.DEFAULT_VOLUME;
     CoopNetwork(Context context,JSONObject config,String identity,LanNetwork.Profile profile,Consumer<JSONObject> broker,Consumer<JSONObject> event){
         this.gateway=InternetPolicy.gateway(config);this.identity=identity;this.profile=profile;this.broker=broker;this.event=event;
         this.relayReady=gateway!=null&&config.optJSONObject("internetCoop").optBoolean("relayEnabled",false);
@@ -35,11 +37,42 @@ final class CoopNetwork implements AutoCloseable {
     String state(){
         try{
             JSONObject value=new JSONObject(internet?current:local.state());
-            value.put("connectionMode",internet?mode:"lan").put("capabilities",new JSONObject().put("internetReady",gateway!=null).put("relayReady",relayReady));
+            if(!VoicePolicy.active(value)||!value.optString("me").equals(voiceOwner)){voice=VoicePolicy.empty().toString();voiceOwner=value.optString("me");}
+            value.put("voice",new JSONObject(voice)).put("connectionMode",internet?mode:"lan").put("capabilities",new JSONObject()
+                .put("internetReady",gateway!=null).put("relayReady",relayReady).put("voiceReady",!internet||value.optBoolean("voiceAvailable")));
             return value.toString();
         }catch(Exception error){return "{\"phase\":\"error\",\"members\":[],\"linked\":false}";}
     }
     void publish(){try{event.accept(new JSONObject().put("type","state").put("value",new JSONObject(state())));}catch(Exception ignored){}}
+    String voiceKey(){return (internet?"internet|"+epoch:"lan")+"|"+voiceOwner;}
+    String voiceState(){return voice;}
+    synchronized void voiceAction(String action){
+        try{
+            if(disposed||!VoicePolicy.action(action))return;
+            if(action.matches("press|release")){
+                if(voiceOwner.isEmpty())return;
+                JSONObject status=new JSONObject(voice);
+                if("press".equals(action)&&(!status.optBoolean("enabled")||!"ptt".equals(status.optString("mode"))||!"ready".equals(status.optString("microphone"))))return;
+                JSONObject command=new JSONObject().put("type","voice-action").put("owner",voiceOwner).put("action",action).put("volume",microphoneVolume);
+                if(internet)input(command);else broker.accept(command);
+                return;
+            }
+            JSONObject room=new JSONObject(state());if(!VoicePolicy.active(room)||room.optString("me").isEmpty())return;
+            if(!VoicePolicy.available(room)&&!action.matches("disable|mute|release|suspend"))return;
+            JSONObject value=new JSONObject().put("type","voice-action").put("owner",room.getString("me")).put("action",action).put("volume",microphoneVolume);
+            if(internet)input(value);else broker.accept(value);
+        }catch(Exception ignored){}
+    }
+    synchronized void voiceVolume(int volume){
+        if(disposed||volume<0||volume>100)return;
+        microphoneVolume=volume;
+        try{
+            JSONObject room=new JSONObject(state());
+            if(!VoicePolicy.active(room)||room.optString("me").isEmpty())return;
+            JSONObject value=new JSONObject().put("type","voice-volume").put("owner",room.getString("me")).put("volume",volume);
+            if(internet)input(value);else broker.accept(value);
+        }catch(Exception ignored){}
+    }
     private void input(JSONObject value)throws Exception {value.put("scope","internet").put("epoch",epoch);broker.accept(value);}
     synchronized void cancelFind(){if(internet){if(finding)stop("",false);else publish();}else local.fromGame("cancel-find","null");}
     synchronized void stop(String reason,boolean error){
@@ -149,6 +182,17 @@ final class CoopNetwork implements AutoCloseable {
     void fromBroker(String text){
         try{
             JSONObject value=LanPolicy.parse(text,48000);
+            if("voice".equals(value.optString("type"))){
+                JSONObject room=new JSONObject(state());
+                if(internet!=("internet".equals(value.optString("scope")))||
+                    internet&&value.optLong("epoch",-1)!=epoch||!room.optString("me").equals(value.optString("owner")))return;
+                try{
+                    JSONObject checked=VoicePolicy.state(value.getJSONObject("value"),room);
+                    voice=checked.toString();voiceOwner=room.optString("me");
+                    event.accept(new JSONObject().put("type","voice").put("value",checked));
+                }catch(Exception ignored){}
+                return;
+            }
             if(!"internet".equals(value.optString("scope"))){if(!internet)local.fromBroker(text);return;}
             if(!internet||value.optLong("epoch",-1)!=epoch)return;
             String type=value.optString("type");JSONObject state=new JSONObject(current);

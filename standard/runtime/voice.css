@@ -1,0 +1,86 @@
+.offline-voice-controls { color:var(--ink); }
+.offline-voice-controls svg { flex:none; }
+.offline-voice-controls a { text-decoration:none; }
+.offline-voice-card {
+  background:var(--paper-2); border-radius:16px; padding:12px;
+  display:flex; flex:none; flex-direction:column; gap:10px; margin-bottom:12px;
+  box-shadow:inset 0 0 0 1px var(--line);
+}
+.offline-voice-top { display:flex; align-items:center; gap:8px; justify-content:space-between; }
+.offline-voice-toggle { display:inline-flex; align-items:center; justify-content:center; gap:7px; white-space:nowrap; }
+.voice-on .offline-voice-toggle { color:var(--green-t,var(--green-d)); background:var(--paper); }
+.voice-live .offline-voice-toggle { box-shadow:inset 0 0 0 2px var(--green); }
+.offline-voice-direct { font-size:9px; font-weight:900; letter-spacing:.06em; color:var(--ink-2); white-space:nowrap; }
+.offline-voice-modes { display:flex; padding:4px; gap:4px; width:100%; background:var(--paper); }
+.offline-voice-modes .pill { display:flex; align-items:center; justify-content:center; gap:5px; flex:1; padding:7px 6px; font-size:12px; white-space:nowrap; }
+.offline-voice-modes .pill svg { width:16px; height:16px; }
+.offline-voice-modes .pill.on { background:var(--yellow); color:#302323; }
+.offline-voice-volume {
+  --c:var(--red); display:grid; grid-template-columns:minmax(0,1fr) auto;
+  grid-template-areas:"l o" "c c"; align-items:center; gap:3px 8px;
+  font-size:12px; font-weight:800; min-width:0;
+}
+.offline-voice-volume > span { grid-area:l; }
+.offline-voice-volume > input { grid-area:c; min-width:0; }
+.offline-voice-volume > b { grid-area:o; font-size:11px; }
+.offline-voice-volume .st-range { margin:6px 0; }
+.offline-voice-volume.st-row { font-size:14px; }
+.offline-voice-volume.st-row > b { font-size:13px; }
+.offline-voice-controls [aria-disabled="true"] { opacity:.5; pointer-events:none; }
+.offline-voice-controls a:focus-visible,.offline-voice-hold:focus-visible { outline:3px solid var(--blue); outline-offset:3px; }
+.offline-voice-status { font-size:11px; line-height:1.4; color:var(--ink-2); font-weight:700; }
+.offline-voice-hold { display:flex; align-items:center; justify-content:center; gap:7px; touch-action:none; user-select:none; -webkit-user-select:none; }
+.offline-voice-controls .offline-voice-hold.btn.talking {
+  color:#fff; background:var(--stripes),linear-gradient(115deg,#ff8b99,var(--red));
+  box-shadow:inset 0 -3px 0 var(--red-d,#b52340),0 0 0 2px #ffb3be;
+}
+.offline-voice-hold kbd { font:800 12px var(--font); border:1px solid #fff6; border-radius:4px; padding:0 5px; }
+.offline-voice-mini .offline-voice-direct { display:none; }
+.offline-voice-hud {
+  position:fixed; z-index:160; bottom:max(12px,env(safe-area-inset-bottom)); left:50%; transform:translateX(-50%);
+  display:flex; align-items:center; padding:0; max-width:calc(100vw - 40px);
+}
+.offline-voice-hud .offline-voice-button {
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  min-height:44px; padding:8px 14px; border-radius:999px;
+  touch-action:none; user-select:none; -webkit-user-select:none;
+  white-space:nowrap; text-decoration:none;
+}
+.offline-voice-button svg { width:22px; height:22px; }
+.offline-voice-button kbd { font:800 12px var(--font); padding:0 4px; border:1px solid #fff6; border-radius:4px; }
+.offline-voice-controls .offline-voice-button.btn:not(.mic-open) {
+  --c:#687080; --cd:#484f5e; --tc:#fff;
+}
+.offline-voice-controls .offline-voice-button.btn.talking {
+  background:var(--stripes),linear-gradient(115deg,#ff8b99,var(--red));
+  box-shadow:inset 0 -3px 0 var(--red-d,#b52340),0 0 0 2px #ffb3be;
+}
+.offline-voice-controls [hidden] { display:none!important; }
+@media(max-width:1100px) { .offline-voice-mini .offline-voice-toggle > span { display:none; } }
+:root[data-standard-platform="android"] .offline-voice-hold kbd { display:none; }
+:root[data-standard-platform="android"] .offline-voice-hud {
+  left:auto; right:12px; top:122px; bottom:auto; transform:none;
+  width:44px; height:44px;
+}
+:root[data-standard-platform="android"] .offline-voice-hud .offline-voice-button {
+  width:44px; height:44px; min-height:44px; padding:0; border-radius:50%;
+}
+:root[data-standard-platform="android"] .offline-voice-button > :is(span,kbd) { display:none; }
+/* Preserve Auto/Manual behavior and the original control, only reduce its
+   oversized 50×62 card. Voice is positioned from this button's actual bounds. */
+:root[data-standard-platform="android"] .tc .tc-btn.tc-aim {
+  width:44px; height:44px; min-height:0; padding:3px 0 4px;
+  border-radius:14px; align-items:center; justify-content:center; gap:0;
+}
+:root[data-standard-platform="android"] .tc .tc-btn.tc-aim img { width:24px; height:24px; }
+:root[data-standard-platform="android"] .tc .tc-btn.tc-aim span { font-size:9px; line-height:1; }
+@media(max-height:520px) {
+  .offline-voice-card { padding:9px; gap:7px; }
+  .offline-voice-hud { bottom:8px; }
+}
+@media(max-height:850px) {
+  /* The room header already contains the enable/disable icon. Avoid repeating
+     that row on short screens so the actual PTT target stays visible. */
+  .offline-voice-card.voice-on .offline-voice-top { display:none; }
+  .offline-voice-card.voice-on { padding:8px; gap:6px; }
+}

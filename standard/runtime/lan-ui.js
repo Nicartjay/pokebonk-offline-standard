@@ -4,11 +4,13 @@ import {createScopeDropdown} from "./dropdown.js";
 import {coopModeUnavailable,coopSettings} from "../common/coop-rules.mjs";
 import {BIOME_NAMES} from "./modes.js";
 import {COOP_CONNECTION_MODES, coopConnectionMode, coopModeMessage,coopRouteMessage,coopRoomCodeLength,isCoopRoomCode} from "../common/coop-mode.mjs";
+import {installVoiceUI} from "./voice-ui.js";
 export function ownedLanSpecies(profile,chosen=0){
   const league=profile?.league??[];
   return league.includes(chosen)?chosen:league.includes(profile?.lastSpecies)?profile.lastSpecies:league[0]??0;
 }
 export function installLanUI(api, config, {el, button, modal}) {
+  installVoiceUI(api,{el});
   api.coopModeUnavailable=coopModeUnavailable;
   api.coopRoomCapacity=room=>[2,3,4].includes(room?.room?.want)?room.room.want:4;
   api.coopRoomModeHint=mode=>({
@@ -151,6 +153,7 @@ export function installLanUI(api, config, {el, button, modal}) {
   };
   api.lanInviteHelp = (container, room) => {
     container.replaceChildren();
+    container.append(api.voiceControls(room));
     const help = el("div", null, "cp-empty offline-lan-invite-help");
     const image = el("img"); image.src = "assets/ui/icons/friends.png"; image.alt = ""; image.className = "uiicon";
     if (room.preview) {

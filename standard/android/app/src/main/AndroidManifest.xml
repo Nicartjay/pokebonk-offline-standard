@@ -6,6 +6,12 @@
     <!-- Native repository updater and isolated, user-started co-op transport.
          The game WebView's external networking remains blocked. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Requested at runtime only after an explicit PTT / Mic on action.
+         Never granted to the game WebView or for camera/video capture. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Chromium's communication-device routing needs this normal permission
+         as well as the separately user-approved RECORD_AUDIO permission. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Only held while an open local room answers link-scoped discovery. -->
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />

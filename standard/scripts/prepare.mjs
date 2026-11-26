@@ -7,10 +7,12 @@ import {patchSnapshot as patch01020} from "../adapters/mwqb4pwz.mjs";
 import {patchSnapshot as patch01023} from "../adapters/mwro88g3.mjs";
 import {patchSnapshot as patch01026} from "../adapters/mwsewi0r.mjs";
 import {patchSnapshot as patch01031} from "../adapters/mwv6wzyo.mjs";
+import {patchSnapshot as patch01036} from "../adapters/mwxeoqzj.mjs";
 import {isMain} from "../../scripts/is-main.mjs";
 import {addReviewedImages} from "./asset-additions.mjs";
 import {collectImageReferences} from "./image-references.mjs";
 import {readRentalSnapshot} from "./rental-snapshot.mjs";
+import {SEASONAL_MAIL_POLICY} from "../common/seasonal-mail.mjs";
 export const sha = bytes => createHash("sha256").update(bytes).digest("hex");
 export function payloadDigest(entries) {
   return sha(JSON.stringify(entries.map(({name, bytes, sha256}) => ({name, bytes, sha256})).sort((a, b) => a.name < b.name ? -1 : 1)));
@@ -24,6 +26,7 @@ export async function prepare({write=true}={}) {
     mwro88g3: {version: "0.10.23", digest: "0ee2d25545fac35c9fa1cc626544695f26796b58bb76e2de7636c69b553273bd", patch: patch01023},
     mwsewi0r: {version: "0.10.26", digest: "e5136575172172b5c82df2b65aaf8b58b8b5b4768d32f63a3433984af3cdea77", patch: patch01026},
     mwv6wzyo: {version: "0.10.31", digest: "4e20fcc6612cd5c2e3e010f45136bd5e1710be74aa9975d0741d0783ffb0f7d5", patch: patch01031},
+    mwxeoqzj: {version: "0.10.36", digest: "1e9733726a187b9f1fc5b58a7b4d5b638d965e30df789657978454dda4402a6f", patch: patch01036},
   };
   const reviewed = Object.hasOwn(adapters, accepted.build) ? adapters[accepted.build] : null;
   if (accepted.build !== config.upstream.build || accepted.version !== config.upstream.version ||
@@ -40,10 +43,13 @@ export async function prepare({write=true}={}) {
   const additionalImages=await addReviewedImages(files,accepted.build);
   const rentals=await readRentalSnapshot(accepted);
   files.set("offline/rentals/catalog.json",rentals.bytes);
-  for (const name of ["expedition-ledger.js", "expedition-team.js", "backend.js", "rentals.js", "expedition.js", "event-rewards.js", "guard.js", "ui.js", "cloud-ui.js", "cloud.css", "cloud-broker.js", "cloud-broker.html", "graphics.js", "boss-hud.js", "boss-hud.css", "dropdown.js", "lan.js", "run-recovery.js", "lan-lobby.js", "lan-ui.js", "lan.css", "lan-rtc.js", "lan-session.js", "lan-broker.js", "lan-broker.html", "internet-broker.js", "internet-rtc.js", "stun-first.js", "startup.js", "modes.js", "records.js", "android-ui.js", "android-text.js", "transport.js", "offline.css", "home.css", "entry.js"]) {
+  for (const name of ["voice-ui.js", "voice-audio.js", "voice-rtc.js", "voice.css", "seasonal-mail-ui.js", "seasonal-mail.css", "appearance.js", "appearance.css", "expedition-ledger.js", "expedition-team.js", "backend.js", "rentals.js", "expedition.js", "event-rewards.js", "guard.js", "ui.js", "cloud-ui.js", "cloud.css", "cloud-broker.js", "cloud-broker.html", "graphics.js", "boss-hud.js", "boss-hud.css", "dropdown.js", "lan.js", "run-recovery.js", "lan-lobby.js", "lan-ui.js", "lan.css", "lan-rtc.js", "lan-session.js", "lan-broker.js", "lan-broker.html", "internet-broker.js", "internet-rtc.js", "stun-first.js", "startup.js", "modes.js", "records.js", "android-ui.js", "android-text.js", "transport.js", "offline.css", "home.css", "entry.js"]) {
     files.set("offline/" + name, await readFile("standard/runtime/" + name));
   }
   files.set("common/state.mjs", await readFile("standard/common/state.mjs"));
+  files.set("common/seasonal-mail.mjs", await readFile("standard/common/seasonal-mail.mjs"));
+  files.set("common/voice-state.mjs", await readFile("standard/common/voice-state.mjs"));
+  files.set("common/voice-signaling.mjs", await readFile("standard/common/voice-signaling.mjs"));
   files.set("common/update-feedback.mjs", await readFile("standard/common/update-feedback.mjs"));
   files.set("common/cloud-feedback.mjs", await readFile("standard/common/cloud-feedback.mjs"));
   files.set("common/cloud-save.mjs", await readFile("standard/common/cloud-save.mjs"));
@@ -74,7 +80,7 @@ export async function prepare({write=true}={}) {
 <meta name="color-scheme" content="only light"><meta name="supported-color-schemes" content="light">
 <title>${config.productName}</title><link rel="icon" href="/favicon.ico">
 ${css.map(name => `<link rel="stylesheet" href="/${name}">`).join("\n")}
-<link rel="stylesheet" href="/offline/offline.css"><link rel="stylesheet" href="/offline/home.css"><link rel="stylesheet" href="/offline/lan.css"><link rel="stylesheet" href="/offline/boss-hud.css"><link rel="stylesheet" href="/offline/cloud.css"><script src="/offline/guard.js"></script>
+<link rel="stylesheet" href="/offline/offline.css"><link rel="stylesheet" href="/offline/home.css"><link rel="stylesheet" href="/offline/appearance.css"><link rel="stylesheet" href="/offline/seasonal-mail.css"><link rel="stylesheet" href="/offline/lan.css"><link rel="stylesheet" href="/offline/voice.css"><link rel="stylesheet" href="/offline/boss-hud.css"><link rel="stylesheet" href="/offline/cloud.css"><script src="/offline/guard.js"></script>
 <script type="module" src="/offline/entry.js"></script></head><body>
 <noscript>JavaScript and WebGL are required.</noscript><canvas id="game"></canvas><div id="ui"></div></body></html>\n`));
   files.set("LICENSE.txt", await readFile("LICENSE"));
@@ -98,7 +104,11 @@ ${css.map(name => `<link rel="stylesheet" href="/${name}">`).join("\n")}
       roomSelection:{modes:["standard","endless","relay","mutation","bossrush","expedition"],expeditionMaps:["wilds","safari"],individualLoadoutEscrow:true,durableItemReceipts:true,classicTiers:[0,1,2],earnedMaps:true,sharedRuleClock:true,
         discoverableToggle:true,capacities:[2,3,4],defaultVisibility:"code-only",ticketVersion:2},
       connectionModes:["lan","stun-only","turn-fallback"],relayEnabled:config.internetCoop?.relayEnabled===true}} : {}),
-    eventRewards: "local-earned-v1", localProgression: true, rendererNetwork: "local-only",additionalImages,rentals:rentals.publicInfo,
+    directVoice:{protocol:1,connectionModes:["lan","stun-only","turn-fallback"],media:"direct-only",turn:false,
+      signaling:"authenticated-native-room",microphoneModes:["muted","ptt","open"],default:"off"},
+    eventRewards: "local-earned-v1",seasonalMail:{policy:SEASONAL_MAIL_POLICY.version,
+      current:SEASONAL_MAIL_POLICY.current,archiveThrough:SEASONAL_MAIL_POLICY.archiveThrough,claims:"per-profile"},
+    localProgression: true, rendererNetwork: "local-only",additionalImages,rentals:rentals.publicInfo,
     imageContract:{requiredReferences:imageContract.required.size,iconFactoryBindings:imageContract.iconFactories,
       optionalMissing:[...imageContract.optional].filter(([name])=>!files.has(name))
         .map(([name,reasons])=>({name,reasons:[...reasons]}))},

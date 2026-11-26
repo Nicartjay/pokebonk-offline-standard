@@ -56,6 +56,56 @@ function harness(){
   return {env,call,player,create,socket};
 }
 
+for(const connectionMode of ["stun-only","turn-fallback"])test(`${connectionMode} voice signals are authenticated, direct-only and separate from game/relay traffic`,async()=>{
+  const h=harness(),host=await h.create({protocolVersion:3,connectionMode}),hs=await h.socket(host);
+  const guest=(await h.call(`/v1/rooms/${host.code}/join`,h.player("Guest",{protocolVersion:3,connectionMode}))).value;
+  const gs=await h.socket(guest),room=h.env.ROOMS.get(host.code),state=await room.ctx.storage.get("room");
+  state.members.find(member=>member.id===guest.member).pending=false;
+  await room.persist(state);
+  room.control=()=>{throw Error("Voice must not request TURN/control credentials.");};
+  assert.equal(room.snapshot(state).voiceProtocol,1);
+  const initialHostMessages=hs.messages.length;
+  const payload={v:1,kind:"hello",session:"a".repeat(32)};
+  const send=(socket,extra={})=>room.message(socket,JSON.stringify({type:"voice",to:guest.member,payload,round:0,...extra}));
+  await send(hs);
+  assert.deepEqual(gs.messages.at(-1),{type:"voice",from:host.member,payload,round:0});
+  assert.equal(hs.messages.length,initialHostMessages,"Voice must not broadcast a gameplay roster.");
+  const before=gs.messages.length;
+  await send(hs,{round:1});assert.equal(gs.messages.length,before,"Retired ICE rounds are ignored.");
+  const sdp="v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\n"+
+    "a=rtpmap:111 opus/48000/2\r\na=rtcp-mux\r\na=candidate:1 1 udp 123 192.168.1.2 40000 typ host\r\n";
+  await send(hs,{payload:{...payload,kind:"description",for:"b".repeat(32),description:{type:"offer",sdp}}});
+  assert.equal(gs.messages.at(-1).payload.description.type,"offer");
+  const forwarded=gs.messages.length;
+  for(const description of [{type:"answer",sdp},{type:"offer",sdp:sdp.replace("typ host","typ relay")}]){
+    await send(hs,{payload:{...payload,kind:"description",for:"b".repeat(32),description}});
+    assert.equal(hs.messages.at(-1).type,"voice-unavailable");
+    assert.equal(gs.messages.length,forwarded);
+  }
+  assert.equal(hs.readyState,1);assert.equal(gs.readyState,1);
+  const saved=await room.ctx.storage.get("room");
+  assert.equal(saved.phase,"lobby");assert.equal(saved.members.length,2);
+  assert.equal(saved.signalBytes,0,"Voice may not enter the data-channel SDP budget.");
+});
+
+test("malformed voice consumes the voice rate limit without ejecting players; room signaling is bounded",async()=>{
+  const h=harness(),host=await h.create({protocolVersion:3}),hs=await h.socket(host);
+  const guest=(await h.call(`/v1/rooms/${host.code}/join`,h.player("Guest",{protocolVersion:3}))).value;
+  const gs=await h.socket(guest),room=h.env.ROOMS.get(host.code),state=await room.ctx.storage.get("room");
+  state.members[1].pending=false;await room.persist(state);
+  const send=payload=>room.message(hs,JSON.stringify({type:"voice",to:guest.member,round:0,payload}));
+  for(let i=0;i<36;i++)await send({v:1,kind:"hello",session:"invalid"});
+  await send({v:1,kind:"hello",session:"a".repeat(32)});
+  assert.equal(gs.messages.length,0,"Invalid payloads must not bypass the per-member limit.");
+  assert.equal(hs.readyState,1);assert.equal((await room.ctx.storage.get("room")).members.length,2);
+  hs.attachment.voiceWindow=Date.now()-60001;
+  const capped=await room.ctx.storage.get("room");capped.voiceSignalBytes=1024*1024;
+  await room.persist(capped);
+  await send({v:1,kind:"hello",session:"a".repeat(32)});
+  assert.equal(gs.messages.length,0);assert.equal(hs.messages.at(-1).type,"voice-unavailable");
+  assert.equal(hs.readyState,1);
+});
+
 test("v2 room listings are read-only, sanitized and isolated from legacy rooms; public code joins reserve atomically",async()=>{
   const h=harness(),legacy=await h.create(),host=await h.create({protocolVersion:2}),
     hidden=await h.create({protocolVersion:2,discoverable:false}),wrongMode=await h.create({protocolVersion:2,connectionMode:"turn-fallback"});

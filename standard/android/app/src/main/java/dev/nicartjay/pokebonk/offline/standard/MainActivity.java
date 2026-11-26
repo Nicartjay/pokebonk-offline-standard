@@ -1,12 +1,14 @@
 package dev.nicartjay.pokebonk.offline.standard;
 
 import android.annotation.SuppressLint;
+import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.res.Configuration;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Insets;
 import android.net.Uri;
@@ -15,6 +17,10 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.RoundedCorner;
+import android.view.MotionEvent;
+import android.view.KeyEvent;
+import android.util.SparseBooleanArray;
+import android.webkit.PermissionRequest;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -42,7 +48,7 @@ import java.util.function.Consumer;
 
 @SuppressWarnings("deprecation")
 public final class MainActivity extends Activity {
-    private static final int IMPORT = 1101, EXPORT = 1102, WEB_FILE = 1103;
+    private static final int IMPORT = 1101, EXPORT = 1102, WEB_FILE = 1103, VOICE_PERMISSION=1104;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private FrameLayout root;
@@ -63,6 +69,33 @@ public final class MainActivity extends Activity {
     private final List<String> lanBrokerQueue=new ArrayList<>();
     private final AtomicInteger pendingLan=new AtomicInteger();
     private boolean resumed, dialogOpen, recoveryMode;
+    private String voiceArmedKey,pendingVoiceMode,pendingVoiceKey;
+    private boolean voicePermissionPrompt,voicePhysicalKeyDown,voiceKeyHeld;
+    private int voicePointer=-1,lastVoicePointer=-1;
+    private final SparseBooleanArray voicePointers=new SparseBooleanArray();
+    private long voiceSerial,pendingVoiceSerial,pendingVoiceAt;
+    private boolean voiceHudHeld,voiceHudKey,pendingVoiceIsHold;
+    private int voiceHudPointer=-1;
+    private long voiceHudDownAt,voiceHudSuppressUntil;
+    private Runnable voiceHudTimer;
+    private final Runnable voicePulse=new Runnable(){
+        @Override public void run(){
+            if(!resumed||!hasWindowFocus()||voiceArmedKey==null&&!voiceHudHeld||
+                !(voiceKeyHeld&&voicePhysicalKeyDown||voicePointer>=0&&voicePointers.get(voicePointer))){
+                releaseVoiceHold();return;
+            }
+            try{
+                JSONObject status=new JSONObject(lan.voiceState());
+                if(voiceArmedKey==null||!voiceArmedKey.equals(lan.voiceKey())||!status.optBoolean("enabled")||
+                    !"ptt".equals(status.optString("mode"))||!"ready".equals(status.optString("microphone"))){
+                    if(voiceHudHeld&&status.optBoolean("enabled"))handler.postDelayed(this,100);
+                    else releaseVoiceHold();
+                    return;
+                }
+            }catch(Exception error){releaseVoiceHold();return;}
+            lan.voiceAction("press");handler.postDelayed(this,250);
+        }
+    };
     private String pendingRecoveryAction;
     private byte[] pendingExport;
     private ValueCallback<Uri[]> fileCallback;
@@ -141,6 +174,7 @@ public final class MainActivity extends Activity {
             if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) publishSafeArea();
         });
         web.setWebChromeClient(new WebChromeClient() {
+            @Override public void onPermissionRequest(PermissionRequest request){request.deny();}
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams parameters) {
                 if (fileCallback != null) fileCallback.onReceiveValue(null);
                 fileCallback = callback;
@@ -148,6 +182,7 @@ public final class MainActivity extends Activity {
                 return true;
             }
         });
+        installVoiceTouchObserver();
         web.setDownloadListener((url, userAgent, disposition, mime, size) ->
             Toast.makeText(this, "Use Player & saves → Export save backup.", Toast.LENGTH_LONG).show());
         root = new FrameLayout(this); root.setBackgroundColor(Color.BLACK);
@@ -167,6 +202,24 @@ public final class MainActivity extends Activity {
         // Always bootstrap from native disk, not a WebView history restoration.
         web.loadUrl(OfflineAssetWebViewClient.APP_ORIGIN + "/index.html?lang=en");
         handler.post(poll);
+    }
+    // Observe physical holds only; never consume a touch or implement a native
+    // click target. WebView owns DOM clicks and its virtual accessibility tree.
+    // Calling performClick here would add a second click path to a PTT release.
+    @SuppressLint("ClickableViewAccessibility")
+    private void installVoiceTouchObserver(){
+        web.setOnTouchListener((view,event)->{
+            int action=event.getActionMasked(),index=event.getActionIndex(),id=event.getPointerId(index);
+            if(action==MotionEvent.ACTION_DOWN||action==MotionEvent.ACTION_POINTER_DOWN){
+                voicePointers.put(id,true);lastVoicePointer=id;probeVoiceHold(id,event.getX(index),event.getY(index),event.getEventTime());
+            }
+            else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_POINTER_UP){
+                voicePointers.delete(id);
+                if(id==voiceHudPointer)finishHudVoice();
+                if(id==voicePointer){voicePointer=-1;if(!voiceKeyHeld)releaseVoiceHold();}
+            }else if(action==MotionEvent.ACTION_CANCEL){voicePointers.clear();finishHudVoice();releaseVoiceHold();}
+            return false;
+        });
     }
     private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private void applySafeArea(WindowInsets insets) {
@@ -276,6 +329,7 @@ public final class MainActivity extends Activity {
         nativeMenuAction(action);
     }
     private void nativeMenuAction(String action) {
+        if(action.startsWith("voice/")){voiceMenuAction(action.substring(6));return;}
         if(action.startsWith("cloud/")){
             String[] pieces=action.substring(6).split("/");
             whenIdle(()->cloudInput(pieces[0],pieces.length==2?pieces[1]:null));return;
@@ -460,14 +514,139 @@ public final class MainActivity extends Activity {
             whenIdle(this::presentCloud);
         }
     }
+    private void releaseVoiceHold(){
+        voicePointer=-1;voiceKeyHeld=false;handler.removeCallbacks(voicePulse);
+        if(lan!=null)lan.voiceAction("release");
+    }
+    private boolean voiceUsable(){
+        try{return resumed&&hasWindowFocus()&&new JSONObject(lan.voiceState()).optBoolean("enabled");}
+        catch(Exception error){return false;}
+    }
+    private void finishHudVoice(){
+        if(voiceHudTimer!=null){handler.removeCallbacks(voiceHudTimer);voiceHudTimer=null;}
+        boolean held=voiceHudHeld||voiceHudPointer>=0&&android.os.SystemClock.uptimeMillis()-voiceHudDownAt>=280;
+        voiceHudPointer=-1;voiceHudKey=false;voiceHudHeld=false;
+        if(held){
+            voiceHudSuppressUntil=android.os.SystemClock.uptimeMillis()+800;
+            voiceSerial++;pendingVoiceMode=null;voiceArmedKey=null;
+            releaseVoiceHold();lan.voiceAction("mute");
+        }
+    }
+    private void startHudVoice(boolean key){
+        if(!voiceUsable()||voiceHudHeld||!(key?voicePhysicalKeyDown:voiceHudPointer>=0&&voicePointers.get(voiceHudPointer)))return;
+        voiceHudHeld=true;voiceHudKey=key;
+        voiceMenuAction("ptt",true);
+        voiceKeyHeld=key;voicePointer=key?-1:voiceHudPointer;
+        handler.removeCallbacks(voicePulse);voicePulse.run();
+    }
+    private boolean voiceCanHold(){
+        try{
+            JSONObject value=new JSONObject(lan.voiceState());
+            return resumed&&hasWindowFocus()&&voiceArmedKey!=null&&voiceArmedKey.equals(lan.voiceKey())&&
+                value.optBoolean("enabled")&&"ptt".equals(value.optString("mode"))&&"ready".equals(value.optString("microphone"));
+        }catch(Exception error){return false;}
+    }
+    private void probeVoiceHold(int pointer,float x,float y,long downAt){
+        if(!voiceUsable()||web.getWidth()<=0||web.getHeight()<=0)return;
+        double rx=x/web.getWidth(),ry=y/web.getHeight();
+        if(!Double.isFinite(rx)||!Double.isFinite(ry)||rx<0||rx>1||ry<0||ry>1)return;
+        web.evaluateJavascript("(()=>{const e=document.elementFromPoint(innerWidth*"+rx+",innerHeight*"+ry+
+            ");return e?.closest('.offline-voice-hud a.offline-voice-button')?'hud':"+
+            "e?.closest('.offline-voice-controls button.offline-voice-hold:not(:disabled)')?'room':''})()",answer->{
+            if(!voicePointers.get(pointer)||!voiceUsable())return;
+            if("\"hud\"".equals(answer)&&voiceHudPointer<0&&!voiceHudHeld){
+                voiceHudPointer=pointer;voiceHudDownAt=downAt;voiceHudSuppressUntil=0;
+                voiceHudTimer=()->{voiceHudTimer=null;startHudVoice(false);};
+                handler.postDelayed(voiceHudTimer,Math.max(0,280-(android.os.SystemClock.uptimeMillis()-downAt)));
+            }else if("\"room\"".equals(answer)&&voiceCanHold()){
+                voicePointer=pointer;handler.removeCallbacks(voicePulse);voicePulse.run();
+            }
+        });
+    }
+    @Override public boolean dispatchKeyEvent(KeyEvent event){
+        if(event.getKeyCode()==KeyEvent.KEYCODE_GRAVE){
+            if(event.getAction()==KeyEvent.ACTION_DOWN){
+                voicePhysicalKeyDown=true;
+                if(event.getRepeatCount()==0&&voiceUsable())web.evaluateJavascript(
+                    "document.activeElement?.matches('input,textarea,select,[contenteditable=true]')?'':"+
+                    "document.querySelector('.offline-voice-hud a.offline-voice-button')?'hud':'room'",answer->{
+                        if(!voicePhysicalKeyDown)return;
+                        if("\"hud\"".equals(answer))startHudVoice(true);
+                        else if("\"room\"".equals(answer)&&voiceCanHold()){
+                            voiceKeyHeld=true;handler.removeCallbacks(voicePulse);voicePulse.run();
+                        }
+                    });
+            }else if(event.getAction()==KeyEvent.ACTION_UP){
+                voicePhysicalKeyDown=false;
+                if(voiceHudKey)finishHudVoice();
+                voiceKeyHeld=false;if(voicePointer<0)releaseVoiceHold();
+            }
+        }
+        return super.dispatchKeyEvent(event);
+    }
+    private void voiceMenuAction(String action){
+        voiceMenuAction(action,false);
+    }
+    private void voiceMenuAction(String requested,boolean hold){
+        if(!requested.matches("enable|disable|mute|ptt|open-mic|toggle"))return;
+        boolean hud=hold||"toggle".equals(requested);
+        if("toggle".equals(requested)&&android.os.SystemClock.uptimeMillis()<voiceHudSuppressUntil)return;
+        String desired=requested;
+        try{
+            JSONObject room=new JSONObject(lan.state());
+            if(hud&&(!"playing".equals(room.optString("phase"))||!room.getJSONObject("voice").optBoolean("enabled")))return;
+            if("toggle".equals(requested))desired="open".equals(room.getJSONObject("voice").optString("mode"))?"mute":"open-mic";
+        }catch(Exception error){return;}
+        final String action=desired;
+        long serial=++voiceSerial;pendingVoiceMode=null;releaseVoiceHold();
+        if(action.matches("disable|mute")){voiceArmedKey=null;lan.voiceAction(action);return;}
+        if(!resumed||!hasWindowFocus()||dialogOpen||web==null)return;
+        final String key=lan.voiceKey();
+        try{if(!VoicePolicy.available(new JSONObject(lan.state())))return;}catch(Exception error){return;}
+        final String selector=hud?
+            ".offline-voice-hud a.offline-voice-button[data-standard-voice-action=\"toggle\"][href=\"/__native__/voice/toggle\"]":
+            ".offline-voice-controls a[data-standard-voice-action=\""+action+"\"][href=\"/__native__/voice/"+action+"\"]";
+        web.evaluateJavascript("Boolean(document.querySelector("+JSONObject.quote(selector)+"))",visible->{
+            if(!"true".equals(visible)||serial!=voiceSerial||!key.equals(lan.voiceKey())||!resumed||!hasWindowFocus()||hold&&!voiceHudHeld)return;
+            if("enable".equals(action)){lan.voiceAction(action);return;}
+            try{if(!new JSONObject(lan.state()).getJSONObject("voice").optBoolean("enabled"))return;}catch(Exception error){return;}
+            pendingVoiceMode=action;pendingVoiceKey=key;pendingVoiceSerial=serial;pendingVoiceIsHold=hold;pendingVoiceAt=android.os.SystemClock.elapsedRealtime();
+            if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
+                voiceArmedKey=null;voicePermissionPrompt=true;
+                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},VOICE_PERMISSION);
+            }else dispatchVoicePermission();
+        });
+    }
+    private void dispatchVoicePermission(){
+        if(pendingVoiceMode==null||voicePermissionPrompt||!resumed||!hasWindowFocus())return;
+        String mode=pendingVoiceMode;pendingVoiceMode=null;
+        if(pendingVoiceSerial!=voiceSerial||!pendingVoiceKey.equals(lan.voiceKey())||pendingVoiceIsHold&&!voiceHudHeld||
+            android.os.SystemClock.elapsedRealtime()-pendingVoiceAt>30000)return;
+        if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){
+            voiceArmedKey=null;lan.voiceAction("permission-denied");return;
+        }
+        voiceArmedKey=pendingVoiceKey;lan.voiceAction(mode);
+    }
+    @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] results){
+        super.onRequestPermissionsResult(requestCode,permissions,results);
+        if(requestCode!=VOICE_PERMISSION)return;
+        voicePermissionPrompt=false;
+        if(results.length!=1||results[0]!=PackageManager.PERMISSION_GRANTED){
+            pendingVoiceMode=null;voiceArmedKey=null;if(lan!=null)lan.voiceAction("permission-denied");return;
+        }
+        dispatchVoicePermission();
+    }
     @Override protected void onResume() {
         super.onResume(); resumed = true; hideBars();
         if (web != null) { web.onResume(); publishSystemTheme(); }
         if (updater != null) { updater.resumed(); updater.check(false); }
         dispatchRecoveryWhenFocused();
+        dispatchVoicePermission();
     }
     @Override protected void onPause() {
         resumed = false;
+        finishHudVoice();releaseVoiceHold();voiceArmedKey=null;
+        if(!voicePermissionPrompt){voiceSerial++;pendingVoiceMode=null;if(lan!=null)lan.voiceAction("suspend");}
         if(lan!=null)lan.fromGame("cancel-find","null");
         if (web != null) {
             web.evaluateJavascript("(()=>{const r=globalThis.PokeBonkNativeApp?.run;if(r?.state==='play')r.pause();dispatchEvent(new Event('standard:checkpoint'))})()", null);
@@ -477,7 +656,8 @@ public final class MainActivity extends Activity {
     }
     @Override public void onWindowFocusChanged(boolean focus) {
         super.onWindowFocusChanged(focus);
-        if (focus) { hideBars(); if (resumed && updater != null) updater.check(false); dispatchRecoveryWhenFocused(); }
+        if (focus) { hideBars(); if (resumed && updater != null) updater.check(false); dispatchRecoveryWhenFocused();dispatchVoicePermission(); }
+        else {finishHudVoice();releaseVoiceHold();}
     }
     @Override public void onConfigurationChanged(Configuration config) {
         super.onConfigurationChanged(config); publishSystemTheme(); root.requestApplyInsets(); hideBars();
@@ -508,10 +688,11 @@ public final class MainActivity extends Activity {
             if(web==null||isFinishing()||isDestroyed())return;
             String type=value.optString("type"),suffix;
             if("state".equals(type))suffix="state";
+            else if("voice".equals(type))suffix="voice";
             else if("frame".equals(type))suffix="frame";
             else if("peer-closed".equals(type))suffix="peer-closed";
             else if("notice".equals(type))suffix="notice";else return;
-            Object detail="state".equals(type)?value.opt("value"):value;
+            Object detail=("state".equals(type)||"voice".equals(type))?value.opt("value"):value;
             web.evaluateJavascript("document.dispatchEvent(new CustomEvent('standard:lan-"+suffix+"',{detail:"+
                 JSONObject.quote(String.valueOf(detail))+"}))",null);
         });
@@ -536,15 +717,36 @@ public final class MainActivity extends Activity {
         // LAN still admits private host candidates only. The GAME WebView
         // above retains setBlockNetworkLoads(true).
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);s.setBlockNetworkLoads(false);s.setSupportMultipleWindows(false);s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        s.setMediaPlaybackRequiresUserGesture(false);
         lanBroker.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT,false);
         lanBroker.addJavascriptInterface(new BrokerBridge(),"PokeBonkLanBrokerNative");
         lanBroker.setWebViewClient(new OfflineAssetWebViewClient(getAssets(),()->{},ignored->{},true,coopGateway));
+        lanBroker.setWebChromeClient(new WebChromeClient(){
+            @Override public void onPermissionRequest(PermissionRequest request){
+                try{
+                    JSONObject room=new JSONObject(lan.state());
+                    boolean armed=voiceArmedKey!=null&&voiceArmedKey.equals(lan.voiceKey())&&
+                        checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED;
+                    if(VoicePolicy.microphone(request.getOrigin().toString(),request.getResources(),armed,resumed&&hasWindowFocus(),room)&&
+                        (OfflineAssetWebViewClient.APP_ORIGIN+"/offline/lan-broker.html").equals(lanBroker.getUrl()))
+                        request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+                    else request.deny();
+                }catch(Exception error){request.deny();}
+            }
+        });
         lanBroker.setAlpha(0);root.addView(lanBroker,new FrameLayout.LayoutParams(1,1));
         lanBroker.loadUrl(OfflineAssetWebViewClient.APP_ORIGIN+"/offline/lan-broker.html");
     }
     public final class LanBridge{
         @JavascriptInterface public String state(){return lan.state();}
         @JavascriptInterface public void send(String channel,String text){
+            if("voice-volume".equals(channel)){
+                if(text==null||!text.matches("0|[1-9][0-9]?|100"))return;
+                final int volume=Integer.parseInt(text);
+                if(pendingLan.incrementAndGet()>96){pendingLan.decrementAndGet();return;}
+                handler.post(()->{pendingLan.decrementAndGet();if(!isFinishing()&&!isDestroyed())lan.voiceVolume(volume);});
+                return;
+            }
             if(channel==null||!channel.matches("ctl|snap|prepared|failed|leave|refresh|cancel-find|room-ready|room-start|room-pick|room-chat|room-settings|room-seats|room-loadout|room-return")||text==null||text.length()>48000)return;
             if(pendingLan.incrementAndGet()>96){pendingLan.decrementAndGet();return;}
             handler.post(()->{pendingLan.decrementAndGet();if(!isFinishing()&&!isDestroyed())lan.fromGame(channel,text);});

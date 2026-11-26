@@ -23,7 +23,9 @@ export function treasureImagePlan(modules){
     }
   }
   if(!wheels.length)return {references:[],portraitAliases:[]};
-  if(wheels.length!==1||looks.length!==1||wheels[0].name!==looks[0].name||
+  if(wheels.length!==1||looks.length!==1||
+    !/^assets\/cosmetics-[\w-]+\.js$/.test(wheels[0].name)||
+    (wheels[0].name!==looks[0].name&&!/^assets\/assets-[\w-]+\.js$/.test(looks[0].name))||
     !wheels[0].rows.length||wheels[0].rows.length>64||
     !wheels[0].rows.every(row=>fields(row,wheelKeys))||
     !looks[0].rows.every(row=>fields(row,lookKeys)))

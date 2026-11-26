@@ -37,6 +37,47 @@ async function cluster(count){
   await sleep();await sleep();
   return {sessions,events,errors,rtc,close(){for(const session of sessions)session.reset();}};
 }
+test("LAN voice uses authenticated room signaling, not game data; malformed audio cannot end the room",async()=>{
+  const c=await cluster(2);try{
+    const [host,peer]=c.sessions,payload={v:1,kind:"hello",session:"a".repeat(32)};
+    const from=peer.value.me,to=host.value.me,pair=[...host.pairs.values()][0];
+    peer.voiceSend(to,payload);await sleep();
+    assert.deepEqual(c.events[0].filter(event=>event.type==="voice-signal").at(-1),{type:"voice-signal",peer:from,payload});
+    const count=c.events[0].filter(event=>event.type==="voice-signal").length;
+    host.received("c1",{op:"voice",from:"lan-forged",to,token:"wrong-token",payload});
+    host.received("c1",{op:"voice",to,token:pair.token,payload:{...payload,credential:"forbidden"}});
+    assert.equal(c.events[0].filter(event=>event.type==="voice-signal").length,count);
+    assert.deepEqual(c.errors,[]);assert.equal(host.value.phase,"lobby");
+    for(let i=0;i<36;i++)host.received("c1",{op:"voice",to,token:pair.token,payload});
+    assert.equal(c.events[0].filter(event=>event.type==="voice-signal").length,35,
+      "One valid hello plus one invalid authenticated payload consume two of 36 attempts.");
+    assert.equal(host.value.members.length,2);
+  }finally{c.close();}
+});
+test("a returning LAN guest's early voice hello is held until the new pair opens",async()=>{
+  const c=await cluster(2);
+  try{
+    const [host,guest]=c.sessions,from=guest.value.me,to=host.value.me;
+    const old=host.voiceGeneration(from);
+    host.closed("c1","left");await sleep();
+    guest.enter("client",{id:from,name:"Guest",species:155});
+    host.opened("c1");guest.opened("host");await sleep();
+    const next=host.voiceGeneration(from);
+    assert.notEqual(next,old);
+    guest.rtcEvent({type:"link",peer:to,token:next,state:"open"});
+    const payload={v:1,kind:"hello",session:"a".repeat(32)};
+    const messages=()=>c.events[0].filter(value=>value.type==="voice-signal");
+    host.received("c1",{op:"voice",to,token:old,payload});
+    assert.equal(host.pendingVoiceHello.has(from),false,"No retired token can queue voice for the new link.");
+    guest.voiceSend(to,payload);await sleep();
+    assert.equal(messages().length,0);
+    assert.equal(host.pendingVoiceHello.get(from)?.token,next);
+    host.rtcEvent({type:"link",peer:from,token:next,state:"open"});await sleep();
+    assert.deepEqual(messages(),[{type:"voice-signal",peer:from,payload}]);
+    assert.equal(host.pendingVoiceHello.size,0);assert.deepEqual(c.errors,[]);
+    assert.equal(host.value.linked,true);
+  }finally{c.close();}
+});
 test('private destinations, canonical invitations and same-subnet policy reject Internet/loopback/hostnames',()=>{
   for(const address of ['10.1.2.3','172.16.0.2','192.168.1.2','169.254.10.2'])assert.ok(privateIPv4(address));
   for(const address of ['127.0.0.1','8.8.8.8','localhost','192.168.001.2','172.32.0.2','10.1.2.999','::1'])assert.equal(privateIPv4(address),false);

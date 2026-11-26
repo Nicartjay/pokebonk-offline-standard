@@ -41,7 +41,7 @@ test("boss status icons constructed from a finite catalog are required through r
 });
 test("Treasures requires catalog-derived look frames and banner glows, not just JPG backgrounds",()=>{
   const files=new Map([
-    ["assets/cosmetics.js",Buffer.from(treasureFixture)],
+    ["assets/cosmetics-fixture.js",Buffer.from(treasureFixture)],
     ["assets/renamed-ui.js",Buffer.from(treasureBuilders)],
   ]);
   const names=new Set([...files.keys(),...COOP_MAPS.map(id=>"assets/ui/maps/"+id+".webp"),"assets/ui/maps/newisland.webp",
@@ -55,7 +55,7 @@ test("Treasures requires catalog-derived look frames and banner glows, not just 
 });
 test("unsupported Treasures look mappings, image builders and duplicate catalogs fail closed",()=>{
   const modules=(catalog=treasureFixture,builders=treasureBuilders)=>new Map([
-    ["assets/cosmetics.js",ast(catalog)],["assets/ui.js",ast(builders)],
+    ["assets/cosmetics-fixture.js",ast(catalog)],["assets/ui.js",ast(builders)],
   ]);
   assert.equal(treasureImageReferences(modules()).length,6);
   assert.deepEqual(treasureImagePlan(modules()).portraitAliases,[

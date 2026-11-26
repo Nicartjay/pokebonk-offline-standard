@@ -9,6 +9,7 @@ import {cloudActionAllowed} from "../common/cloud-feedback.mjs";
 import {installLanUI} from "./lan-ui.js";
 import {createScopeDropdown} from "./dropdown.js";
 import {syncCoopBossHud} from "./boss-hud.js";
+import {openSeasonalMailbox} from "./seasonal-mail-ui.js";
 const OFFLINE_CREATOR = "Nicartjay";
 const biomePalette = new Map();
 const mapScopeOption = (value, subtitle, group = "By map") => ({
@@ -208,6 +209,11 @@ export function installOfflineUI(config) {
   };
   const api = {
     lan: globalThis.PokeBonkLocalCoop,
+    mailbox(app, options) {
+      if (app?.run) return false;
+      if (!options) return globalThis.PokeBonkOpenOfflineMailbox?.(app);
+      return openSeasonalMailbox(app, options);
+    },
     cloudSaves(){return cloudUI.open();},
     dismissCloud(){return cloudUI.close();},
     cloudFeedback(value){
@@ -677,6 +683,7 @@ export function installOfflineUI(config) {
       }, "btn blue"));
       body.append(el("p", "Your trainer, backups, optional cloud saves and app options. No account is required to play.", "muted"), row);
       const actions = el("div", null, "offline-row offline-player-actions");
+      actions.append(button("Mailbox", () => { close(); api.mailbox(app); }, "btn ghost"));
       if (isAndroidShell()) {
         // Android uses the system document picker, not unsupported blob
         // downloads. Navigation requires a real gesture; no new JS bridge.

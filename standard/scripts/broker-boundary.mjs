@@ -3,6 +3,7 @@
 export const BROKER_MODULES=new Set([
   "offline/lan-broker.js","offline/lan-session.js","offline/lan-rtc.js",
   "offline/internet-broker.js","offline/internet-rtc.js","offline/stun-first.js",
+  "offline/voice-rtc.js","common/voice-signaling.mjs",
   "common/internet-coop.mjs",
   "offline/cloud-broker.js","common/cloud-sync.mjs",
 ]);

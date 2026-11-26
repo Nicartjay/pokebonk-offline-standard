@@ -4,6 +4,7 @@ import {lanDescription} from '../common/lan-policy.mjs';
 import {lanRoomCode} from '../common/coop-mode.mjs';
 import {COOP_RECONNECT_MS,retryDelay} from '../common/coop-recovery.mjs';
 import {coopMaps,coopSettings,coopSeats,coopConfig,coopGameConfig,requireCoopUnlocks,coopLoadout} from '../common/coop-rules.mjs';
+import {voiceSignal} from "../common/voice-signaling.mjs";
 const copy = value => structuredClone(value);
 const idOK = id => typeof id === 'string' && /^lan-[\w-]{1,80}$/.test(id);
 const clean = text => String(text ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 24);
@@ -21,7 +22,7 @@ function matchOK(match, members) {
 export class LanSession {
   constructor({network, rtc, emit, terminate, random = () => crypto.randomUUID(), seed = () => crypto.getRandomValues(new Uint32Array(1))[0]}) {
     Object.assign(this,{network,rtc,emit,terminate,random,seed}); this.connections=new Map();this.pairs=new Map();this.prepared=new Set();
-    this.resumeTokens=new Map();this.openPeers=new Set();
+    this.resumeTokens=new Map();this.openPeers=new Set();this.pendingVoiceHello=new Map();
     this.value={phase:'idle',members:[],linked:false,chat:[],disconnected:[]};
   }
   publish() {
@@ -38,6 +39,8 @@ export class LanSession {
     clearTimeout(this.timer);clearTimeout(this.recoveryTimer);
     for(const pair of this.pairs.values())clearTimeout(pair.retryTimer);
     this.resumeTokens.clear();this.openPeers.clear();this.resumeToken=null;this.returnedParty=null;this.networkLost=false;this.recoveryUntil=null;
+    this.voiceRates?.clear();
+    this.pendingVoiceHello.clear();
     this.rtc({type:'close'});this.connections.clear();this.pairs.clear();this.prepared.clear();
     this.value={phase:error?'error':'closed',members:[],linked:false,chat:[],disconnected:[],...(reason?{error:reason}:{})};this.publish();
   }
@@ -98,6 +101,7 @@ export class LanSession {
     if(!idOK(value.peer)||!this.value.members.some(m=>m.id===value.peer)||!/^[a-f0-9]{32}$/.test(value.token))throw Error('Invalid LAN peer setup.');
     const key=pairKey(this.value.me,value.peer),existing=this.pairs.get(key);
     this.openPeers.delete(value.peer);
+    if(this.pendingVoiceHello.get(value.peer)?.token!==value.token)this.pendingVoiceHello.delete(value.peer);
     if(this.value.role==='client')this.pairs.set(key,{a:this.value.me,b:value.peer,token:value.token,open:new Set()});
     else if(existing?.token!==value.token)throw Error('Invalid LAN pairing token.');
     this.rtc({type:'configure',peer:value.peer,token:value.token,offerer:value.offerer===true});
@@ -133,6 +137,7 @@ export class LanSession {
       this.broadcast();this.createPairs();this.broadcast();return;
     }
     if(!sender)throw Error('Join the local room first.');
+    if(value.op==="voice"){this.routeVoice(sender,value);return;}
     if(value.op==='signal') { this.routeSignal(sender,value);return; }
     if(value.op==='linked') {this.report(sender,value.peer,value.open===true,value.token);return;}
     if(value.op==='prepared') {this.markPrepared(sender,value.party);return;}
@@ -166,6 +171,7 @@ export class LanSession {
     throw Error('Unexpected LAN room action.');
   }
   clientReceived(value) {
+    if(value.op==="voice"){this.acceptVoice(value);return;}
     if(value.op==='accepted'){
       if(value.member!==this.value.me||!/^[a-f0-9]{32}$/.test(value.resume))throw Error('Invalid private resume identity.');
       this.resumeToken=value.resume;return;
@@ -206,6 +212,45 @@ export class LanSession {
     if(!pair||pair.token!==value.token||value.to!==this.value.me)return;
     this.rtc({type:'signal',peer:value.from,token:pair.token,description:lanDescription(value.description)});
   }
+  voiceSend(to,payload) {
+    const pair=this.pairs.get(pairKey(this.value.me,to));
+    if(!pair || !this.openPeers.has(to))return;
+    const value={op:"voice",to,token:pair.token,payload:voiceSignal(payload,"lan")};
+    if(this.value.role==="host")this.routeVoice(this.value.me,value);
+    else this.network(this.hostConnection,value);
+  }
+  voiceGeneration(peer) { return this.pairs.get(pairKey(this.value.me,peer))?.token; }
+  routeVoice(from,value) {
+    // Voice errors are isolated: never close a run over invalid optional audio.
+    try{
+      const pair=this.pairs.get(pairKey(from,value.to));
+      if(!pair || pair.token!==value.token || !this.value.members.some(member=>member.id===value.to) ||
+          (this.value.disconnected??[]).includes(from) || (this.value.departed??[]).includes(from))return;
+      this.voiceRates??=new Map();
+      let rate=this.voiceRates.get(from);
+      if(!rate||Date.now()-rate.at>60000){rate={at:Date.now(),count:0};this.voiceRates.set(from,rate);}
+      if(++rate.count>36)return;
+      const message={op:"voice",from,to:value.to,token:pair.token,payload:voiceSignal(value.payload,"lan")};
+      if(value.to===this.value.me)this.acceptVoice(message);else this.sendTo(value.to,message);
+    }catch{}
+  }
+  acceptVoice(value) {
+    try{
+      const pair=this.pairs.get(pairKey(this.value.me,value.from));
+      if(!pair || pair.token!==value.token || value.to!==this.value.me)return;
+      const payload=voiceSignal(value.payload,"lan");
+      if(!this.openPeers.has(value.from)){
+        // The TCP wire can deliver presence before the local data channel
+        // opens, especially on rejoin. Keep at most one hello per current
+        // authenticated pair; never buffer audio descriptions.
+        if(payload.kind==="hello")this.pendingVoiceHello.set(value.from,{...value,payload});
+        else if(payload.kind==="bye"&&this.pendingVoiceHello.get(value.from)?.payload.session===payload.session)
+          this.pendingVoiceHello.delete(value.from);
+        return;
+      }
+      this.emit({type:"voice-signal",peer:value.from,payload});
+    }catch{}
+  }
   report(from,peer,open,token) {
     const key=pairKey(from,peer),pair=this.pairs.get(key);if(!pair||pair.token!==token)return;
     if(open)pair.open.add(from);else pair.open.delete(from);
@@ -236,6 +281,11 @@ export class LanSession {
         else if(this.hostConnection)this.network(this.hostConnection,{op:'linked',peer:value.peer,token:pair.token,open});
         if(!open)this.value.linked=false;
         this.publish();
+        if(open){
+          const hello=this.pendingVoiceHello.get(value.peer);
+          this.pendingVoiceHello.delete(value.peer);
+          if(hello)this.acceptVoice(hello);
+        }
       }else if(value.type==='frame'&&this.value.phase==='playing')this.emit({type:'frame',peer:value.peer,channel:value.channel,data:value.data});
     }catch(error){this.fail(error);}
   }
@@ -312,6 +362,7 @@ export class LanSession {
   dropPeer(peer,permanent=false) {
     if(!idOK(peer))return;
     this.openPeers.delete(peer);
+    this.pendingVoiceHello.delete(peer);
     clearTimeout(this.pairs.get(pairKey(this.value.me,peer))?.retryTimer);
     this.rtc({type:'drop',peer});this.pairs.delete(pairKey(this.value.me,peer));this.emit({type:'peer-closed',peer,permanent});
   }

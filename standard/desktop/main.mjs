@@ -1,4 +1,4 @@
-import {app, BrowserWindow, Menu, dialog, protocol, session, ipcMain, shell, screen, powerSaveBlocker, clipboard,safeStorage} from "electron";
+import {app, BrowserWindow, Menu, dialog, protocol, session, ipcMain, shell, screen, powerSaveBlocker, clipboard,safeStorage,systemPreferences} from "electron";
 import {createReadStream, existsSync, readFileSync} from "node:fs";
 import {readFile, stat, realpath, writeFile} from "node:fs/promises";
 import {Readable} from "node:stream";
@@ -22,6 +22,7 @@ import {CloudSync} from "../common/cloud-sync.mjs";
 import {DesktopCloudHost} from "./cloud-host.mjs";
 import {cloudError} from "../common/cloud-save.mjs";
 import {CLOUD_RETURN_SCHEME,cloudReturnId} from "../common/cloud-return.mjs";
+import {VOICE_ACTIONS,voiceRoomActive,voiceAvailable} from "../common/voice-state.mjs";
 const root = path.dirname(fileURLToPath(import.meta.url));
 // Graphics switches must be selected before Electron initializes Chromium.
 const config = JSON.parse(readFileSync(path.join(root, "../config.json"), "utf8"));
@@ -59,6 +60,48 @@ const updater = new StandardUpdater({config, directory: dataDirectory,
   }});
 let window, desktopControls, pendingMessage, pendingFeedback, presentedVersion, showing = false, reopenUpdate = false;
 let lan, brokerWindow, brokerReady, brokerResolve, brokerReject,brokerSession;
+let voiceArmedKey=null,voicePermissionSerial=0,voicePrompting=false,voiceHudHeld=false;
+const voiceKey=()=>lan&&`${lan.active}|${lan.controller.epoch}|${lan.value.me??""}`;
+function suspendVoice(){
+  voicePermissionSerial++;voiceArmedKey=null;voiceHudHeld=false;lan?.voiceAction("suspend");
+}
+async function voiceCommand(requested,hold=false){
+  if(!window?.isFocused())return;
+  const hud=hold||requested==="toggle";
+  if(hud&&(!lan.voice.enabled||lan.value.phase!=="playing"))return;
+  const action=requested==="toggle"?(lan.voice.mode==="open"?"mute":"open-mic"):requested;
+  if(!VOICE_ACTIONS.includes(action))return;
+  const generation=++voicePermissionSerial,key=voiceKey();
+  if(["disable","mute"].includes(action)){voiceArmedKey=null;voiceHudHeld=false;lan.voiceAction(action);return;}
+  if(!voiceAvailable(lan.state()))return;
+  const selector=hud?
+    '.offline-voice-hud a.offline-voice-button[data-standard-voice-action="toggle"][href="/__native__/voice/toggle"]':
+    `.offline-voice-controls a[data-standard-voice-action="${action}"][href="/__native__/voice/${action}"]`;
+  const visible=await window.webContents.executeJavaScript(`Boolean(document.querySelector(${JSON.stringify(selector)}))`);
+  if(!visible||generation!==voicePermissionSerial||key!==voiceKey()||!window?.isFocused()||hold&&!voiceHudHeld)return;
+  if(action==="enable"){lan.voiceAction(action);return;}
+  if(!lan.voice.enabled)return;
+  if(process.platform==="darwin"){
+    voicePrompting=true;
+    let granted=false;
+    try{
+      const status=systemPreferences.getMediaAccessStatus("microphone");
+      granted=status==="granted"||status==="not-determined"&&await systemPreferences.askForMediaAccess("microphone");
+    }finally{voicePrompting=false;}
+    if(generation!==voicePermissionSerial||key!==voiceKey()||hold&&!voiceHudHeld)return;
+    if(!granted){lan.voiceAction("permission-denied");return;}
+    if(!hold&&window&&!window.isFocused()){
+      // Consent can resolve just before macOS gives focus back to the game.
+      const target=window;
+      await new Promise(resolve=>{
+        const done=()=>{clearTimeout(timer);target.removeListener("focus",done);resolve();};
+        const timer=setTimeout(done,1500);target.once("focus",done);
+      });
+    }
+  }
+  if(generation!==voicePermissionSerial||key!==voiceKey()||!window?.isFocused()||hold&&!voiceHudHeld)return;
+  voiceArmedKey=key;lan.voiceAction(action);
+}
 let cloud,cloudHost,pendingCloud;
 function returnFromCloud(url){
   if(cloudHost?.acceptsReturn(url))focusAfterCloud();
@@ -78,7 +121,7 @@ async function brokerInput(value) {
     brokerReady=new Promise((resolve,reject)=>{brokerResolve=resolve;brokerReject=reject;});
     brokerWindow=new BrowserWindow({show:false,width:32,height:32,skipTaskbar:true,
       webPreferences:{preload:path.join(root,"lan-broker-preload.cjs"),sandbox:true,contextIsolation:true,nodeIntegration:false,
-        session:brokerSession,webSecurity:true,backgroundThrottling:false,devTools:!app.isPackaged}});
+        session:brokerSession,webSecurity:true,backgroundThrottling:false,autoplayPolicy:"no-user-gesture-required",devTools:!app.isPackaged}});
     brokerWindow.webContents.setWindowOpenHandler(()=>({action:"deny"}));
     brokerWindow.webContents.on("will-navigate",event=>event.preventDefault());
     brokerWindow.webContents.on("will-redirect",event=>event.preventDefault());
@@ -296,6 +339,8 @@ async function createWindow() {
     else window.close();
   });
   window.on("focus", () => { void checkUpdates(); });
+  window.on("blur",()=>{if(!voicePrompting)suspendVoice();});
+  window.on("minimize",suspendVoice);
   window.webContents.on("did-finish-load", () => { void checkUpdates(); });
   window.webContents.on("did-finish-load", () => lan?.publish());
   window.webContents.on("did-start-navigation", (details,_url,sameDocument,mainFrame) => {
@@ -342,6 +387,7 @@ else {
     offline.webRequest.onBeforeRequest({urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*", "ftp://*/*"]},
       (_request, callback) => callback({cancel:true}));
     configureBrokerSession(brokerSession,{gateway:gatewayOrigin(config),phase:()=>lan.value.phase,
+      microphone:()=>voiceArmedKey===voiceKey()&&voiceRoomActive(lan.state())&&Boolean(window?.isFocused()),
       trusted:contents=>Boolean(brokerWindow&&!brokerWindow.isDestroyed()&&contents===brokerWindow.webContents&&contents.getURL()===BROKER_URL)});
     offline.setPermissionCheckHandler((contents, permission, origin, details) =>
       (contents === window?.webContents && details.isMainFrame && isGameURL(origin) &&
@@ -403,6 +449,33 @@ else {
       try{sender(event);if(extra.length||typeof channel!=="string"||JSON.stringify(data??null).length>48000)return;
         if(channel==="cancel-find")lanSearchRequest++;
         void lan.fromGame(channel,data).catch(error=>lanEvent({type:"notice",message:error.message}));
+      }catch{}
+    });
+    ipcMain.on("standard:voice-action",(event,action,...extra)=>{
+      try{
+        sender(event);
+        if(extra.length||!(VOICE_ACTIONS.includes(action)||action==="toggle"))return;
+        void voiceCommand(action).catch(()=>{voicePrompting=false;voiceArmedKey=null;lan.voiceAction("permission-denied");});
+      }catch{}
+    });
+    ipcMain.on("standard:voice-gesture",(event,action,...extra)=>{
+      try{
+        sender(event);if(extra.length||!["hold-start","hold-end"].includes(action))return;
+        if(action==="hold-end"){
+          voiceHudHeld=false;voicePermissionSerial++;voiceArmedKey=null;
+          lan.voiceAction("release");lan.voiceAction("mute");return;
+        }
+        if(!window?.isFocused()||!lan.voice.enabled||lan.value.phase!=="playing")return;
+        voiceHudHeld=true;
+        void voiceCommand("ptt",true).catch(()=>{voiceHudHeld=false;voiceArmedKey=null;lan.voiceAction("mute");});
+      }catch{}
+    });
+    ipcMain.on("standard:voice-hold",(event,pressed,...extra)=>{
+      try{
+        sender(event);if(extra.length||typeof pressed!=="boolean")return;
+        if(!pressed){lan.voiceAction("release");return;}
+        if(window?.isFocused()&&voiceArmedKey===voiceKey()&&lan.voice.enabled&&lan.voice.mode==="ptt")
+          lan.voiceAction("press");
       }catch{}
     });
     ipcMain.on("standard:lan-broker",(event,text)=>{

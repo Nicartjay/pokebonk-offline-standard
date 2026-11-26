@@ -14,6 +14,7 @@ final class NativeMenuAction {
             if ((PREFIX + action).equals(url)) return action;
         }
         String action=url.substring(PREFIX.length());
+        if(action.matches("voice/(enable|disable|mute|ptt|open-mic|toggle)"))return action;
         if(action.matches("cloud/(connect|cancel|sync|auto-on|auto-off|disconnect|backups|review-local|review-cloud|confirm-local|confirm-cloud)")||
             action.matches("cloud/review-backup/[a-f0-9]{32}"))return action;
         if(joinCode(action)!=null)return action;

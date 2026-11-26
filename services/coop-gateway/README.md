@@ -15,6 +15,12 @@ gameplay acceptance and application publication are still pending.
 
 Gateway: `https://pokebonk-offline-coop.nicartjay.workers.dev`
 
+On November 26, 2026, the voice-enabled Worker admitted the matching local
+LAN-voice test packages while retaining all eight prior build identities.
+Live smoke checks created, joined and closed a code-only room in each Internet
+mode and forwarded voice signaling in both directions. No audio or TURN leases
+were used in those checks. The app was not published.
+
 On November 24, 2026, the service progressed from disabled-first STUN testing
 to owner-approved guarded TURN. Issuer/monitor keys were uploaded only as
 private Worker secrets. No app release was published or subscription changed.
@@ -185,9 +191,12 @@ Prepare/verify one shared game payload. From the repository root, run
 `internetCoop` endpoint is pinned to this Worker's HTTPS `*.workers.dev` root;
 it is not passed into the game configuration. The default STUN preparation
 requires TURN disabled; the explicitly approved guarded path above is separate.
-`--replace-test-builds` replaces earlier test candidates instead of retaining
-up to eight accepted identities. Never use it to retire released builds
-without deliberately planning that compatibility change.
+Use the live Worker settings as a baseline when a deploy carries forward
+previous releases. The allowlist supports up to nine accepted identities;
+preparation fails instead of removing an older build if it is full.
+`--replace-test-builds` replaces the entire existing list with the prepared
+candidate. Never use it to retire released builds without deliberately
+planning that compatibility change.
 
 `standard/scripts/check-internet-native.mjs` is an isolated real-Electron
 transport check, not a gameplay test. It uses fixture profiles and the deployed

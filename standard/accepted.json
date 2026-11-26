@@ -1,8 +1,8 @@
 {
-  "snapshot": "vendor/pokebonk-standard-0.10.31",
-  "version": "0.10.31",
-  "build": "mwv6wzyo",
-  "digest": "4e20fcc6612cd5c2e3e010f45136bd5e1710be74aa9975d0741d0783ffb0f7d5",
-  "adapter": "mwv6wzyo",
-  "review": "Accepted immutable PokéBonk 0.10.31/mwv6wzyo source snapshot, originally captured on 2026-11-25 with hash-verified reuse from the previous pristine snapshot. The structural normal-progression, Pokédex+, Expedition and native co-op integration is retained. App v1.3.1 adds the approved optional cloud-save UI, native sign-in/storage changes, updater feedback, Android readability and supplementary task artwork; original game source/assets are never edited in place. Source-preview designs were approved before local verification. Exact release CI/signature/hash results and truthful remaining acceptance items are recorded separately at publication, not inferred from this capture. Save schema, application ID and signing identities remain unchanged. Unfinished older-engine runs remain preserved and excluded from replay until compatible; never reset them or convert unlock-all saves."
+  "snapshot": "vendor/pokebonk-standard-0.10.36",
+  "version": "0.10.36",
+  "build": "mwxeoqzj",
+  "digest": "1e9733726a187b9f1fc5b58a7b4d5b638d965e30df789657978454dda4402a6f",
+  "adapter": "mwxeoqzj",
+  "review": "Local source candidate only. The 0.10.36 offline adapter binds the relocated services and checkpoint helpers to local progression and retains the original trainer-card editor without public profile/clan calls. Rental catalog refreshed against this exact pristine digest. Unfinished older-engine runs are preserved and not replayed on the new engine. Gameplay, native device checks, Internet co-op admission, packaging and publication are separate from this source refresh."
 }

@@ -127,6 +127,26 @@ test("real Lab purchases enforce funds, deduct earned currency, and cannot buy p
   assert.equal(f.backend.state.profile.stardust, balance);
   assert.equal(f.disk.profile.lab[upgrade.id], upgrade.max);
 });
+
+test("trainer-card purchases and equipped styles persist without granting locked cosmetics", async () => {
+  const f = await fixture();
+  const key = "nb:g:pink";
+  await f.backend.change(profile => { profile.stardust = 4999; });
+  const before = structuredClone(f.disk);
+  await assert.rejects(f.backend.buyCard(f.account, key));
+  assert.deepEqual(f.disk, before);
+  await f.backend.change(profile => { profile.stardust = 5100; });
+  await f.backend.buyCard(f.account, key);
+  assert.equal(f.disk.profile.stardust, 100);
+  assert.ok(f.disk.profile.cosmetics.includes("card:" + key));
+  await assert.rejects(f.backend.buyCard(f.account, key));
+  assert.equal(f.disk.profile.stardust, 100);
+  await f.backend.savePrefs(f.account, {...f.disk.profile, card: {nb: "g:pink", unexpected: "ignored"}});
+  assert.deepEqual((await f.backend.loadProfile()).card, {nb: "g:pink"});
+  await f.backend.savePrefs(f.account, {...f.disk.profile, card: {}});
+  assert.deepEqual(f.disk.profile.card, {});
+});
+
 test("real achievement claims cannot mint currency twice", async () => {
   const f = await fixture();
   const catalog = Object.values(gameConfig).find(value => Array.isArray(value) &&

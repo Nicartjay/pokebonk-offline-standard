@@ -15,6 +15,7 @@ export class LanLobby {
     this.preview = source.preview === true;
     this.phase=source.phase;
     this.connectionMode=source.connectionMode??"lan";
+    this.voiceAvailable=this.connectionMode==="lan"||source.voiceAvailable===true||source.capabilities?.voiceReady===true;
     this.transport=source.transport??(this.connectionMode==="lan"?"lan":"waiting");
     this.me = source.me; this.invitation = source.invitation ?? null;
     this.code = String(source.code??(this.connectionMode==="lan"?"LAN":"ONLINE")).toUpperCase();

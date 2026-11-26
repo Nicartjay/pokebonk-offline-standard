@@ -1,5 +1,6 @@
 // Data only. Also imported by the sandboxed game; no Node or native APIs here.
 import {coopGameConfig,coopRuleTime} from "./coop-rules.mjs";
+import {validateSeasonalMail,validateSeasonalTicket} from "./seasonal-mail.mjs";
 export const FORMAT = "pokebonk-offline-standard";
 export const MAX_STATE_BYTES = 32 * 1024 * 1024;
 export const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -74,6 +75,7 @@ export function validateState(state) {
     if (p[key] !== undefined && (!Number.isFinite(p[key]) || p[key] < 0)) fail("Invalid save balance.");
   }
   for (const key of ["stash", "finished", "spins"]) if (!isObject(state[key])) fail(`Invalid ${key} in save.`);
+  validateSeasonalMail(state.seasonalMail);
   if (state.onboarding != null) {
     if (!isObject(state.onboarding) ||
         state.onboarding.trainerGuide !== undefined && state.onboarding.trainerGuide !== 1) fail("Invalid first-use guide marker.");
@@ -105,6 +107,7 @@ export function validateState(state) {
   const ticket = value => {
     if (!isObject(value) || typeof value.id !== "string" || !value.id.startsWith("offline-") ||
         !Number.isSafeInteger(value.seed) || value.seed < 0 || value.seed > 0xffffffff) fail("Invalid local run ticket.");
+    validateSeasonalTicket(value.offlineSeason);
     if (value.lan != null && (!isObject(value.lan) || ![1,2].includes(value.lan.version) ||
         value.lan.party !== value.party || typeof value.party !== "string" || !/^lan-[\w-]{1,80}$/.test(value.party) ||
         typeof value.lan.me !== "string" || !/^lan-[\w-]{1,80}$/.test(value.lan.me) ||

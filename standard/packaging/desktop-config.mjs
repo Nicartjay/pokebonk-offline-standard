@@ -32,6 +32,7 @@ export function desktopConfiguration(config, {app, output, game, resources, elec
       // Electron's helper-path guard needs exactly the builder's NFD spelling,
       // not merely a visually equivalent NFC "é". Keep display branding intact.
       extendInfo: {CFBundleName: config.productName.normalize("NFD"), CFBundleDisplayName: config.productName,
+        NSMicrophoneUsageDescription:"Use your microphone only when you choose Push-to-talk or Mic on in optional direct co-op voice chat. Voice never uses TURN.",
         NSLocalNetworkUsageDescription:"Connect to trainers on the same Wi-Fi or local hotspot for offline LAN co-op."},
     },
     dmg: {

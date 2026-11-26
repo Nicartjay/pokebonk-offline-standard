@@ -8,8 +8,10 @@ async function catalogs(){
   const snapshot=JSON.parse(await readFile(accepted.snapshot+"/snapshot.json","utf8"));
   const selected=snapshot.files.filter(entry=>
     /^assets\/(?:assets-|cosmetics-|expedition-|dom-).*\.js$/.test(entry.name)||entry.name==="data/items.json");
-  return new Map(await Promise.all(selected.map(async entry=>
+  const files=new Map(await Promise.all(selected.map(async entry=>
     [entry.name,await readFile(accepted.snapshot+"/game/"+entry.name)])));
+  files.set("offline/appearance.js",await readFile("standard/runtime/appearance.js"));
+  return files;
 }
 test("computed appearance and Expedition artwork distinguishes generated looks from optional border PNGs",async()=>{
   const files=await catalogs();
@@ -21,7 +23,9 @@ test("computed appearance and Expedition artwork distinguishes generated looks f
   }
   assert.equal(refs.optional.size,5);
   assert.ok(refs.required.has("assets/ui/frames/look-stone.png"));
-  assert.equal(refs.families["trainer portrait catalog"],32);
+  assert.equal(refs.families["trainer portrait catalog"],33);
+  assert.ok(refs.required.has("assets/ui/avatars/visionary-fg.png"));
+  assert.equal(refs.required.has("assets/ui/avatars/visionary.png"),false);
   assert.equal(refs.families["relic artwork"],47);
   assert.equal(refs.families["Refuge levels (bundled, currently excluded UI)"],12);
   assert.equal(refs.families["Bag and rotating-task reward items"],9);

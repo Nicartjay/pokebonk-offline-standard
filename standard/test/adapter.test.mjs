@@ -41,7 +41,7 @@ test("unsupported upstream structural contracts fail rather than emitting partia
 });
 test("native snapshot writers/recovery work even when Web Storage quota is exhausted", async () => {
   const info = JSON.parse(await readFile("build/standard-game/offline-build.json", "utf8"));
-  const source = await readFile(`build/standard-game/assets/${info.modules.main}`, "utf8");
+  const source = await readFile(`build/standard-game/assets/${info.modules.checkpointModule ?? info.modules.main}`, "utf8");
   const declarations = nodesOf(ast(source), "FunctionDeclaration");
   const find = (predicate, label) => one(declarations.filter(node => predicate(source.slice(node.start, node.end))), label);
   const functions = {

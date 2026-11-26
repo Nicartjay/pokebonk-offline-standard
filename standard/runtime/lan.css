@@ -140,6 +140,49 @@ body > .cp-return { margin-top:var(--standard-titlebar-height,0px); -webkit-app-
   .offline-lan-home .offline-lan-help { order:3; flex:none; }
   .offline-lan-help .cp-pane-body { padding:14px 16px; }
 }
+/* Short Android landscape screens have enough width for two columns, not
+   three. Keep tablet/desktop rules and the narrow one-column fallback. */
+@media (orientation:landscape) and (min-width:600px) and (max-height:560px) {
+  :root[data-standard-platform="android"] .offline-lan-home .cp-home {
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-areas:"play howto" "center howto";
+    /* Size the tracks from their cards even when the scrollport is short. */
+    grid-template-rows:max-content max-content;
+    align-content:start;
+    align-items:start;
+    gap:10px;
+    overflow-x:hidden;
+  }
+  :root[data-standard-platform="android"] .offline-lan-home .cp-left {
+    display:flex;
+    padding:0;
+  }
+  :root[data-standard-platform="android"] .offline-lan-home .offline-lan-middle { gap:10px; }
+  :root[data-standard-platform="android"] .offline-lan-home .cp-pane-head b {
+    min-width:0;
+    white-space:normal;
+    line-height:1.15;
+  }
+  :root[data-standard-platform="android"] .offline-lan-home .cp-play .cp-pane-body {
+    gap:8px;
+    padding:10px;
+  }
+  :root[data-standard-platform="android"] .offline-lan-home .offline-lan-fields { gap:7px; }
+  :root[data-standard-platform="android"] .offline-lan-home .cp-act { padding:8px 10px 10px; }
+  :root[data-standard-platform="android"] .offline-lan-home .cp-find { padding:12px; }
+  :root[data-standard-platform="android"] .offline-lan-home .cp-find-tx { gap:8px; }
+  :root[data-standard-platform="android"] .offline-lan-home .cp-find h2 { font-size:22px; }
+  :root[data-standard-platform="android"] .offline-lan-home .cp-find p { font-size:13px; }
+  :root[data-standard-platform="android"] .offline-lan-home .cp-seek-n { min-height:0; }
+  :root[data-standard-platform="android"] .offline-lan-home :is(.cp-create,.cp-join-btn,.cp-search,.offline-lan-pick-rooms) {
+    min-height:44px;
+    padding:8px 10px;
+    white-space:normal;
+    text-align:center;
+  }
+  :root[data-standard-platform="android"] .offline-lan-home .cp-join .cp-tiles > input[type="text"] { height:44px; }
+}
 /* Recovery alone releases pointer lock so Give up works with mouse/touch.
    No LAN/STUN/TURN badge is added during normal gameplay. */
 .offline-coop-recovery {

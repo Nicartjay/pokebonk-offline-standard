@@ -2,7 +2,7 @@
 
 - **Charcher**: original PokéBonk game. Original artist credits and notices are
   retained verbatim in
-  `vendor/pokebonk-standard-0.10.31/game/creditos.txt` and the prepared game.
+  `vendor/pokebonk-standard-0.10.36/game/creditos.txt` and the prepared game.
 - **VdustR**: original `VdustR/pokebonk-offline` shell/build tooling. Its GNU
   Affero General Public License v3 text is retained in `LICENSE`.
 - **Nicartjay**: normal-progression offline backend integration, native storage,
@@ -13,11 +13,14 @@ This standalone repository was extracted from the Standard sources in
 `e214e96f853daac73ef3a6b7782f4875804851e0` plus the local Standard integration).
 The separate Unlocked/Tauri app was not imported.
 
-The bundled pristine snapshot is PokéBonk **0.10.31**, build **mwv6wzyo**,
-digest `4e20fcc6612cd5c2e3e010f45136bd5e1710be74aa9975d0741d0783ffb0f7d5`.
+The bundled pristine snapshot is PokéBonk **0.10.36**, build **mwxeoqzj**,
+digest `1e9733726a187b9f1fc5b58a7b4d5b638d965e30df789657978454dda4402a6f`.
 Its original credits, game data, assets and source provenance are retained.
 Offline modifications and additional original artwork are tracked separately
 by the structural adapter and hash-checked asset supplement.
+
+The preceding **0.10.31 / mwv6wzyo** snapshot remains unchanged at
+digest `4e20fcc6612cd5c2e3e010f45136bd5e1710be74aa9975d0741d0783ffb0f7d5`.
 
 The preceding PokéBonk **0.10.26 / mwsewi0r** snapshot remains unchanged at
 digest `e5136575172172b5c82df2b65aaf8b58b8b5b4768d32f63a3433984af3cdea77`.

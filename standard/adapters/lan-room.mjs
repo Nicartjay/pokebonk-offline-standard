@@ -102,6 +102,9 @@ export function patchLanRoom(source) {
   "original room leave routine");
   const roomScreen=one(nodesOf(owner,"CallExpression",node=>
     node.arguments.some(argument=>literal(argument)==="cp lobby")),"original room navigation");
+  if(roomScreen.arguments[5]?.type!=="ArrayExpression")throw Error("Unsupported co-op header controls.");
+  replace({start:roomScreen.arguments[5].start+1,end:roomScreen.arguments[5].start+1},
+    `globalThis.PokeBonkOfflineUI.voiceRoomToggle(${stableRoom}),`);
   replace(roomScreen.arguments[4],`()=>globalThis.PokeBonkOfflineUI.confirmLanLeave(${room},()=>void ${leaveRoutine.id.name}(true))`);
   const leaveButton=one(nodesOf(owner,"CallExpression",node=>
     node.arguments[0]&&literal(node.arguments[0])==="button"&&node.arguments[1]?.type==="ObjectExpression"&&

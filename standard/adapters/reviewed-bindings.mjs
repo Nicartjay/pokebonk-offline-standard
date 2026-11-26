@@ -98,6 +98,29 @@ export function reviewedBindings(input) {
     const source = bytes.toString(), key = kind(name, source);
     if (previous.has(key)) current.set(key, moduleInfo(name, source));
   }
+  // The 0.10.36 lifecycle imports its old save helpers from services.
+  // Index the actual local import alias by the exported declaration's shape.
+  // Never treat an unrelated same-named import as a checkpoint helper.
+  const main = current.get("main");
+  const servicesPath = oneOrNone([...new Set([...main.imports.values()]
+    .map(value => value.module).filter(name => /^\.\/services-[\w-]+\.js$/.test(name)))]);
+  if (servicesPath) {
+    const serviceName = "assets/" + servicesPath.slice(2);
+    const services = moduleInfo(serviceName, input.get(serviceName).toString());
+    const locals = new Map();
+    for (const [binding, entry] of main.imports) {
+      if (entry.module !== servicesPath) continue;
+      const declaration = services.declarations.get(services.exports.get(entry.exported));
+      if (!declaration) continue;
+      main.declarations.set(binding, declaration);
+      const shape = sha(JSON.stringify(normalized(declaration)));
+      const group = locals.get(shape) ?? [];
+      group.push(binding); locals.set(shape, group);
+    }
+    for (const [shape, bindings] of locals) {
+      main.shapes.set(shape, [...(main.shapes.get(shape) ?? []), ...bindings]);
+    }
+  }
   const memo = new Map(), resolving = new Set();
   // 0.10.26 initializes App inside its module rather than exporting its class.
   // Audio also gained private-method renaming. Match its single instance by
@@ -127,6 +150,10 @@ export function reviewedBindings(input) {
     nodesOf(node, "TemplateLiteral", value => literal(value) === "dx-nb dx-hdbtn").length === 1 &&
     nodesOf(node, "CallExpression", call => maybeName(call.callee.property) === "researched").length === 1,
   "Pokédex entry and research-notebook controls");
+  semanticRole("dom", node => node.type === "FunctionDeclaration" && node.params.length === 5 &&
+    nodesOf(node, "Property", value => literal(value.key) === "--s").length === 1 &&
+    nodesOf(node, "TemplateLiteral", value => value.quasis[0]?.value.cooked === "av").length === 1,
+  "original framed and animated avatar renderer");
   semanticRole("buildshare", node => node.type === "FunctionDeclaration" && node.params.length === 1 &&
     ["movesOff", "typesOff", "treasures", "friendship", "lastSpecies"].every(key =>
       nodesOf(node, "AssignmentExpression", value => maybeName(value.left.property) === key).length > 0),
@@ -204,6 +231,8 @@ export function reviewedBindings(input) {
   };
   return {resolve, exported};
 }
+
+const oneOrNone = values => values.length ? one(values, "lifecycle services module") : null;
 
 export function bindTemplate(source, resolve, {method = false} = {}) {
   const prefix = method ? "class __StandardTemplate__{" : "";

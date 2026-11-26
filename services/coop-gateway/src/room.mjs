@@ -1,4 +1,5 @@
 import {POLICY, MATCH_RULES, internetMode, coopProtocol, Fault, requireValue, json, body, profile, hash, equalHashes, randomToken, signalDescription} from "./policy.mjs";
+import {voiceSignal} from "../../../standard/common/voice-signaling.mjs";
 import {coopSettings,coopSeats,coopConfig,requireCoopUnlocks,coopLoadout,coopDestination,coopRoomMatches} from "../../../standard/common/coop-rules.mjs";
 const command=(route,value)=>new Request("https://internal"+route,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(value)});
 const linked=(room,a,b)=>room.links[a+"|"+b]===true&&room.links[b+"|"+a]===true;
@@ -35,7 +36,7 @@ export class CoopRoom {
       ...(room.protocolVersion>=3?{departed:departed===true}:{}),
       connected:Boolean(this.socketFor(id))}));
     const active=members.filter(member=>!member.departed);
-    return {type:"room",code:room.code,phase:room.phase,buildId:room.buildId,connectionMode:room.connectionMode,
+    return {type:"room",code:room.code,phase:room.phase,buildId:room.buildId,connectionMode:room.connectionMode,voiceProtocol:1,
       host:room.host,members,chat:room.chat,links:room.links,expiresAt:room.expiresAt,
       linked:active.length>=(room.phase==="playing"?1:2)&&active.every(a=>!a.pending&&a.connected&&active.every(b=>a.id===b.id||linked(room,a.id,b.id))),
       ...(room.match?{match:room.match}:{}),
@@ -187,6 +188,31 @@ export class CoopRoom {
       const message=JSON.parse(data);requireValue(message&&typeof message==="object"&&!Array.isArray(message),400,"invalid_message");
       if(message.type==="heartbeat"&&room.protocolVersion>=3){
         socket.serializeAttachment(attachment);socket.send(JSON.stringify({type:"heartbeat"}));return;
+      }
+      if(message.type==="voice"){
+        socket.serializeAttachment(attachment);
+        // A bounded audio-description/presence envelope, never audio bytes.
+        // No relay credentials or TURN issuer is consulted by this branch.
+        try{
+          const peer=room.members.find(peer=>peer.id===message.to&&peer.id!==member.id&&!peer.departed&&!peer.pending);
+          requireValue(room.protocolVersion>=3&&!member.pending&&peer&&this.socketFor(peer.id),409,"voice_peer_unavailable");
+          const round=room.peerRounds?.[pairKey(member.id,peer.id)]??0;
+          if(message.round!==round)return;
+          if(!attachment.voiceWindow||Date.now()-attachment.voiceWindow>=60000){
+            attachment.voiceWindow=Date.now();attachment.voiceCount=0;
+          }
+          requireValue(++attachment.voiceCount<=36,429,"voice_signal_rate_limited");
+          socket.serializeAttachment(attachment);
+          const payload=voiceSignal(message.payload,room.connectionMode);
+          if(payload.kind==="description")requireValue(payload.description.type===(member.slot<peer.slot?"offer":"answer"),400,"invalid_voice_role");
+          room.voiceSignalBytes=(room.voiceSignalBytes??0)+new TextEncoder().encode(JSON.stringify(payload)).length;
+          requireValue(room.voiceSignalBytes<=1024*1024,429,"voice_signaling_budget_reached");
+          this.socketFor(peer.id).send(JSON.stringify({type:"voice",from:member.id,payload,round}));
+          socket.serializeAttachment(attachment);await this.persist(room);
+        }catch{
+          socket.send(JSON.stringify({type:"voice-unavailable"}));
+        }
+        return; // Do not broadcast a gameplay roster for optional voice traffic.
       }
       if(message.type==="recover"&&room.protocolVersion>=3){
         requireValue(room.phase==="playing"&&room.members.some(peer=>peer.id===message.peer&&peer.id!==member.id&&!peer.departed),400,"invalid_recovery_peer");

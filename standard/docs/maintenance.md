@@ -44,12 +44,18 @@ An online update is a review request, not automatically trusted offline code.
    It verifies hashes/versioned requests and records a new pristine candidate in
    `upstream/standard-candidates/BUILD/`; it does not change accepted.json.
 5. Add/test a structural adapter under `standard/adapters/`. The current source
-   revision selects **0.10.31/mwv6wzyo** in `vendor/pokebonk-standard-0.10.31`,
-   pinned to `4e20fcc6612cd5c2e3e010f45136bd5e1710be74aa9975d0741d0783ffb0f7d5`.
-   It is a development source candidate, NOT a tested or release-approved payload.
-   Its lifecycle module initializes App internally rather than exporting it.
-   Role matching explicitly handles this structure and its decoded-track audio
-   instance. The 0.10.31 binding review additionally resolves the changed
+   revision selects **0.10.36/mwxeoqzj** in `vendor/pokebonk-standard-0.10.36`,
+   pinned to `1e9733726a187b9f1fc5b58a7b4d5b638d965e30df789657978454dda4402a6f`.
+   This is a local source candidate, not a release-approved payload.
+   The service factory and checkpoint helpers moved out of the lifecycle module.
+   The adapter matches their actual imports/exports and substitutes the local
+   backend in the service module. The original new trainer-card editor uses
+   local preferences and the original purchase rule; public profile lookups
+   and clan-frame actions are removed. The offline nameplate selects the normal
+   portrait before requesting an optional mood variant absent from the exact
+   bundled inventory. Retain supplied mood art and the existing on-error
+   fallback for actual load failures. Do not change the global retry indicator.
+   The 0.10.31 binding review still resolves the
    Pokédex+ entry, profile normalizer and earned-reward settlement by unique
    semantic AST roles. This retains the original collection/move-history
    backfill and future updates from earned runs, rather than replacing them
@@ -60,7 +66,7 @@ An online update is a review request, not automatically trusted offline code.
    Four new collection-goal icons are hash-pinned in
    `standard/asset-additions.json`; eleven form sheets remain required
    alongside the event resources.
-   The preceding 0.10.26, 0.10.23 local-complete capture, events capture and
+   The preceding 0.10.31, 0.10.26, 0.10.23 local-complete capture, events capture and
    **0.10.20/mwqb4pwz** remain immutable references; their partial
    event asset sets are not sufficient for a new event-enabled payload.
    The current adapter resolves changed bindings by reviewed AST
@@ -157,6 +163,15 @@ look borders (not just Treasures), trainers, seasonal layers, ranks, relics and
 Expedition item/faction/pass/Refuge catalogs in the existing data-only VM.
 Do not assume a literal-path scan or a clean decoder result proves that no
 referenced image is absent.
+
+### Offline seasonal gifts
+
+See `standard/docs/seasonal-mail.md`. Seasons 1–4 are explicitly approved
+one-time cosmetic archive unlocks for every profile; the current catalog defines
+three packs (Seasons 1–3), not a separate Season 4 pack. Later-season gifts use
+stored offline participation, not a device-clock deadline or inferred online
+history. Review the seasonal catalog and content gate on every upstream update;
+never reassign a published gift ID or assume a new frame is a participation gift.
 
 Optional `--probe-missing` checks only the bounded list of missing public URLs
 on pokebonk.com; a network failure is not recorded as an upstream 404.

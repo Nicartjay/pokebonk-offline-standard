@@ -1,11 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {POLICY, relayAdmission, authorized, body, signalDescription, turnServers} from "../src/policy.mjs";
+import {POLICY, acceptedBuild, relayAdmission, authorized, body, signalDescription, turnServers} from "../src/policy.mjs";
 import worker from "../src/worker.mjs";
 const now = Date.UTC(2026, 10, 24, 12);
 const usage = {scope: "account-shared-realtime-egress", complete: true, bytes: 0, asOf: now,
   periodStart: Date.UTC(2026, 10, 1), periodEnd: Date.UTC(2026, 11, 1)};
 const env = {TURN_MODE: "guarded-payg", TURN_PAYG_RISK_ACCEPTED: "true", TURN_CUTOFF_BYTES: String(POLICY.cutoffBytes)};
+test("the voice test build can be added without retiring any of eight accepted builds",()=>{
+  const previous=Array.from({length:8},(_,i)=>`approved-release-build-${i}`),next="approved-voice-test-build";
+  const vars={ACCEPTED_BUILD_IDS:JSON.stringify([...previous,next])};
+  for(const identity of [...previous,next])assert.equal(acceptedBuild(identity,vars),identity);
+  assert.throws(()=>acceptedBuild("unapproved-client-build",vars),{status:409,code:"matching_build_required"});
+  assert.throws(()=>acceptedBuild(next,{ACCEPTED_BUILD_IDS:JSON.stringify([...previous,next,"one-build-too-many"])}),
+    {status:503,code:"builds_not_configured"});
+  assert.equal(POLICY.maxRooms,8);
+});
 test("disabled relay is the default; soft controls never advertise a hard billing cap", async () => {
   assert.throws(() => relayAdmission({env: {}, usage, now}), /turn_disabled/);
   assert.throws(() => relayAdmission({env: {...env, TURN_PAYG_RISK_ACCEPTED: "false"}, usage, now}), /turn_disabled/);

@@ -31,8 +31,49 @@
 .screen.mm.offline-menu .offline-top-tools .lang-list { left: 0; right: auto; }
 .screen.mm.offline-menu .mm-top > .trainer { order: 1; margin-left: auto; }
 .screen.mm.offline-menu .mm-top .trainer { max-width: 100%; gap: 6px; padding: 4px 7px 4px 4px; flex-wrap: nowrap; }
-.screen.mm.offline-menu .mm-top .trainer .tr-tx { display: flex; max-width: 140px; min-width: 0; }
-.screen.mm.offline-menu .mm-top .tr-tx > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.screen.mm.offline-menu .mm-top .trainer .tr-tx {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 0;
+  max-width: 18em;
+  min-width: 0;
+}
+.screen.mm.offline-menu .mm-top .tr-tx > b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 12em;
+  font-family: var(--font-title);
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.1;
+}
+.screen.mm.offline-menu .mm-top .tr-tx > .offline-trainer-name {
+  display: flex;
+  align-items: center;
+  max-width: 18em;
+}
+.screen.mm.offline-menu .offline-trainer-name > .offline-clan-tag { flex: none; }
+.screen.mm.offline-menu .offline-trainer-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.screen.mm.offline-menu .mm-top .tr-tx > .tr-title {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
 .screen.mm.offline-menu .mm-top .tr-cur { gap: 4px; padding-inline: 6px; }
 .screen.mm.offline-menu .mm-top .tr-cur .currency { font-size: 12px; padding: 3px 8px 3px 4px; }
 .screen.mm.offline-menu .mm-top .tr-cur .currency img { width: 20px; height: 20px; }
@@ -554,7 +595,6 @@
 
 @media (max-width: 1180px) {
   .screen.mm.offline-menu .mm-modes .mm-partner { display: none; }
-  .screen.mm.offline-menu .mm-top .tr-tx > b { max-width: 90px; }
 }
 @media (max-height: 620px) {
   .screen.mm.offline-menu { --standard-screen-top-padding: 10px; gap: 8px; padding-block: 10px; }

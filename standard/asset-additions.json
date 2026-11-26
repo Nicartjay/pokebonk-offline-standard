@@ -1,9 +1,18 @@
 {
   "schemaVersion": 1,
   "origin": "https://pokebonk.com",
-  "reviewedBuild": "mwv6wzyo",
-  "reason": "Original status, Bag/task reward, collection and Treasures artwork omitted from captures, plus explicitly recorded aliases for upstream-missing look frames.",
+  "reviewedBuild": "mwxeoqzj",
+  "reason": "Original status, Bag/task reward, collection and Treasures artwork omitted from captures, explicitly recorded aliases for upstream-missing look frames, and a reviewed 0.10.35 animated trainer-avatar visual backport.",
   "files": [
+    {
+      "name": "assets/ui/avatars/visionary-fg.png",
+      "bytes": 103929,
+      "sha256": "d5858fc26d6e0aa2614c00cb0201ddafd6d0f4394f920132d3e5073f156e84e6",
+      "source": "https://pokebonk.com/assets/ui/avatars/visionary-fg.png",
+      "sourceBuild": "mwwhf156",
+      "sourceVersion": "0.10.35",
+      "review": "Original animated trainer-avatar foreground. Display/ownership support only; no cosmetic is automatically granted."
+    },
     {
       "name": "assets/ui/icons/st-burn.png",
       "bytes": 4600,

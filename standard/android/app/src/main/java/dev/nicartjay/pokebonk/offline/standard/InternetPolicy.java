@@ -43,6 +43,7 @@ final class InternetPolicy {
             members.put(member);
         }
         result.put("members",members).put("connectionMode",mode);
+        result.put("voiceAvailable",source.optBoolean("voiceAvailable",false));
         if(source.optString("transport").matches("lan|stun|turn|direct|waiting|connecting"))result.put("transport",source.getString("transport"));
         if(checked.has("match")){
             JSONObject match=new JSONObject(),raw=checked.getJSONObject("match");

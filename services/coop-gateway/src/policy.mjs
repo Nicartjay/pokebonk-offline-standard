@@ -1,6 +1,6 @@
 import {coopMaps} from "../../../standard/common/coop-rules.mjs";
 export const POLICY = Object.freeze({
-  maxPlayers: 4, maxRooms: 8, maxRoomCreatesPerHour:12, roomLifetimeMs: 2 * 60 * 60 * 1000,
+  maxPlayers: 4, maxRooms: 8, maxAcceptedBuilds: 9, maxRoomCreatesPerHour:12, roomLifetimeMs: 2 * 60 * 60 * 1000,
   maxBodyBytes: 36 * 1024, maxSignalBytes: 32 * 1024,
   maxRoomSignalBytes: 16 * 1024 * 1024, maxMessagesPerMinute: 60,
   credentialTtlSeconds: 300, credentialRotateBeforeMs: 120000,
@@ -95,7 +95,7 @@ export function profile(value) {
 }
 export function acceptedBuild(value, env) {
   let accepted; try { accepted = JSON.parse(env.ACCEPTED_BUILD_IDS); } catch { throw new Fault(503, "builds_not_configured"); }
-  requireValue(Array.isArray(accepted) && accepted.length > 0 && accepted.length <= 8, 503, "builds_not_configured");
+  requireValue(Array.isArray(accepted) && accepted.length > 0 && accepted.length <= POLICY.maxAcceptedBuilds, 503, "builds_not_configured");
   requireValue(typeof value === "string" && /^[A-Za-z0-9|_.-]{16,256}$/.test(value) && accepted.includes(value), 409, "matching_build_required");
   return value;
 }

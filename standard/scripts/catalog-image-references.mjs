@@ -88,10 +88,18 @@ export function collectCatalogImageReferences(files){
     families.get(family).add(name);
   };
   const paths={frame:"ui/frames/",bg:"ui/banners/",tr:"ui/avatars/",sym:"ui/clan/sym/",deco:"ui/clan/deco/"};
+  const appearance=files.get("offline/appearance.js");
+  const animatedTrainers=appearance?configContext(appearance.toString()).values.ANIMATED_TRAINER_ASSETS:{};
+  if(!animatedTrainers||typeof animatedTrainers!=="object"||Array.isArray(animatedTrainers)||
+    Object.entries(animatedTrainers).some(([id,name])=>
+      id!=="visionary"||name!=="assets/ui/avatars/visionary-fg.png"))
+    throw Error("Review the animated trainer artwork registry.");
+  const trainerImage=id=>Object.hasOwn(animatedTrainers,id)?animatedTrainers[id]:`assets/ui/avatars/${id}.png`;
   const walkCosmetics=value=>{
     if(typeof value==="string"){
       const match=/^(frame|bg|tr|sym|deco):([a-z0-9-]+)$/.exec(value);
-      if(match)add("assets/"+paths[match[1]]+match[2]+(match[1]==="bg"?".jpg":".png"),"computed cosmetic and reward IDs");
+      if(match)add(match[1]==="tr"?trainerImage(match[2]):
+        "assets/"+paths[match[1]]+match[2]+(match[1]==="bg"?".jpg":".png"),"computed cosmetic and reward IDs");
       return;
     }
     if(Array.isArray(value)){
@@ -112,13 +120,14 @@ export function collectCatalogImageReferences(files){
     }else if(value&&typeof value==="object")for(const child of Object.values(value))walkCosmetics(child);
   };
   walkCosmetics(looks);
+  walkCosmetics(game);
   const arrays=value=>Object.values(value).filter(Array.isArray);
   const bagItems=bagItemImageReferences(game,files.has("data/items.json")?JSON.parse(files.get("data/items.json")):{});
   for(const item of bagItems)add(item.name,"Bag and rotating-task reward items");
   const avatars=single(arrays(looks).filter(rows=>rows.length&&rows.some(row=>row?.free===true)&&
     rows.every(row=>typeof row?.id==="string"&&typeof row.name==="string"&&typeof row.how==="string")),"trainer portraits");
-  for(const row of avatars)add(`assets/ui/avatars/${row.id}.png`,"trainer portrait catalog");
-  const seasons=single(arrays(looks).filter(rows=>rows.length&&rows.every(row=>
+  for(const row of avatars)add(trainerImage(row.id),"trainer portrait catalog");
+  const seasons=single([...arrays(looks),...arrays(game)].filter(rows=>rows.length&&rows.every(row=>
     Number.isInteger(row?.member)&&typeof row.bg==="string"&&typeof row.frame==="string"&&row.prices)),"seasonal appearance bundles");
   for(const row of seasons){
     // bg/frame are translated display names; the original factory uses st-ID.

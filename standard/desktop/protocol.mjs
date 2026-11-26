@@ -19,9 +19,12 @@ export function endsLanSessionForNavigation(details,legacySameDocument,legacyMai
   const same=typeof details?.isSameDocument==="boolean"?details.isSameDocument:legacySameDocument;
   return main===true&&same===false;
 }
-export function allowLanBrokerPermission(permission,origin,{trusted,isMainFrame,phase}){
-  return trusted===true&&isMainFrame===true&&isGameURL(origin)&&
-    ["local-network","local-network-access"].includes(permission)&&
+export function allowLanBrokerPermission(permission,origin,{trusted,isMainFrame,phase,microphone=false,mediaTypes=[]}){
+  if(trusted!==true||isMainFrame!==true||!isGameURL(origin))return false;
+  if(permission==="media")return microphone===true&&
+    ["hosting","lobby","preparing","playing"].includes(phase)&&
+    Array.isArray(mediaTypes)&&mediaTypes.length===1&&mediaTypes[0]==="audio";
+  return ["local-network","local-network-access"].includes(permission)&&
     ["connecting","hosting","lobby","preparing","playing"].includes(phase);
 }
 export function resolveAsset(root, value) {

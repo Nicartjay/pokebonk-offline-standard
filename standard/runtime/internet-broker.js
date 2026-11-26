@@ -1,6 +1,7 @@
 import {InternetMesh} from "./internet-rtc.js";
 import {gatewayOrigin,internetInvitation,internetState} from "../common/internet-coop.mjs";
 import {COOP_RECONNECT_MS, retryDelay, coopPair, COOP_MAX_PEER_ROUND} from "../common/coop-recovery.mjs";
+import {voiceSignal} from "../common/voice-signaling.mjs";
 
 // Native-owned, isolated broker. A lease owns its socket, mesh and callbacks:
 // nothing from a failed match may act on the next reserved seat.
@@ -196,6 +197,16 @@ export class InternetBroker {
     if(typeof text!=="string"||text.length>48000)throw Error("Invalid room message.");
     const value=JSON.parse(text),mesh=attempt.mesh;
     if(value.type==="heartbeat")return;
+    if(value.type==="voice"){
+      const peer=attempt.room?.members.find(member=>member.id===value.from&&member.id!==attempt.lease.member);
+      if(peer&&!peer.departed&&value.round===(attempt.room.peerRounds?.[coopPair(attempt.lease.member,peer.id)]??0)){
+        try{this.output(run,{type:"voice-signal",peer:peer.id,payload:voiceSignal(value.payload,run.mode)});}catch{}
+      }
+      return;
+    }
+    if(value.type==="voice-unavailable"){
+      this.output(run,{type:"notice",message:"Direct voice signaling is unavailable. Gameplay can continue."});return;
+    }
     // Preserve ordering WITHIN each link, but do not make the other two peers
     // wait through somebody else's asynchronous ICE gathering. A room-wide
     // queue can otherwise time out the fourth player's third connection.
@@ -261,8 +272,16 @@ export class InternetBroker {
         Math.max(0,attempt.recoveryUntil-Date.now()));
     }else{clearTimeout(attempt.recoveryTimer);attempt.recoveryTimer=null;attempt.recoveryUntil=null;attempt.retries=0;}
     this.output(run,{type:"state",value:{...attempt.state,transport,linked:attempt.state.linked&&!attempt.signalingDown,
+      voiceAvailable:attempt.room.voiceProtocol===1&&!attempt.signalingDown,
       peerLinks:[...attempt.linkedPeers].filter(id=>peers.some(peer=>peer.id===id)),
       ...(recovering?{recovery:{status:"reconnecting",until:attempt.recoveryUntil,attempt:attempt.retries}}:{})}});
+  }
+  voiceSend(peer,payload){
+    const run=this.run,attempt=run?.attempt;
+    if(!attempt || attempt.room?.voiceProtocol!==1 || attempt.signalingDown ||
+        !attempt.linkedPeers.has(peer))return;
+    this.send(attempt,{type:"voice",to:peer,payload:voiceSignal(payload,run.mode),
+      round:attempt.room.peerRounds?.[coopPair(attempt.lease.member,peer)]??0});
   }
   rtc(run,attempt,value){
     if(value.round!==undefined&&value.round!==(attempt.room?.peerRounds?.[coopPair(attempt.lease.member,value.peer)]??0))return;

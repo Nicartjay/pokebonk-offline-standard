@@ -8,6 +8,8 @@ import {EVENT_POLICY, applyEventProgress, claimTrack, claimMission} from "./even
 import {expeditionState, expeditionActions, beginExpedition, settleExpedition,cancelExpeditionPreparation} from "./expedition.js";
 import {beginTeamLedger,teamLedger,noteTeamPacket,applyTeamReturn,applyWaitingReturns} from "./expedition-ledger.js";
 import {RentalLibrary} from "./rentals.js";
+import {SEASONAL_MAIL_POLICY,ensureSeasonalMail,seasonalMailbox,readSeasonalMail,claimSeasonalGift,
+  seasonalRunMarker,recordSeasonalParticipation} from "../common/seasonal-mail.mjs";
 const STATE_KEY = "dev.nicartjay.pokebonk.offline.standard.state.v1";
 const PREFS = ["settings", "lastSpecies", "lastBiome", "avatar", "frame", "title", "banner", "skins", "team"];
 const copy = value => structuredClone(value);
@@ -17,7 +19,8 @@ const jsonCopy = value => JSON.parse(JSON.stringify(value));
 const randomId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 export class OfflineBackend {
-  constructor({ data, rules, config, cosmetics, modes, expedition, storage, transport, now, rentals } = {}) {
+  constructor({ data, rules, config, cosmetics, modes, expedition, storage, transport, now, rentals,
+    seasonalPolicy = SEASONAL_MAIL_POLICY } = {}) {
     this.kind = "local";
     this.clockSkew = 0;
     this.data = data;
@@ -27,6 +30,7 @@ export class OfflineBackend {
     this.modes = modes ?? {};
     this.expedition = expedition;
     this.rentals = rentals ?? new RentalLibrary();
+    this.seasonalPolicy = seasonalPolicy;
     this.storage = storage ?? globalThis.localStorage;
     this.now = now ?? (() => Date.now());
     this.transport = transport ?? globalThis.PokeBonkStandardTransport;
@@ -73,6 +77,7 @@ export class OfflineBackend {
       this.state.spins ??= {};
       this.state.playerId ||= `offline-${randomId()}`;
       ensureRecords(this.state, this.modes.recordMetrics);
+      ensureSeasonalMail(this.state, this.now(), this.seasonalPolicy);
       // Always establish the local file save before entering the game.
       await this.persist();
     })();
@@ -134,6 +139,16 @@ export class OfflineBackend {
     });
   }
   recordsLocal(tab = "kos") { return copy(personalRecords(this.state, tab, this.modes.recordMetrics)); }
+  seasonalMailbox() { return copy(seasonalMailbox(this.state, this.seasonalPolicy)); }
+  readSeasonalMail() {
+    return this.change(() => { readSeasonalMail(this.state, this.now(), this.seasonalPolicy); });
+  }
+  claimSeasonalGift(account, id) {
+    return this.change(() => {
+      claimSeasonalGift(this.state, id, this.now(), this.seasonalPolicy);
+      return {profile: this.profile(), mailbox: this.seasonalMailbox()};
+    });
+  }
   rentalBuilds(account, species) { return this.rentals.list(species); }
   rentalIndex() { return this.rentals.index(); }
   claimEventTrack(account, id, index) {
@@ -159,6 +174,15 @@ export class OfflineBackend {
   async savePrefs(account, profile) {
     return this.change(saved => {
       for (const key of PREFS) if (profile[key] !== undefined) saved[key] = copy(profile[key]);
+      if (typeof this.rules.buyCard === "function") {
+        // The reviewed upstream normalizer bounds card keys and look slots.
+        // An empty card object explicitly clears the stored customization.
+        const appearance = this.normalize({...saved, card: profile.card, looks: profile.looks});
+        for (const key of ["card", "looks"]) {
+          if (appearance[key] === undefined) delete saved[key];
+          else saved[key] = appearance[key];
+        }
+      }
       saved.settings.showLadder = false;
       saved.settings.teamChat = false;
       return this.profile();
@@ -185,6 +209,10 @@ export class OfflineBackend {
           case "item": result = this.rules.qt(profile, action.key); break;
           case "shop": result = this.rules.Yt(profile, action.id, this.now()); break;
           case "cosmetic": result = this.rules.Kt(profile, action.id); break;
+          case "card":
+            if (typeof this.rules.buyCard !== "function") throw new Error("Local trainer cards are not available in this game build.");
+            result = this.rules.buyCard(profile, action.key, this.data());
+            break;
           case "archive": result = this.rules.Wt(profile, action.key, action.off, key => this.config.Nr.has(key)); break;
           case "move": result = this.rules.Gt(profile, action.member, action.key, action.off); break;
           case "types": result = this.rules.cn(profile, action.member, action.types); break;
@@ -203,6 +231,7 @@ export class OfflineBackend {
   buyItem(a, key) { return this.actions(a, [{ k: "item", key }]); }
   buyShop(a, id) { return this.actions(a, [{ k: "shop", id }]); }
   buyCosmetic(a, id) { return this.actions(a, [{ k: "cosmetic", id }]); }
+  buyCard(a, key) { return this.actions(a, [{ k: "card", key }]); }
   archiveItem(a, key, off) { return this.actions(a, [{ k: "archive", key, off }]); }
   archiveMove(a, member, key, off) { return this.actions(a, [{ k: "move", member, key, off }]); }
   setTypesOff(a, member, types) { return this.actions(a, [{ k: "types", member, types }]); }
@@ -289,6 +318,7 @@ export class OfflineBackend {
         local: true, ranked: true, clean: true, offline: false, started: this.now(),
         boosts, config: copy(config), ...(daily ? {mutation: daily.mutation.id} : {}),
         ...(isEventMode(mode) ? {eventPolicy: EVENT_POLICY} : {}),
+        offlineSeason: seasonalRunMarker(this.seasonalPolicy),
       };
       if (mode === "expedition") beginExpedition(profile, this.expedition, ticket, this.now());
       this.state.activeRun = { ticket, status: "running" };
@@ -326,6 +356,7 @@ export class OfflineBackend {
         ...(runConfig.mode==="mutation"?{mutation:runConfig.mutation}:{}),
         ...(runConfig.mode==="bossrush"?{eventPolicy:EVENT_POLICY}:{}),
         lan: {version: 2, party: session.match.party, me: session.me, size: session.members.length, launched: false},
+        offlineSeason: seasonalRunMarker(this.seasonalPolicy),
       };
       if(runConfig.mode==="expedition"){
         beginExpedition(profile,this.expedition,ticket,this.now());
@@ -431,6 +462,7 @@ export class OfflineBackend {
       addRecord(targetRecords, {...normalized, ...info.record,
         ...(runConfig.mutationDay != null ? {mutationDay: runConfig.mutationDay} : {})}, this.modes.recordMetrics);
       this.state.finished[ticket.id] = copy(info);
+      if (!legacyEvent) recordSeasonalParticipation(this.state, ticket, normalized, this.now(), this.seasonalPolicy);
       for (const id of Object.keys(this.state.finished).slice(0, -100)) delete this.state.finished[id];
       this.state.activeRun = null;
       this.state.suspended = null;
@@ -553,6 +585,7 @@ export class OfflineBackend {
       this.state.spins ??= {};
       this.state.playerId ||= `offline-${randomId()}`;
       ensureRecords(this.state, this.modes.recordMetrics);
+      ensureSeasonalMail(this.state, this.now(), this.seasonalPolicy);
     });
   }
 }
