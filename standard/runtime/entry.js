@@ -4,9 +4,11 @@ import {OfflineBackend} from "./backend.js";
 import {installOfflineUI} from "./ui.js";
 import {boot} from "./bindings.js";
 import {installAndroidSafeArea, installAndroidStarterLayout} from "./android-ui.js";
+import {installAndroidTextOutlines} from "./android-text.js";
 import config from "./config.js";
 globalThis.PokeBonkOfflineBackend = OfflineBackend;
 installAndroidSafeArea();
+installAndroidTextOutlines();
 installAndroidStarterLayout();
 installOfflineUI(config);
 const checkpoint = () => {

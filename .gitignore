@@ -36,3 +36,8 @@ cloudflare-coop.json
 cloudflare-gateway-secrets.json
 cloudflare-usage.json
 *.secrets.json
+cloud-account-v1.bin
+cloud-sync-v1.json
+before-cloud-*.json
+client_secret_*.json
+google-oauth*.json

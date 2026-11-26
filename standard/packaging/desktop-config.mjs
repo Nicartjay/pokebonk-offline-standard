@@ -1,5 +1,6 @@
 import path from "node:path";
 import {artifactName} from "../common/manifest.mjs";
+import {CLOUD_RETURN_SCHEME} from "../common/cloud-return.mjs";
 
 // No electron-updater or website publishing. The trusted native updater verifies
 // our dedicated signed manifest and leaves installation to the user.
@@ -8,6 +9,7 @@ export function desktopConfiguration(config, {app, output, game, resources, elec
   return {
     appId: config.applicationId,
     productName: config.productName,
+    protocols: [{name:"PokéBonk Offline cloud sign-in return",schemes:[CLOUD_RETURN_SCHEME],role:"Viewer"}],
     electronVersion,
     directories: {app, output, buildResources: resources},
     files: ["standard/desktop/**", "standard/common/**", "standard/config.json", "package.json", "LICENSE", "NOTICE.md", "README.md"],

@@ -131,6 +131,20 @@ refuses to overwrite different captured artwork. Review/retire these aliases
 when a later upstream version supplies its own style frames. Do not hide the
 game's graphics retry notice to mask missing resources.
 
+### Bag and rotating-task reward artwork
+
+The original Bag catalog, not just `data/items.json`, is authoritative for
+custom daily/weekly task and Shop items. The original item factory uses a
+metadata icon when available, otherwise `items/ITEM-ID.png`. Lure has no entry
+in the older PokeAPI metadata; `lure-ball.png` is a different item.
+
+`catalog-image-references.mjs` requires all nine current Bag item images.
+For an accepted/reviewed snapshot, `node standard/scripts/capture-task-images.mjs`
+fetches only missing original PNGs and pins their size/hash in the supplement.
+Refresh/review this catalog during upstream updates so a later reward rotation
+cannot reveal another uncaptured item. Do not replace rewards, hide the retry
+counter or call its Poké Ball error fallback the intended artwork.
+
 ### Audit current artwork without creating/replacing a build
 
 Run `node standard/scripts/audit-images.mjs --source` for the exact accepted

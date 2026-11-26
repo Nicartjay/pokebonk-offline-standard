@@ -4,6 +4,7 @@ export const BROKER_MODULES=new Set([
   "offline/lan-broker.js","offline/lan-session.js","offline/lan-rtc.js",
   "offline/internet-broker.js","offline/internet-rtc.js","offline/stun-first.js",
   "common/internet-coop.mjs",
+  "offline/cloud-broker.js","common/cloud-sync.mjs",
 ]);
 const LITERALS=new Map([
   ["offline/stun-first.js",new Set(["stun:stun.cloudflare.com:3478"])],

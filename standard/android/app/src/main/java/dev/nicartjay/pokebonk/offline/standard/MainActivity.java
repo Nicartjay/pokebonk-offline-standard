@@ -38,6 +38,7 @@ import java.util.concurrent.Executors;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 @SuppressWarnings("deprecation")
 public final class MainActivity extends Activity {
@@ -49,6 +50,12 @@ public final class MainActivity extends Activity {
     private GameSafeArea safeArea;
     private NativeSaveStore saves;
     private RepositoryUpdater updater;
+    private CloudNative cloud;
+    private JSONObject configForCloud;
+    private WebView cloudBroker;
+    private boolean cloudReady;
+    private JSONObject pendingCloudFeedback;
+    private final List<String> cloudQueue=new ArrayList<>();
     private CoopNetwork lan;
     private String coopGateway;
     private WebView lanBroker;
@@ -65,6 +72,8 @@ public final class MainActivity extends Activity {
             if (resumed && hasWindowFocus() && web != null) web.evaluateJavascript(recoveryMode ? "!globalThis.PokeBonkNativeApp?.run" : IDLE, value -> {
                 boolean idle = "true".equals(value);
                 if (idle && !dialogOpen) presentUpdate();
+                if(idle&&!dialogOpen)presentCloud();
+                if(cloudBroker!=null&&cloudReady)cloudBroker.evaluateJavascript("globalThis.PokeBonkCloudInput('tick')",null);
             });
             handler.postDelayed(this, 2000);
         }
@@ -78,7 +87,9 @@ public final class MainActivity extends Activity {
                 config = new JSONObject(new String(readBounded(input, 256 * 1024), StandardCharsets.UTF_8));
             }
             saves = new NativeSaveStore(this, config);
+            configForCloud=config;
             updater = new RepositoryUpdater(this, saves, config);
+            cloud=new CloudNative(this,saves,config);
             String digest;
             try(InputStream input=getAssets().open("www/asset-manifest.json")){
                 digest=new JSONObject(new String(readBounded(input,4*1024*1024),StandardCharsets.UTF_8)).getString("gameDigest");
@@ -123,7 +134,9 @@ public final class MainActivity extends Activity {
         web.addJavascriptInterface(new StorageBridge(), "PokeBonkStandardAndroid");
         web.addJavascriptInterface(new LanBridge(),"PokeBonkLANAndroid");
         web.setWebViewClient(new OfflineAssetWebViewClient(getAssets(),
-            () -> { recoveryMode = false; publishSystemTheme(); applySafeArea(root.getRootWindowInsets()); lan.publish(); }, this::nativeMenuAction));
+            () -> { recoveryMode = false; publishSystemTheme(); applySafeArea(root.getRootWindowInsets()); lan.publish();
+                if(CloudNative.origin(configForCloud)!=null&&cloudBroker==null)createCloudBroker();
+            }, this::nativeMenuAction));
         web.addOnLayoutChangeListener((view, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
             if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) publishSafeArea();
         });
@@ -204,7 +217,7 @@ public final class MainActivity extends Activity {
     @Override @SuppressLint("GestureBackNavigation") public void onBackPressed() { back(); }
     private void back() {
         if (dialogOpen) return;
-        web.evaluateJavascript("(globalThis.PokeBonkOfflineUI?.dismissUpdate?.() || globalThis.PokeBonkOfflineUI?.lanBack?.())===true",handled->{
+        web.evaluateJavascript("(globalThis.PokeBonkOfflineUI?.dismissUpdate?.() || globalThis.PokeBonkOfflineUI?.dismissCloud?.() || globalThis.PokeBonkOfflineUI?.lanBack?.())===true",handled->{
             if(!"true".equals(handled))backOutsideRoom();
         });
     }
@@ -263,6 +276,10 @@ public final class MainActivity extends Activity {
         nativeMenuAction(action);
     }
     private void nativeMenuAction(String action) {
+        if(action.startsWith("cloud/")){
+            String[] pieces=action.substring(6).split("/");
+            whenIdle(()->cloudInput(pieces[0],pieces.length==2?pieces[1]:null));return;
+        }
         if ("download-update".equals(action) || "install-update".equals(action)) {
             whenIdle(() -> web.evaluateJavascript("Boolean(document.querySelector('.offline-update-card a[data-standard-native-action=\"" +
                 action + "\"][href=\"/__native__/" + action + "\"]'))", visible -> {
@@ -298,6 +315,8 @@ public final class MainActivity extends Activity {
         }
         whenIdle(() -> {
             if ("check-for-updates".equals(action)) updater.check(true);
+            else if ("cloud-saves".equals(action))
+                cloudInput("open",null);
             else if ("export-backup".equals(action)) exportSave();
             else if ("import-backup".equals(action)) startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE).setType("application/json"), IMPORT);
@@ -325,6 +344,65 @@ public final class MainActivity extends Activity {
             // toasts or silent loss of feedback while gameplay owns the screen.
             if (!"true".equals(handled)) updater.retryFeedback(value);
         });
+    }
+    void cloudIdle(Consumer<Boolean> callback){
+        handler.post(()->{
+            if(isFinishing()||isDestroyed()||!resumed||!hasWindowFocus()||web==null){callback.accept(false);return;}
+            web.evaluateJavascript(IDLE,value->{
+                boolean room=true;
+                try{room=new JSONObject(lan.state()).optString("phase").matches("connecting|hosting|lobby|preparing|playing");}catch(Exception ignored){}
+                callback.accept("true".equals(value)&&!room&&resumed&&!isFinishing());
+            });
+        });
+    }
+    void cloudFeedback(JSONObject value){
+        handler.post(()->{
+            if(isFinishing()||isDestroyed()||value.toString().length()>24000)return;
+            pendingCloudFeedback=value;whenIdle(this::presentCloud);
+        });
+    }
+    private void presentCloud(){
+        JSONObject value=pendingCloudFeedback;
+        if(value==null||web==null)return;
+        web.evaluateJavascript("globalThis.PokeBonkOfflineUI?.cloudFeedback("+value+") ?? false",handled->{
+            if("true".equals(handled)&&pendingCloudFeedback==value)pendingCloudFeedback=null;
+        });
+    }
+    void cloudReply(String id,int index,int total,String data){
+        handler.post(()->{
+            if(cloudBroker!=null&&!isFinishing()&&!isDestroyed())
+                cloudBroker.evaluateJavascript("globalThis.PokeBonkCloudReply("+JSONObject.quote(id)+","+index+","+total+","+JSONObject.quote(data)+")",null);
+        });
+    }
+    void cloudReady(){
+        handler.post(()->{
+            if(cloudBroker==null||isFinishing()||isDestroyed())return;
+            cloudReady=true;
+            for(String command:cloudQueue)cloudBroker.evaluateJavascript(command,null);
+            cloudQueue.clear();
+        });
+    }
+    void reloadAfterCloud(){handler.post(()->{if(web!=null&&!isFinishing()&&!isDestroyed())web.reload();});}
+    private void cloudInput(String action,String selection){
+        if(isFinishing()||isDestroyed())return;
+        if(cloudBroker==null)createCloudBroker();
+        String script="globalThis.PokeBonkCloudInput("+JSONObject.quote(action)+","+(selection==null?"undefined":JSONObject.quote(selection))+")";
+        if(cloudReady)cloudBroker.evaluateJavascript(script,null);
+        else if(cloudQueue.size()<16)cloudQueue.add(script);
+    }
+    @SuppressLint({"SetJavaScriptEnabled","AddJavascriptInterface"})
+    private void createCloudBroker(){
+        cloudBroker=new WebView(this);WebSettings settings=cloudBroker.getSettings();
+        settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(false);
+        settings.setAllowContentAccess(false);settings.setAllowFileAccess(false);
+        settings.setAllowFileAccessFromFileURLs(false);settings.setAllowUniversalAccessFromFileURLs(false);
+        settings.setBlockNetworkLoads(true);settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setSupportMultipleWindows(false);settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        cloudBroker.setFocusable(false);cloudBroker.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        cloudBroker.setAlpha(0);cloudBroker.addJavascriptInterface(new CloudBridge(),"PokeBonkCloudNative");
+        cloudBroker.setWebViewClient(new OfflineAssetWebViewClient(getAssets(),()->{},ignored->{},true));
+        root.addView(cloudBroker,new FrameLayout.LayoutParams(1,1));
+        cloudBroker.loadUrl(OfflineAssetWebViewClient.APP_ORIGIN+"/offline/cloud-broker.html");
     }
     private void exportSave() {
         io.execute(() -> {
@@ -373,6 +451,15 @@ public final class MainActivity extends Activity {
             } catch (Exception error) { notice("Backup not imported: " + error.getMessage()); }
         });
     }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // singleTask returns to the current WebViews/room, never recreates the
+        // game or trusts browser-supplied tokens, commands or destinations.
+        if(intent!=null&&Intent.ACTION_VIEW.equals(intent.getAction())&&cloud!=null&&
+            cloud.acceptsReturn(intent.getDataString())) {
+            whenIdle(this::presentCloud);
+        }
+    }
     @Override protected void onResume() {
         super.onResume(); resumed = true; hideBars();
         if (web != null) { web.onResume(); publishSystemTheme(); }
@@ -404,6 +491,9 @@ public final class MainActivity extends Activity {
         if (root != null) root.requestApplyInsets();
     }
     @Override protected void onDestroy() {
+        if(cloud!=null)cloud.close();
+        if(cloudBroker!=null){cloudBroker.removeJavascriptInterface("PokeBonkCloudNative");cloudBroker.destroy();cloudBroker=null;}
+        cloudQueue.clear();
         if(lan!=null)lan.close();
         if(lanBroker!=null){lanBroker.removeJavascriptInterface("PokeBonkLanBrokerNative");lanBroker.stopLoading();lanBroker.destroy();lanBroker=null;}
         lanBrokerQueue.clear();
@@ -481,15 +571,17 @@ public final class MainActivity extends Activity {
         }
         @JavascriptInterface public String loadState() {
             try {
-                JSONObject value = saves.load();
-                return new JSONObject().put("ok", true).put("value", value == null ? JSONObject.NULL : value).toString();
+                return new JSONObject().put("ok", true).put("value",saves.clientLoad()).toString();
             } catch (Exception error) { return failure(error); }
         }
         @JavascriptInterface public String saveState(String text) {
             try {
                 if (text == null || text.length() > NativeSaveStore.MAX_BYTES) throw new Exception("Invalid native save.");
-                saves.save(text); return "{\"ok\":true,\"value\":true}";
+                saves.clientSave(text); return "{\"ok\":true,\"value\":true}";
             } catch (Exception error) { return failure(error); }
         }
+    }
+    public final class CloudBridge {
+        @JavascriptInterface public void request(String packet){cloud.accept(packet);}
     }
 }

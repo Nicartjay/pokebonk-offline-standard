@@ -62,6 +62,14 @@ window.addEventListener("DOMContentLoaded", () => {
 // cannot request it. The main process separately validates sender and idle.
 document.addEventListener("click", event => {
   if (!event.isTrusted || event.button !== 0) return;
+  const cloud=event.target.closest?.("a[data-standard-cloud-action]");
+  if(cloud&&cloud.closest(".offline-cloud-card")){
+    const action=cloud.dataset.standardCloudAction,selection=cloud.dataset.cloudRevision;
+    if(!["connect","cancel","sync","auto-on","auto-off","disconnect","backups","review-local","review-cloud","confirm-local","confirm-cloud","review-backup"].includes(action)||
+      (action==="review-backup"?!/^[a-f0-9]{32}$/.test(selection??""):selection!==undefined)||
+      cloud.getAttribute("href")!=="/__native__/cloud/"+action+(selection?"/"+selection:""))return;
+    event.preventDefault();ipcRenderer.send("standard:cloud-action",action,selection);return;
+  }
   const lanLink=event.target.closest?.("a[data-standard-lan-action]");
   if(lanLink&&lanLink.closest(".offline-lan-card,.offline-lan-home,.offline-lan-room")){
     const action=lanLink.dataset.standardLanAction;
@@ -105,10 +113,11 @@ document.addEventListener("click", event => {
     ipcRenderer.send("standard:update-action", action);
     return;
   }
-  const scope = action === "check-for-updates" ? ".offline-player-card" :
+  const scope = ["check-for-updates","cloud-saves"].includes(action) ? ".offline-player-card" :
     action === "report-bug" ? ".offline-report-card" : null;
   if (!scope || !link.closest(scope) || link.getAttribute("href") !== "/__native__/" + action) return;
   event.preventDefault();
   if (action === "check-for-updates") ipcRenderer.send("standard:check-updates");
+  else if (action === "cloud-saves") ipcRenderer.send("standard:cloud-status");
   else if (action === "report-bug") ipcRenderer.send("standard:report-bug");
 }, true);

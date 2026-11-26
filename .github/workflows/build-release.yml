@@ -43,6 +43,7 @@ jobs:
         run: |
           node standard/scripts/audit-coop-secrets.mjs
           node --test services/coop-gateway/test/*.test.mjs
+          node --test services/cloud-saves/test/*.test.mjs
       - run: pnpm prepare:game
       - run: pnpm test
       - run: pnpm verify

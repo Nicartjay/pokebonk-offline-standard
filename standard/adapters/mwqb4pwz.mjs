@@ -144,9 +144,16 @@ for (const node of parse(sourceMain).body) {
             "end-of-run local record panel");
           const bodyStart = method.value.body.start + 1 - method.start;
           const [run, , info, error] = method.value.params.map(param => param.name);
-          const guard = `if(${run}.tower||${run}.rush)return globalThis.PokeBonkOfflineUI.challengeResult(this,${run},${info},${error});`;
+          const guard = `if(!${run}.coop&&(${run}.tower||${run}.rush))return globalThis.PokeBonkOfflineUI.challengeResult(this,${run},${info},${error});`;
           const from=recordPanel.arguments[0].start-method.start,to=recordPanel.arguments[1].end-method.start;
-          const rewritten=old.slice(0,from)+'"Personal records","Saved on this device"'+old.slice(to);
+          const returnButton=one(nodesOf(method,"CallExpression",node=>literal(node.arguments[0])==="button"&&
+            node.arguments[1]?.properties?.some(property=>maybeName(property.key)==="onclick"&&
+              nodesOf(property.value,"MemberExpression",member=>maybeName(member.property)==="onCoop").length)),
+            "original results Co-op button");
+          const options=returnButton.arguments[1];
+          const marked=old.slice(0,options.end-1-method.start)+',"data-standard-coop-return":"true"'+
+            old.slice(options.end-1-method.start);
+          const rewritten=marked.slice(0,from)+'"Personal records","Saved on this device"'+marked.slice(to);
           add(main, method, rewritten.slice(0, bodyStart) + guard + rewritten.slice(bodyStart));
         }
       }
@@ -162,7 +169,7 @@ for (const node of parse(sourceMain).body) {
       }
       if (enableExpedition && method.key.name === "launch") {
         const hook=one(nodesOf(method,"AssignmentExpression",n=>maybeName(n.left.property)==="onCoop"),"co-op return action");
-        add(main,hook.right,"()=>{this.toMenu();globalThis.PokeBonkOfflineUI.localCoop()}");
+        add(main,hook.right,"()=>{this.run?.coop?.keepRoom();this.toMenu();globalThis.PokeBonkOfflineUI.localCoop()}");
       }
       if (method.key.name === "constructor") {
         const loop=one(nodesOf(method,"CallExpression",node=>literal(node.arguments[1])==="loop"&&

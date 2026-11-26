@@ -42,6 +42,26 @@ function removableLookBorder(modules){
   return matches[0];
 }
 
+export function bagItemImageReferences(game,metadata={}){
+  // Bag IDs also feed rotating daily/weekly task rewards and the Shop. New
+  // custom items need not exist in the older PokeAPI items.json metadata.
+  const catalogs=Object.values(game).filter(rows=>Array.isArray(rows)&&rows.length&&
+    rows.some(row=>row?.id==="rare-candy")&&rows.some(row=>row?.id==="master-ball")&&
+    rows.every(row=>typeof row?.id==="string"&&typeof row.name==="string"&&typeof row.desc==="string"));
+  if(catalogs.length!==1||catalogs[0].length>64)throw Error("Unsupported Bag/task-reward artwork catalog.");
+  const seen=new Set();
+  return catalogs[0].map(row=>{
+    if(!/^[a-z0-9-]{1,80}$/.test(row.id)||seen.has(row.id))throw Error("Unsupported Bag item identity.");
+    seen.add(row.id);
+    // Match the original DOM item factory: metadata icon first, then this
+    // exact item filename. A similarly named PokeAPI item is not a substitute.
+    const icon=metadata[row.id]?.icon||`items/${row.id}.png`;
+    if(typeof icon!=="string"||!/^items\/[a-z0-9-]+\.png$/.test(icon))
+      throw Error("Unsupported Bag item artwork path.");
+    return {id:row.id,name:"assets/"+icon};
+  });
+}
+
 // Evaluate only the accepted DATA modules in the existing code-generation-
 // disabled VM: no DOM, native APIs, process, network or user save is available.
 // This resolves generated cosmetic/reward lists as well as literal strings.
@@ -93,6 +113,8 @@ export function collectCatalogImageReferences(files){
   };
   walkCosmetics(looks);
   const arrays=value=>Object.values(value).filter(Array.isArray);
+  const bagItems=bagItemImageReferences(game,files.has("data/items.json")?JSON.parse(files.get("data/items.json")):{});
+  for(const item of bagItems)add(item.name,"Bag and rotating-task reward items");
   const avatars=single(arrays(looks).filter(rows=>rows.length&&rows.some(row=>row?.free===true)&&
     rows.every(row=>typeof row?.id==="string"&&typeof row.name==="string"&&typeof row.how==="string")),"trainer portraits");
   for(const row of avatars)add(`assets/ui/avatars/${row.id}.png`,"trainer portrait catalog");
@@ -131,5 +153,5 @@ export function collectCatalogImageReferences(files){
   const pass=single(arrays(exp).filter(rows=>rows.length>5&&rows.every(row=>
     typeof row?.kind==="string"&&!row.key)&&rows.some(row=>row.kind==="cosmetic")&&rows.some(row=>row.kind==="coins")),"Expedition pass artwork");
   for(const row of pass)add(`assets/ui/exp/pass-${row.kind}.png`,"Expedition pass rewards");
-  return {required,optional,families:Object.fromEntries([...families].map(([name,paths])=>[name,paths.size]))};
+  return {required,optional,bagItems,families:Object.fromEntries([...families].map(([name,paths])=>[name,paths.size]))};
 }

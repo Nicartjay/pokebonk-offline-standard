@@ -49,6 +49,11 @@ export function updateFeedbackView(value, config) {
   if (kind && total !== null) rows.push(["Download", `${kinds[kind]} · ${megabytes(total)}`]);
   return {
     state: value.state, title: text[0], summary: text[1], checking: value.state === "checking", busy, rows,
+    steps: ["Release", "Download", "Verify", "Install"].map((label,index)=>{
+      const active=({checking:0,current:0,ahead:0,available:0,downloading:1,verifying:2,ready:3,installing:3,
+        error:stage==="download"?1:stage==="install"?3:0})[value.state];
+      return {label,state:index<active?"done":index===active?"active":"next"};
+    }),
     ...(value.state === "downloading" ? {percent: Math.floor(received / total * 100),
       progressText: `${megabytes(received)} / ${megabytes(total)}`} : {}),
     notes: transfer && typeof value.notes === "string" ? value.notes.slice(0, 20000) : "",
@@ -65,4 +70,20 @@ export function updateFeedbackView(value, config) {
       value.state === "available" ? "No automatic installation. Back up your save before updating." :
       "This checks offline app releases—not changes on the live game website. Website changes arrive after they’re included in an app release.",
   };
+}
+// Keep only bounded, presentation-only fields when reopening a hidden update.
+// No download URL, native file path, method or signed manifest enters the UI.
+export function updateFeedbackSnapshot(value,config){
+  const view=updateFeedbackView(value,config);if(!view)return null;
+  const snapshot={state:view.state,notes:view.notes,detail:view.detail};
+  for(const key of ["latestVersion","upstreamVersion"])
+    if(typeof value[key]==="string"&&/^\d+\.\d+\.\d+$/.test(value[key])&&value[key].length<=48)snapshot[key]=value[key];
+  if(typeof value.upstreamBuild==="string"&&/^[\w-]{4,80}$/.test(value.upstreamBuild))snapshot.upstreamBuild=value.upstreamBuild;
+  if(["dmg","zip","nsis","portable","AppImage","deb","apk"].includes(value.kind))snapshot.kind=value.kind;
+  if(Number.isSafeInteger(value.totalBytes)&&value.totalBytes>0&&value.totalBytes<=1024**3)snapshot.totalBytes=value.totalBytes;
+  if(Number.isSafeInteger(value.receivedBytes)&&value.receivedBytes>=0&&value.receivedBytes<=snapshot.totalBytes)
+    snapshot.receivedBytes=value.receivedBytes;
+  if(["check","download","install"].includes(value.errorStage))snapshot.errorStage=value.errorStage;
+  if(["download-update","install-update"].includes(value.retryAction))snapshot.retryAction=value.retryAction;
+  return snapshot;
 }

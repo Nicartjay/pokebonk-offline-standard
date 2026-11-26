@@ -99,6 +99,7 @@ test("original artwork and explicit upstream-404 aliases are hash checked and ca
   const before=await readFile(snapshot,"utf8"),files=new Map();
   const extra=await addReviewedImages(files,accepted.build);
   assert.equal(extra.files.length,contract.files.length);
+  assert.ok(files.get("assets/items/lure.png")?.length>=33,"Tasks must not fall back to a Poké Ball for Lure.");
   for(const name of ["burn","poison","para","sleep","frozen","chill","stun","confuse","charm","root","pull","wet","curse","healblock","shield"])
     assert.ok(files.get("assets/ui/icons/st-"+name+".png")?.length>100,name);
   for(const style of ["ember","verdant","tidal","psionic","spectre","storm","geode","candy","frost","gothic","circuit","toxic"])

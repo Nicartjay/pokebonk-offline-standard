@@ -1,0 +1,85 @@
+// Public, static information only. No login, cookies, Durable Object or R2
+// access, including when the optional sync service is disabled or at quota.
+const ORIGIN="https://pokebonk-offline-cloud.nicartjay.workers.dev";
+const PROJECT="https://github.com/Nicartjay/pokebonk-offline-standard";
+const SUPPORT=PROJECT+"/issues";
+const DATE="November 25, 2026";
+const link=(href,label)=>`<a href="${href}" rel="noopener noreferrer">${label}</a>`;
+const contact=`${link(SUPPORT,"project support on GitHub")}`;
+const sections=items=>items.map(([title,text])=>`<section><h2>${title}</h2>${text}</section>`).join("");
+const documents=new Map([
+  ["/",{title:"PokéBonk Offline",description:"Independent offline game apps with optional, cross-platform cloud saves.",body:`
+    <div class="notice"><strong>Play offline. Bring completed progress to another device when you choose.</strong>
+    <p>PokéBonk Offline is an independent fan project maintained by Nicartjay. Its native apps support macOS, Windows, Linux and Android.</p></div>
+    ${sections([
+      ["Optional cloud saves",`<p>This website provides the app's optional cloud-save service and its privacy information. Google sign-in identifies the same player across devices; it does not grant Google Drive access. The service stores backups privately on Cloudflare.</p>`],
+      ["Local saves come first",`<p>No Google account is needed for local offline play. Connecting an account does not automatically upload a save. Manual sync, an optional automatic-sync setting and explicit conflict choices put you in control. Keep exported JSON backups of important progress.</p>`],
+      ["Get the app",`<p>${link(PROJECT+"/releases/latest","Download PokéBonk Offline from GitHub")} or ${link(PROJECT,"view the project and source code")}. Cloud saves require a compatible build containing this feature; older public releases may not include it yet. Check the release notes. This website does not load the online game or provide browser gameplay.</p>`],
+      ["Know what you are connecting",`<p>Read the <a href="/privacy">Privacy Policy</a> and <a href="/terms">Terms of Service</a> before connecting. Cloud backups are <strong>not end-to-end encrypted</strong>: the service operator can access stored data. Cloud sync is capacity-limited and is not a substitute for your own backups.</p>`],
+      ["Contact",`<p>The operator is <strong>Nicartjay</strong>, the independent project maintainer. Contact ${contact}. Do not post email addresses, saves, passwords or sign-in tokens in public issues; ask how to arrange a private privacy or account request first.</p>`],
+    ])}` }],
+  ["/privacy",{title:"Privacy Policy",description:"How PokéBonk Offline Cloud Saves handles Google identity, optional backups and security data.",body:`
+    <p class="updated">Effective: <time datetime="2026-11-25">${DATE}</time> · Last updated: <time datetime="2026-11-26">November 26, 2026</time></p>
+    <div class="notice"><strong>Cloud saves are optional.</strong> No Google Drive access, no account needed for local play, and no automatic uploads merely from signing in. Cloud backups are not end-to-end encrypted.</div>
+    ${sections([
+      ["1. Who operates this service",`<p><strong>Nicartjay</strong>, the independent maintainer of PokéBonk Offline, operates this optional cloud-save service. This notice covers this cloud-save website and the app's cloud-save connection, not the original online game, Google, Cloudflare, or separate co-op/TURN services.</p>`],
+      ["2. Information processed",`<ul>
+        <li><strong>Google identity:</strong> your verified email address and Google account identifier. A hashed account identifier associates your devices with the same cloud account. Hashing makes the identifier pseudonymous, not anonymous. We request only <code>openid</code> and <code>email</code>, not your Google password, Drive files, Gmail or contacts.</li>
+        <li><strong>Optional saved progress:</strong> the compatible completed-progression save you choose to sync, including trainer name, progress, Pokémon, inventory, earned currencies and run records, plus save-schema/upstream-game metadata. Do not put sensitive personal information into trainer names or other game fields.</li>
+        <li><strong>Account and security records:</strong> sign-in proofs, short-lived authorization results, device-session credentials and their hashes/expiry, revision IDs, integrity hashes, sync times and rate/usage counters. These allow secure sign-in, revocation, conflict checks and abuse prevention.</li>
+        <li><strong>Network data:</strong> Cloudflare and Google receive the connection information needed to serve requests, such as IP address and browser/request metadata. The application derives a keyed IP hash for sign-in rate limiting; it does not deliberately store raw IP addresses in its own account records.</li>
+      </ul><p>Graphics, audio and touch settings stay local. The primary device-local player ID is replaced in portable copies. Active/suspended runs and live co-op connections are not uploaded.</p>`],
+      ["3. Why the information is used",`<p>Information is used to identify your cloud account, perform the sync and restore actions you request, validate compatibility, detect conflicts, secure sessions, enforce service limits and handle support requests. Google identity data is not used for advertising, sold, or used to train general-purpose AI models. We do not request Google permissions unrelated to this feature.</p>`],
+      ["4. Storage, providers and access",`<p>Cloudflare Workers/Durable Objects hold account, session and usage metadata; a private Cloudflare R2 bucket holds save versions. Cloud save requests use HTTPS and per-account authorization. Updated macOS apps keep their cloud-session credential only in native process memory, not in Keychain or an application token file; connecting again is needed after fully quitting. Other platforms protect persisted cloud credentials using supported operating-system secure storage. Older test builds may retain encrypted Mac cloud credentials; memory-only builds do not read or automatically delete those legacy records.</p>
+        <p>For Mac sign-in, the app briefly listens on a random local <code>127.0.0.1</code> port. A one-use browser return path only notifies the running app; Google authorization codes, cloud-session tokens and saves do not pass through it. The listener closes after the handoff, cancellation or timeout. Normal quit attempts session revocation, but a forced/offline exit may leave the server-side session valid until its normal expiry.</p>
+        <p><strong>The operator and authorized hosting-provider personnel may be able to access stored data. This is not end-to-end encryption, and no system can guarantee absolute security.</strong> Processing may occur outside your country. Google handles sign-in under ${link("https://policies.google.com/privacy","Google's Privacy Policy")}; Cloudflare processes hosting/security information under ${link("https://www.cloudflare.com/privacypolicy/","Cloudflare's Privacy Policy")}. Information may also need to be disclosed when legally required or necessary to protect the service or its users.</p>`],
+      ["5. Cookies and retention",`<p>The public home/privacy/terms pages set no application cookies, use no third-party embeds and include no advertising or analytics scripts. Sign-in uses a secure, HttpOnly browser cookie, valid for up to 10 minutes, to bind confirmation to the initiating browser. Google/Cloudflare may have their own necessary cookies or security processing.</p>
+        <p>Up to 10 save versions are retained per account; normal retention removes older versions as new ones are committed, with failed cleanup retried later. Cloud saves do not currently expire just because you stop playing. Device sessions expire after at most 30 days unless revoked earlier. Temporary sign-in records expire after 10 minutes; expired sign-in, rate and session records are pruned during later activity, so expiry is not a promise of immediate physical deletion. Providers may separately retain operational or recovery data under their own policies.</p>`],
+      ["6. Your choices, access and deletion",`<p>Use the same Google account on each device. Automatic sync requires a separate opt-in and can be disabled. Export your local save through <strong>Player &amp; saves</strong> for your own backup. Disconnecting removes this device's local cloud credential and attempts to revoke its session, but <strong>does not delete cloud backups</strong>. Uninstalling the app or revoking Google access does not itself erase the service's stored progress.</p>
+        <p>For access, correction, cloud export, deletion or a security/privacy concern, contact ${contact} and request a private follow-up. Do not post your email, Google account identifier, saves or tokens publicly. Account-control verification may be required before data is released or removed. The current app has no one-click cloud-account deletion feature; deletion requests need maintainer assistance. Removing data from active storage may not immediately remove provider-managed recovery copies.</p>`],
+      ["7. Eligibility and updates",`<p>Use an account you are authorized to use and obtain any consent required where you live. We do not ask for a date of birth or verify ages. Contact the maintainer if data was submitted without necessary permission. Material changes to data use will be disclosed here and, where required, explained before asking you to authorize the new use. Local offline play remains available without cloud saves.</p>`],
+    ])}` }],
+  ["/terms",{title:"Terms of Service",description:"Terms for the optional PokéBonk Offline Cloud Saves service operated by Nicartjay.",body:`
+    <p class="updated">Effective and last updated: <time datetime="2026-11-25">${DATE}</time></p>
+    <div class="notice"><strong>These terms cover optional cloud saves, not a requirement to play offline.</strong> Keep your own exported backups. Sync availability and recovery are not guaranteed.</div>
+    ${sections([
+      ["1. Operator and scope",`<p>These terms apply to the PokéBonk Offline Cloud Saves service and this website, operated by <strong>Nicartjay</strong>. By choosing to connect an account or use this cloud service, you agree to these terms and acknowledge the <a href="/privacy">Privacy Policy</a>. You can decline cloud saves and continue using the offline app locally.</p><p>The original online game, Google, Cloudflare and separate co-op/TURN services have their own operators and terms. This is an independent, unofficial fan project, not an official Pokémon service.</p>`],
+      ["2. Accounts and permitted use",`<p>Use only a Google account you control or are authorized to use, and meet any account/consent requirements applicable to you. Protect your device and sign-in credentials. You may upload only game-save content you are entitled to share with this service.</p><p>Do not access another player's data, impersonate others, submit malware or unrelated files, bypass authentication or quotas, automate abusive traffic, or interfere with service security or availability. Access may be restricted or suspended to address misuse, security risks, legal requirements or capacity limits.</p>`],
+      ["3. What sync does",`<p>The service is intended to transfer compatible, completed progress between your own devices. Active/suspended runs and live co-op sessions are not synchronized. Device settings stay local. Independently changed saves require a whole-save choice; currencies and inventories are not added together.</p><p>Review replacement/restore prompts carefully. Use local JSON export/import for independent backups and retain the version needed to complete an incompatible unfinished run. Do not rely on the service as the only copy of important progress.</p>`],
+      ["4. Free, limited availability",`<p>The cloud-save service is currently offered without a service fee and does not ask users for payment details. It has finite account, request, save-size, history and upload limits. When limits, provider quotas, network failures or maintenance prevent access, cloud sync may pause or fail. This does not entitle anyone to unlimited capacity, permanent storage or a particular uptime, and it does not require internet access for local offline play.</p>`],
+      ["5. Your data and ending use",`<p>You retain your rights in the information you submit. You allow the operator and its hosting providers to process, store, copy and transmit it only as needed for the disclosed service, security, support and applicable legal requirements. We do not claim ownership of your personal data.</p><p>You may disconnect or stop using cloud saves at any time. Disconnecting does not erase backups; request maintainer-assisted account/data deletion as described in the <a href="/privacy">Privacy Policy</a>. If the service is discontinued, continue using your local saves and exported backups.</p>`],
+      ["6. Availability, rights and changes",`<p>The service is provided as available, without a promise that it will be uninterrupted, error-free, secure against every threat or able to recover every save. To the extent permitted by applicable law, no warranty of availability or data recovery is provided. Nothing in these terms removes rights or remedies that applicable law does not allow to be excluded.</p><p>Game content, names and trademarks belong to their respective owners. This service does not grant additional rights in third-party assets or remove rights provided by applicable open-source licenses. Material changes will be posted here with an updated date; stop using cloud saves if you do not accept revised terms.</p>`],
+      ["7. Contact",`<p>For service questions or to arrange a private privacy/security request, contact ${contact}. Public issues are visible to others: do not post passwords, access tokens, Google identifiers, personal email addresses or save files containing private information.</p>`],
+    ])}` }],
+]);
+function render(path,document){
+  const nav=[["/","Home"],["/privacy","Privacy Policy"],["/terms","Terms of Service"]]
+    .map(([href,label])=>`<a href="${href}"${href===path?' aria-current="page"':""}>${label}</a>`).join("");
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="${document.description}">
+<title>${document.title}${path==="/"?"":" · PokéBonk Offline Cloud Saves"}</title><link rel="canonical" href="${ORIGIN}${path}">
+<style>
+*{box-sizing:border-box}html{color-scheme:dark}body{margin:0;background:#171626;color:#eee;font:16px/1.7 system-ui,-apple-system,sans-serif;padding:28px 16px}
+.wrap{max-width:900px;margin:auto}header{padding:20px 4px}header a{color:#f3efff;text-decoration:none;font-size:23px;font-weight:800}
+.tag,.updated,footer{color:#bdb8d1;font-size:14px}nav{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 22px}nav a{padding:7px 13px;border-radius:20px;text-decoration:none;border:1px solid #7774}
+nav a[aria-current]{background:#7460c9;color:white;border-color:#a89ae3}main{background:#26283d;border:1px solid #7773;border-radius:22px;padding:clamp(20px,4vw,40px)}
+h1{font-size:clamp(28px,5vw,38px);line-height:1.2;margin:0 0 15px}h2{font-size:21px;line-height:1.4;margin:28px 0 10px}p{margin:10px 0}a{color:#c9b2ff;overflow-wrap:anywhere}a:hover{color:#ece4ff}
+a:focus-visible{outline:3px solid #a89ae3;outline-offset:4px}li{margin:8px 0}ul{padding-left:24px}.notice{border-left:4px solid #8b78d7;background:#1c2035;border-radius:10px;padding:16px 18px;margin:20px 0}
+code{font-size:.95em;color:#c9b2ff}footer{padding:22px 4px}footer a{white-space:nowrap}
+</style></head><body><div class="wrap"><header><a href="/">PokéBonk Offline</a><div class="tag">Optional cloud saves · maintained by Nicartjay</div></header>
+<nav aria-label="Site pages">${nav}</nav><main id="content"><h1>${document.title}</h1>${document.body}</main>
+<footer>Independent fan project · ${link(PROJECT,"Project &amp; source")} · ${contact}<br>These pages describe this maintainer's optional cloud-save service, not the original online game's policies.</footer>
+</div></body></html>`;
+}
+export function publicPage(request){
+  const path=new URL(request.url).pathname.replace(/\/$/,"")||"/",document=documents.get(path);
+  if(!document)return null;
+  const headers={
+    "Content-Type":"text/html;charset=utf-8","Cache-Control":"public, max-age=300",
+    "Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    "X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer",
+  };
+  if(!["GET","HEAD"].includes(request.method))
+    return new Response(null,{status:405,headers:{...headers,Allow:"GET, HEAD","Cache-Control":"no-store"}});
+  return new Response(request.method==="HEAD"?null:render(path,document),{status:200,headers});
+}

@@ -1,7 +1,7 @@
 {
   "name": "pokebonk-offline",
   "productName": "PokéBonk Offline",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "private": true,
   "type": "module",
   "description": "Unofficial offline PokéBonk with normal progression.",
@@ -10,6 +10,7 @@
   "repository": "https://github.com/Nicartjay/pokebonk-offline-standard",
   "scripts": {
     "test": "node scripts/test.mjs",
+    "test:cloud": "node standard/scripts/test-cloud.mjs",
     "prepare:game": "node standard/scripts/prepare.mjs",
     "verify": "node standard/scripts/verify.mjs",
     "audit:images": "node standard/scripts/audit-images.mjs",

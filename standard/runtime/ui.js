@@ -3,7 +3,9 @@ import {batteryFpsCap, skipBatteryFrame, graphicsQuality, renderPixelRatio,
   fpsSettingsRow, syncGraphicsSettings} from "./graphics.js";
 import {MODE_NAMES, BIOME_NAMES} from "./modes.js";
 import {waitForStartupMusic} from "./startup.js";
-import {updateFeedbackView} from "../common/update-feedback.mjs";
+import {updateFeedbackView,updateFeedbackSnapshot} from "../common/update-feedback.mjs";
+import {createCloudSaveUI} from "./cloud-ui.js";
+import {cloudActionAllowed} from "../common/cloud-feedback.mjs";
 import {installLanUI} from "./lan-ui.js";
 import {createScopeDropdown} from "./dropdown.js";
 import {syncCoopBossHud} from "./boss-hud.js";
@@ -93,14 +95,15 @@ function saveFile(name, data) {
 // Desktop's isolated preload / Android's navigation client require a real
 // user gesture and the native host independently checks that play is idle.
 function nativeAction(text, action, close) {
-  if (!["check-for-updates", "download-update", "install-update", "export-backup", "import-backup", "report-bug"].includes(action)) throw new Error("Unknown native menu action.");
+  if (!["check-for-updates", "download-update", "install-update", "export-backup", "import-backup", "report-bug","cloud-saves"].includes(action)) throw new Error("Unknown native menu action.");
   const link = el("a", text, "btn offline-native-action");
   link.href = "/__native__/" + action;
   link.dataset.standardNativeAction = action;
   link.addEventListener("click", event => {
     if (!event.isTrusted) return;
     close?.();
-    if (action === "check-for-updates") globalThis.PokeBonkOfflineUI?.updateFeedback({state: "checking"});
+    if (action === "check-for-updates") globalThis.PokeBonkOfflineUI?.openUpdates();
+    if (action === "cloud-saves") globalThis.PokeBonkOfflineUI?.cloudSaves();
   });
   return link;
 }
@@ -112,6 +115,13 @@ function desktopAction(text, action, value = "", selected = false) {
   link.setAttribute("role", "button");
   link.setAttribute("aria-pressed", String(selected));
   return link;
+}
+function cloudAction(text,action,style="btn blue",selection){
+  if(!cloudActionAllowed(action,selection))throw new Error("Unknown cloud action.");
+  const link=el("a",text,style+" offline-native-action");
+  link.href="/__native__/cloud/"+action+(selection?"/"+selection:"");
+  link.dataset.standardCloudAction=action;if(selection)link.dataset.cloudRevision=selection;
+  link.setAttribute("role","button");return link;
 }
 const firstGuidePending = new WeakMap();
 
@@ -177,9 +187,37 @@ export function createFullscreenButton({document: doc = globalThis.document, win
 }
 
 export function installOfflineUI(config) {
-  let updateModal, updateHidden = false, reconnectNotice;
+  let updateModal, updateHidden = false, reconnectNotice,latestUpdate;
+  const cloudUI=createCloudSaveUI({modal,el,button,config,commandControl:cloudAction,action:command=>{
+    if(command==="profile"){
+      const app=globalThis.PokeBonkNativeApp;
+      if(app&&!app.run)api.profile(app);
+    }
+  }});
+  const updateStatus=()=>{
+    const view=latestUpdate&&updateFeedbackView(latestUpdate,config);
+    const description=view?.state==="downloading"?`Downloading update · ${view.percent}% · ${view.progressText}`:
+      view?.state==="ready"?"Update downloaded and verified · ready to install":
+      view?.state==="verifying"?"Download finished · verifying before installation":
+      view?.state==="available"?`App v${latestUpdate.latestVersion} is available`:
+      view?.state==="checking"?"Checking the latest signed app release…":
+      view?.state==="error"?view.title:"Check for a newer offline app release. Downloads and status stay inside the game.";
+    for(const node of document.querySelectorAll("[data-offline-update-status]"))node.textContent=description;
+    for(const node of document.querySelectorAll("[data-offline-open-updates]"))
+      node.textContent=view&&["available","downloading","verifying","ready","installing"].includes(view.state)?"View update":"Check for updates";
+  };
   const api = {
     lan: globalThis.PokeBonkLocalCoop,
+    cloudSaves(){return cloudUI.open();},
+    dismissCloud(){return cloudUI.close();},
+    cloudFeedback(value){
+      if(globalThis.PokeBonkNativeApp?.run)return false;
+      return cloudUI.update(value,{show:value?.open===true});
+    },
+    openUpdates(){
+      const resume=latestUpdate&&["available","downloading","verifying","ready","installing"].includes(latestUpdate.state);
+      return api.updateFeedback(resume?{...latestUpdate,open:true}:{state:"checking",open:true});
+    },
     rentalSnapshotInfo(app,panel) {
       const data=config.rentals;
       panel.classList.add("offline-rental-snapshot");
@@ -250,6 +288,7 @@ export function installOfflineUI(config) {
       if (value?.state === "handoff") { updateModal?.close(); updateModal = null; return true; }
       const view = updateFeedbackView(value, config);
       if (!view || globalThis.PokeBonkNativeApp?.run) return false;
+      latestUpdate=updateFeedbackSnapshot(value,config);updateStatus();
       if (value.open === true || view.checking) updateHidden = false;
       if (updateHidden && !updateModal?.overlay.isConnected && ["downloading", "verifying"].includes(view.state)) return true;
       if (!["downloading", "verifying"].includes(view.state)) updateHidden = false;
@@ -296,6 +335,14 @@ export function installOfflineUI(config) {
         const row = el("div"); row.append(el("dt", label), el("dd", text)); rows.append(row);
       }
       body.replaceChildren(hero);
+      const steps=el("ol",null,"offline-update-steps");
+      steps.setAttribute("aria-label","Update steps");
+      for(const [index,step]of view.steps.entries()){
+        const item=el("li",null,step.state);
+        if(step.state==="active")item.setAttribute("aria-current","step");
+        item.append(el("span",step.state==="done"?"✓":String(index+1)),el("b",step.label));steps.append(item);
+      }
+      body.append(steps);
       if (view.busy) {
         const progress = el("div", null, "offline-update-progress" + (view.state === "downloading" ? " determinate" : ""));
         progress.setAttribute("role", "progressbar");
@@ -331,8 +378,13 @@ export function installOfflineUI(config) {
       actions.append(button(view.busy ? "Hide" : view.primary && !["current", "ahead", "error"].includes(view.state) ? "Later" : "Done", close, "btn ghost"));
       if (view.primary) {
         const primary = nativeAction(view.primary.label, view.primary.action);
-        primary.classList.add(view.state === "ready" ? "primary" : "blue");
+        primary.classList.add(view.state === "ready" ? "green" : "blue");
         actions.append(primary);
+      }else if(["downloading","verifying","installing"].includes(view.state)){
+        const locked=button(view.state==="installing"?"Opening installer…":"Install update",()=>{},"btn green offline-update-install-locked");
+        locked.disabled=true;
+        locked.title="Installation is enabled only after the downloaded file passes verification.";
+        actions.append(locked);
       }
       body.append(actions);
       return true;
@@ -623,7 +675,7 @@ export function installOfflineUI(config) {
           app.toMenu();
         } catch (error) { app.notice(error.message); }
       }, "btn blue"));
-      body.append(el("p", "Your trainer, backups and app options. Progress stays on this device—no account needed.", "muted"), row);
+      body.append(el("p", "Your trainer, backups, optional cloud saves and app options. No account is required to play.", "muted"), row);
       const actions = el("div", null, "offline-row offline-player-actions");
       if (isAndroidShell()) {
         // Android uses the system document picker, not unsupported blob
@@ -653,12 +705,18 @@ export function installOfflineUI(config) {
       actions.append(button("Import save backup", () => input.click(), "btn ghost"), input);
       }
       body.append(actions, el("p", "Use Save and quit before exporting an unfinished run. Importing asks before replacing progress and keeps a recovery copy.", "muted"));
+      body.append(cloudUI.entry(undefined,()=>nativeAction("Cloud save setup","cloud-saves",close)));
       const updates = el("div", null, "offline-player-updates");
       const utilities = el("div", null, "offline-player-actions");
-      utilities.append(nativeAction("Check for updates", "check-for-updates", close),
+      const updateButton=nativeAction("Check for updates","check-for-updates",close);
+      updateButton.dataset.offlineOpenUpdates="true";
+      const updateDescription=el("p",null,"muted");
+      updateDescription.dataset.offlineUpdateStatus="true";
+      utilities.append(updateButton,
         button("Report a bug", () => { close(); api.reportBug(); }, "btn ghost offline-report-entry"));
       if (!isAndroidShell()) utilities.append(desktopAction("Display & graphics", "settings"));
-      updates.append(el("h3", "App options"), el("p", "Updates are verified and installed only with your approval. Playing never needs a connection.", "muted"), utilities);
+      updates.append(el("h3", "App updates & options"),updateDescription,
+        el("p", "See download progress here. Installation is always your choice; local play never needs a connection.", "offline-update-note"),utilities);
       body.append(updates,
         el("small", `OFFLINE v${config.version} · by ${OFFLINE_CREATOR} · PokéBonk v${config.upstream.version}`, "offline-app-menu-version"));
       if (app.backend.state?.activeRun) {
@@ -673,7 +731,7 @@ export function installOfflineUI(config) {
         }, "btn ghost"));
       }
       if (app.backend.saveWarning) body.append(el("p", app.backend.saveWarning, "err"));
-      panel.append(body);
+      panel.append(body);updateStatus();
     },
     desktopSettings() {
       if (isAndroidShell() || globalThis.PokeBonkNativeApp?.run || document.querySelector(".offline-desktop-card")) return false;

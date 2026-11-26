@@ -33,10 +33,24 @@
             android:name=".MainActivity"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
             android:exported="true"
+            android:launchMode="singleTask"
             android:screenOrientation="userLandscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Activation only. Native proof polling authenticates the login;
+                 never load external intent data into either WebView. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- Both schemes share this one fixed host/path. Android
+                     combines the individual data attributes in this filter. -->
+                <data android:scheme="pokebonk-offline-standard" />
+                <data android:scheme="pokebonk-offline" />
+                <data android:host="cloud" />
+                <data android:pathPrefix="/return/" />
             </intent-filter>
         </activity>
     </application>

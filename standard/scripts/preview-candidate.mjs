@@ -63,10 +63,33 @@ const bootstrap = `(()=>{
   let saved=${JSON.stringify({format: "pokebonk-offline-standard", edition: "standard",
     schemaVersion: config.saveSchema, upstream: config.upstream, state: sample})};
   const recordsPreview=new URL(location.href).searchParams.has("records-preview");
+  const textPreview=new URL(location.href).searchParams.has("text-preview");
   const statusPreview=new URL(location.href).searchParams.has("status-preview");
-  const bossesPreview=new URL(location.href).searchParams.has("bosses-preview")||statusPreview;
+  const resultsPreview=new URL(location.href).searchParams.has("coop-results-preview");
+  const bossesPreview=new URL(location.href).searchParams.has("bosses-preview")||statusPreview||textPreview||resultsPreview;
   const cloudPreview=new URL(location.href).searchParams.has("cloud-preview");
+  const optionsPreview=new URL(location.href).searchParams.has("app-options-preview");
+  let previewRoom;
+  const previewRoomChanged=()=>document.dispatchEvent(new CustomEvent("standard:lan-state",{detail:JSON.stringify(previewRoom)}));
+  if(resultsPreview)window.PokeBonkLAN=Object.freeze({
+    state:()=>structuredClone(previewRoom??{phase:"idle",members:[],linked:false}),
+    send:(channel,data)=>{
+      // Design fixture only: no sockets, service, native save or real peer.
+      if(channel==="prepared"&&data===previewRoom?.match?.party){
+        previewRoom.phase="playing";previewRoomChanged();
+      }else if(channel==="room-return"&&data===previewRoom?.match?.party){
+        previewRoom.lastParty=data;previewRoom.phase="lobby";delete previewRoom.match;
+        previewRoom.members[1].ready=false;previewRoomChanged();
+      }else if(channel==="failed"){
+        console.error("Sample room could not launch.");
+      }
+    }});
   if(recordsPreview)saved.state.records=${JSON.stringify(sampleRecords)};
+  if(textPreview){
+    // Disposable profile only, so the original Pokédex+ can display Oddish.
+    saved.state.profile.league.push(43);saved.state.profile.unlocked.push(43);
+    saved.state.profile.seen.push(43);saved.state.profile.lastSpecies=43;
+  }
   if(statusPreview)saved.state.profile.biomes={forest:0,desert:0}; // Disposable scene fixture only.
   const android=new URL(location.href).searchParams.get("platform")==="android";
   if(android)window.PokeBonkStandardAndroid=Object.freeze({
@@ -76,16 +99,40 @@ const bootstrap = `(()=>{
     loadState:async()=>structuredClone(saved),saveState:async value=>{saved=structuredClone(value);}});
   try{localStorage.setItem("pb-battery","0");localStorage.setItem("pokebonk.theme","dark");}catch{}
   document.addEventListener("click",event=>{
-    if(event.target.closest?.("a[data-standard-native-action],a[data-standard-lan-action]"))event.preventDefault();
+    if(event.target.closest?.("a[data-standard-native-action],a[data-standard-lan-action],a[data-standard-cloud-action]"))event.preventDefault();
   },true);
   addEventListener("DOMContentLoaded",()=>{
     document.documentElement.dataset.standardPlatform=android?"android":"darwin";
     document.documentElement.dataset.standardFullscreen="true";
     const note=document.createElement("span");
-    note.textContent="SOURCE PREVIEW · "+(statusPreview?"restored status artwork · staged Poison/Paralysis":cloudPreview?"optional cloud UI · no service connected":bossesPreview?"integrated compact boss HUD · not a connected match":recordsPreview?"sample save & records":"sample save")+" · game ${accepted.version} · not a packaged build";
+    note.textContent="SOURCE PREVIEW · "+(optionsPreview?"app options · SAMPLE update data / no download or cloud service":resultsPreview?"co-op results · staged run / no connected devices":textPreview?"Android text outlines · sample save / staged combat labels":statusPreview?"restored status artwork · staged Poison/Paralysis":cloudPreview?"optional cloud UI · no service connected":bossesPreview?"integrated compact boss HUD · not a connected match":recordsPreview?"sample save & records":"sample save")+" · game ${accepted.version} · not a packaged build";
     Object.assign(note.style,{position:"fixed",bottom:"3px",left:"8px",zIndex:"50000",padding:"3px 7px",
       borderRadius:"5px",background:"#19152ae8",color:"#fff",font:"700 9px system-ui",pointerEvents:"none"});
     document.body.append(note);
+    if(optionsPreview){
+      const controls=document.createElement("div");
+      controls.id="app-options-preview-controls";
+      Object.assign(controls.style,{position:"fixed",bottom:"24px",left:"8px",zIndex:"50001",display:"flex",flexWrap:"wrap",gap:"5px"});
+      const sampleUpdate={latestVersion:"1.3.1",upstreamVersion:"${accepted.version}",upstreamBuild:"${accepted.build}",
+        kind:android?"apk":"dmg",totalBytes:200*1024*1024,receivedBytes:94*1024*1024,
+        notes:"SAMPLE RELEASE FOR DESIGN APPROVAL ONLY\\nNo update has been published, downloaded or installed."};
+      const show=state=>{
+        const app=window.PokeBonkNativeApp,api=window.PokeBonkOfflineUI;
+        if(!app?.backend?.state||app.run)return;
+        api.dismissUpdate();
+        document.querySelectorAll(".offline-modal").forEach(node=>node.remove());
+        if(state==="profile")api.profile(app);
+        else if(state==="cloud")api.cloudSaves();
+        else api.updateFeedback({...sampleUpdate,state,open:true});
+      };
+      for(const [label,state]of [["Player & saves","profile"],["Checking","checking"],["Download 47%","downloading"],
+        ["Verifying","verifying"],["Ready to install","ready"],["Cloud setup","cloud"]]){
+        const control=document.createElement("button");control.textContent=label;control.className="btn small ghost";
+        control.onclick=()=>show(state);controls.append(control);
+      }
+      const hide=document.createElement("button");hide.textContent="Hide sample controls";hide.className="btn small ghost";
+      hide.onclick=()=>controls.remove();controls.append(hide);document.body.append(controls);
+    }
     if(cloudPreview){
       const preview=document.createElement("button");
       preview.textContent="Show optional cloud saves";preview.className="btn small blue";
@@ -101,7 +148,7 @@ const bootstrap = `(()=>{
     }
     if(bossesPreview){
       const preview=document.createElement("button");
-      preview.textContent=statusPreview?"Show restored boss status icons":"Show sample co-op boss HUD";preview.className="btn small blue";
+      preview.textContent=resultsPreview?"Show sample co-op results":textPreview?"Show sample combat text":statusPreview?"Show restored boss status icons":"Show sample co-op boss HUD";preview.className="btn small blue";
       Object.assign(preview.style,{position:"fixed",bottom:"24px",right:"12px",zIndex:"50001"});
       preview.onclick=async()=>{
         const app=window.PokeBonkNativeApp;
@@ -117,12 +164,26 @@ const bootstrap = `(()=>{
             match:{party:"lan-boss-hud-preview",seed:123456,mode:"standard",biome,tier:0},
             members:[{id:"lan-preview-self",slot:0,name:"Preview Trainer",species:4,ready:true},
               {id:"lan-preview-friend",slot:1,name:"Sample Teammate",species:155,ready:true}]};
-          window.PokeBonkLocalCoop=Object.freeze({state:()=>structuredClone(session),send:()=>false});
-          await app.backend.prepareLan(structuredClone(session));session.phase="playing";
-          const room=new LocalRoom(session,()=>true);app.coopRoom=room;
-          const started=await app.startRun({species:4,mode:"standard",biome,tier:0,
-            boosts:[],coop:{party:session.match.party,room}});
-          if(!started||!app.run)throw Error("Could not open the sample co-op engine.");
+          if(resultsPreview){
+            session.code="BONK";session.connectionMode="lan";
+            session.match.players=session.members.map(member=>member.id);
+            previewRoom=session;previewRoomChanged();
+            // Allow the actual preparation/launch callbacks to mount the
+            // original HUD before staging the still result presentation.
+            await new Promise((resolve,reject)=>{
+              const until=Date.now()+12000,timer=setInterval(()=>{
+                if(app.run){clearInterval(timer);resolve();}
+                else if(Date.now()>until){clearInterval(timer);reject(Error("The source-preview run did not open."));}
+              },40);
+            });
+          }else{
+            window.PokeBonkLocalCoop=Object.freeze({state:()=>structuredClone(session),send:()=>false});
+            await app.backend.prepareLan(structuredClone(session));session.phase="playing";
+            const room=new LocalRoom(session,()=>true);app.coopRoom=room;
+            const started=await app.startRun({species:4,mode:"standard",biome,tier:0,
+              boosts:[],coop:{party:session.match.party,room}});
+            if(!started||!app.run)throw Error("Could not open the sample co-op engine.");
+          }
           const run=app.run;app.halted=true;
           run.ui.bossPct=!statusPreview; // Sample presentation preference, not a user setting.
           // Freeze combat/network simulation for a readable illustration;
@@ -131,7 +192,14 @@ const bootstrap = `(()=>{
           run.ui.banner=()=>{};run.ui.bossBanner=()=>{};
           run.time=455;run.realTime=455;run.state="play";
           const p=run.player.pos,point=(x,z)=>({x:p.x+x,z:p.z+z});
-          if(statusPreview){
+          if(resultsPreview){
+            run.stage=1;run.stats.kills=320;run.stats.damage=84000;
+            run.stats.killsBy={16:120,19:110,10:90};
+            await run.finish(false);
+            document.exitPointerLock?.();preview.remove();return;
+          }else if(textPreview){
+            // No staged bosses are needed for the combat-text design preview.
+          }else if(statusPreview){
             run.minibosses.spawnRiftAlpha(137,point(0,-10),
               {tier:1,secs:80,guard:1,dmg:1,size:1.2,calls:[]});
           }else{
@@ -156,6 +224,20 @@ const bootstrap = `(()=>{
             peer.last={flags:0,level:8,hp:.84,hpNow:84,maxHp:100};
           }
           run.updateCamera(.1);run.ui.hud(run);app.r.render(.016);app.halted=false;
+          if(textPreview){
+            // Use the original popup factory and styling. Keep a still copy
+            // after its usual 900ms lifetime only for the approval screenshot.
+            for(const [x,z,text,color,size]of [
+              [-3,-4,"Super effective!","#ffb03a",1.1],
+              [3,-7,"Critical!","#ff4e69",1],
+              [0,1,"Poisoned","#bd71e5",.9],
+            ])run.ui.popup(p.x+x,p.y+2,p.z+z,text,color,size,true);
+            for(const popup of [...document.querySelectorAll(".popup")]){
+              const still=popup.cloneNode(true);
+              still.style.animation="none";still.dataset.textPreview="true";
+              popup.parentNode.append(still);
+            }
+          }
           document.exitPointerLock?.();preview.remove();
         }catch(error){console.error(error);preview.textContent="Preview: "+error.message;preview.disabled=false;}
       };

@@ -99,7 +99,7 @@ let preparing, launching, room, early = [];
 function launchState() {
   const session = read(), app = globalThis.PokeBonkNativeApp;
   if (!app?.backend?.state) return;
-  if(session.lastParty===room?.room.party&&["hosting","lobby"].includes(session.phase)){
+  if(room&&session.lastParty===room.room.party&&["hosting","lobby"].includes(session.phase)){
     room.open=false;room.recovery.dispose();room.expeditionIO?.dispose();
     preparing=launching=null;
   }

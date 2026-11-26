@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "origin": "https://pokebonk.com",
   "reviewedBuild": "mwv6wzyo",
-  "reason": "Original status icons, Treasures banner glows and collection artwork omitted from captures, plus explicitly recorded matching-art aliases for upstream-missing look frames.",
+  "reason": "Original status, Bag/task reward, collection and Treasures artwork omitted from captures, plus explicitly recorded aliases for upstream-missing look frames.",
   "files": [
     {
       "name": "assets/ui/icons/st-burn.png",
@@ -153,9 +153,15 @@
       "source": "https://pokebonk.com/assets/ui/banners/tr-toxic-glow.png",
       "bytes": 174848,
       "sha256": "be047cb324dacf967f022a6d50fc54da6f676e548a195dea00da1f3675aed1ba"
+    },
+    {
+      "name": "assets/items/lure.png",
+      "source": "https://pokebonk.com/assets/items/lure.png",
+      "bytes": 550,
+      "sha256": "79596d2db97c283d93ce63fa0c537e5a1831c7b6d3aff2f71c71ab9c6ea79954"
     }
   ],
-  "purpose": "Keep the reviewed gameplay/cosmetic artwork offline with documented original-art substitutions for confirmed 404s, without modifying pristine vendor snapshots.",
+  "purpose": "Keep reviewed status, cosmetic, collection and Bag/task reward artwork offline, without modifying pristine vendor snapshots. Confirmed cosmetic 404 aliases remain explicitly documented.",
   "capturedAt": "2026-11-25T00:06:08.390Z",
   "statusIconCatalog": {
     "required": [
@@ -359,5 +365,19 @@
       "assets/ui/frames/tr-water-2.png"
     ],
     "capturedAt": "2026-11-25T07:06:47.515Z"
+  },
+  "taskItemImageCatalog": {
+    "required": [
+      "assets/items/amulet-coin.png",
+      "assets/items/clover-sweet.png",
+      "assets/items/everstone.png",
+      "assets/items/honey.png",
+      "assets/items/lucky-egg.png",
+      "assets/items/lure.png",
+      "assets/items/master-ball.png",
+      "assets/items/rare-candy.png",
+      "assets/items/shiny-stone.png"
+    ],
+    "capturedAt": "2026-11-25T10:27:27.250Z"
   }
 }

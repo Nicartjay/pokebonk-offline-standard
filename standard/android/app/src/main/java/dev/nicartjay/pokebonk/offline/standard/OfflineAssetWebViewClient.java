@@ -53,7 +53,8 @@ final class OfflineAssetWebViewClient extends WebViewClient {
     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
         Uri uri = request.getUrl();
         if(broker)return true;
-        if((APP_ORIGIN+"/offline/lan-broker.html").equals(uri.toString()))return true;
+        if((APP_ORIGIN+"/offline/lan-broker.html").equals(uri.toString())||
+            (APP_ORIGIN+"/offline/cloud-broker.html").equals(uri.toString()))return true;
         if (NativeMenuAction.reserved(uri.toString())) {
             String action = NativeMenuAction.resolve(uri.toString(), request.getMethod(), request.isForMainFrame(), request.hasGesture());
             if (action != null) nativeAction.accept(action);

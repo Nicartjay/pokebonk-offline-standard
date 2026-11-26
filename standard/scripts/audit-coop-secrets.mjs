@@ -28,11 +28,11 @@ async function streamCheck(stream,label,limit=2*1024**3) {
 const names=execFileSync("git",["ls-files","-z","--cached","--others","--exclude-standard"],
   {encoding:"utf8",maxBuffer:128*1024*1024}).split("\0").filter(Boolean);
 for(const name of new Set(names)) {
-  if(path.basename(name)!==".env.example"&&/(^|\/)(?:cloudflare-(?:coop|gateway-secrets|usage)\.json|\.dev\.vars[^/]*|\.env(?:\..*)?|[^/]+\.(?:key|keystore|jks)|[^/]*private[^/]*\.pem)$/.test(name))
+  if(path.basename(name)!==".env.example"&&/(^|\/)(?:cloudflare-(?:coop|gateway-secrets|usage)\.json|credentials\.json|client_secret_[^/]*\.json|google-oauth[^/]*\.json|cloud-account-v\d+\.bin|\.dev\.vars[^/]*|\.env(?:\..*)?|[^/]+\.(?:key|keystore|jks|p12)|[^/]*private[^/]*\.pem)$/.test(name))
     throw Error("Private credential file is eligible for Git: "+name);
   try {
     const bytes=await readFile(name);check(bytes,name);
-    if(/\.(?:json|jsonc|ya?ml)$/.test(name)&&/"(?:turnApiToken|TURN_API_TOKEN|CF_USAGE_API_TOKEN)"\s*:\s*"[^"]{24,}"/.test(bytes.toString("utf8")))
+    if(/\.(?:json|jsonc|ya?ml)$/.test(name)&&/"(?:turnApiToken|TURN_API_TOKEN|CF_USAGE_API_TOKEN|GOOGLE_CLIENT_SECRET|SESSION_SIGNING_KEY|client_secret)"\s*:\s*"[^"]{24,}"/.test(bytes.toString("utf8")))
       throw Error("A literal service credential is present in "+name);
   } catch(error) { if(error.code!=="ENOENT"&&error.code!=="EISDIR")throw error; }
 }
@@ -73,7 +73,7 @@ for(const file of artifacts) {
     if(error)return reject(Error("Cannot inspect artifact archive."));
     let total=0;zip.on("error",reject);zip.on("end",resolve);
     zip.on("entry",entry=>{
-      if(/(^|\/)(?:cloudflare-(?:coop|gateway-secrets|usage)\.json|credentials\.json|\.dev\.vars[^/]*|[^/]+\.(?:jks|keystore))$/.test(entry.fileName)){
+      if(/(^|\/)(?:cloudflare-(?:coop|gateway-secrets|usage)\.json|credentials\.json|client_secret_[^/]*\.json|google-oauth[^/]*\.json|cloud-account-v\d+\.bin|\.dev\.vars[^/]*|[^/]+\.(?:jks|keystore|p12))$/.test(entry.fileName)){
         zip.close();reject(Error("A private credential file was packaged (contents withheld)."));return;
       }
       total+=entry.uncompressedSize;

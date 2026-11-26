@@ -102,6 +102,9 @@
       // The replacement opens a fixed, native-owned GitHub issue action,
       // never the removed website feedback service.
       if (button.classList.contains("offline-report-entry")) continue;
+      // This is the reviewed original results action, now routed to the
+      // existing native room. Other website/account Co-op entries stay removed.
+      if (button.dataset.standardCoopReturn === "true" && button.closest(".sm-foot")) continue;
       const text = button.textContent.trim().toLowerCase();
       const title = button.getAttribute("title") ?? "";
       if (removedLabels.has(text) ||

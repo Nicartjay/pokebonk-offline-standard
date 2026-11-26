@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
 import {readFile} from "node:fs/promises";
 import {readSnapshot} from "../../scripts/upstream-snapshot.ts";
 import {ast, nodesOf, maybeName, literal, one, edits} from "../../scripts/source.ts";
@@ -77,6 +78,39 @@ test("co-op keeps the current original Pokémon picker, including the new roster
     bytes.toString().includes("xt-slots")&&bytes.toString().includes("exb-team-room")),
     "adapted original Expedition team module")[1].toString();
   assert.match(expeditionTeam,/PokeBonkTrackRoomReturn/);
+});
+test("results keep the original green Co-op button, including shared Boss Rush, and preserve the room before disposing the run",()=>{
+  const {files,modules}=candidate(),source=files.get("assets/"+modules.main).toString(),tree=ast(source);
+  const launch=one(nodesOf(tree,"MethodDefinition",node=>maybeName(node.key)==="launch"&&
+    nodesOf(node,"AssignmentExpression",assignment=>maybeName(assignment.left.property)==="onCoop").length===1),
+    "application launch");
+  const callback=one(nodesOf(launch,"AssignmentExpression",node=>maybeName(node.left.property)==="onCoop"),
+    "native results return action").right;
+  const calls=[],room={open:true},app={coopRoom:room,
+    run:{coop:{keepRoom(){calls.push("keepRoom");this.stay=true;}}},
+    toMenu(){
+      calls.push("toMenu");
+      if(!this.run.coop.stay)room.open=false;
+      this.run=null;
+    }};
+  const action=vm.runInNewContext("(function(){return "+source.slice(callback.start,callback.end)+"}).call(app)",{
+    app,PokeBonkOfflineUI:{localCoop(){calls.push("sameRoom");assert.equal(app.coopRoom,room);assert.equal(room.open,true);}}
+  });
+  action();assert.deepEqual(calls,["keepRoom","toMenu","sameRoom"]);
+  const result=one(nodesOf(tree,"MethodDefinition",node=>nodesOf(node,"CallExpression",call=>
+    call.arguments[1]?.properties?.some(property=>literal(property.key)==="data-standard-coop-return")).length===1),
+    "original co-op result footer");
+  const button=one(nodesOf(result,"CallExpression",node=>node.arguments[1]?.properties?.some(property=>
+    literal(property.key)==="data-standard-coop-return")),"guard-exempt native return button");
+  assert.equal(literal(button.arguments[1].properties.find(property=>maybeName(property.key)==="class").value),"btn green big");
+  assert.ok(nodesOf(button,"MemberExpression",node=>maybeName(node.property)==="onCoop").length);
+  const guard=one(result.value.body.body.filter(node=>node.type==="IfStatement"&&
+    nodesOf(node,"MemberExpression",member=>maybeName(member.property)==="challengeResult").length),
+    "solo-only event-result diversion");
+  const run=result.value.params[0].name,condition=source.slice(guard.test.start,guard.test.end);
+  for(const coop of [null,{}])for(const rush of [null,{}]){
+    assert.equal(Boolean(vm.runInNewContext(condition,{[run]:{coop,rush,tower:null}})),!coop&&!!rush);
+  }
 });
 test("completed old progress imports, but unfinished old-engine runs are preserved instead of migrated", () => {
   const state = {version: 1, playerId: "offline-refresh-test", updatedAt: 1,

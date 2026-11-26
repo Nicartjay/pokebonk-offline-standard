@@ -1,8 +1,8 @@
 # PokéBonk Offline
 
-Unofficial offline PokéBonk for **macOS, Windows, Linux, and Android**. Play with normal progression and local saves—no online account or automatic unlocks.
+Unofficial offline PokéBonk for **macOS, Windows, Linux, and Android**. Normal progression and local saves—no account required or automatic unlocks.
 
-**App v1.3.0 · Bundled game v0.10.31**
+**App v1.3.1 · Bundled game v0.10.31**
 
 [Download the latest release](https://github.com/Nicartjay/pokebonk-offline-standard/releases/latest) · [Report a bug](https://github.com/Nicartjay/pokebonk-offline-standard/issues)
 
@@ -14,8 +14,9 @@ Unofficial offline PokéBonk for **macOS, Windows, Linux, and Android**. Play wi
 - Co-op: LAN, STUN-only Internet connections, or direct-first TURN fallback. Choose maps, difficulty and modes; browse rooms or join by code. Temporary connection interruptions have a 90-second recovery window while apps remain open. See the [co-op guide](standard/docs/internet-coop.md).
 - Pokédex+, 1,104 bundled rental builds, Personal Records and JSON save backups.
 - Download progress and explicit installation in the game-styled updater; improved graphics quality, 30-FPS Battery Saver and Android readability.
+- Optional cross-platform cloud saves with Google sign-in, manual sync, backup history and conflict review. No Google Drive access.
 
-LAN and solo play need no Internet. Internet co-op uses a separate signaling service; there are no online accounts, leaderboards or competitive prizes.
+LAN and solo play need no Internet. Optional cloud saves and Internet co-op use separate services; official accounts, leaderboards and competitive prizes are excluded.
 
 ## Install
 
@@ -35,6 +36,8 @@ Use **Player & saves** to export/import backups or check for updates. Progress i
 Complete unfinished runs in the previous version before upgrading; their checkpoints are preserved, but older-engine runs cannot resume in this version.
 
 The app automatically checks signed GitHub releases; downloads and installation require your confirmation. Gameplay works offline. Website updates are adapted separately before being included in an app release.
+
+Cloud saves are optional and capacity-limited. Only completed progress syncs; device settings stay local. On Mac, cloud sign-in stays in memory—reconnect after fully quitting, without Keychain access. Android uses a **Return to game** tap in Chrome. See the [cloud-save guide](standard/docs/cloud-saves.md) and service [privacy policy](https://pokebonk-offline-cloud.nicartjay.workers.dev/privacy).
 
 ## Develop
 

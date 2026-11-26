@@ -20,6 +20,7 @@ final class NativeSaveStore {
     private final AtomicFile previous;
     private final JSONObject config;
     private boolean readFailed;
+    private String epoch=UUID.randomUUID().toString();
     NativeSaveStore(Context context, JSONObject config) {
         this.config = config;
         directory = new File(context.getFilesDir(), "standard-saves-v1");
@@ -53,10 +54,12 @@ final class NativeSaveStore {
         require(seed >= 0 && seed <= 4294967295L && seed == Math.floor(seed), "Invalid local seed.");
         if(value.has("lan")&&!value.isNull("lan")){
             JSONObject lan=value.getJSONObject("lan"),rules=value.getJSONObject("config");
-            require(lan.optInt("version")==1&&LanPolicy.id(lan.optString("party"))&&lan.optString("party").equals(value.optString("party"))&&
+            require((lan.optInt("version")==1||lan.optInt("version")==2)&&LanPolicy.id(lan.optString("party"))&&lan.optString("party").equals(value.optString("party"))&&
                 LanPolicy.id(lan.optString("me"))&&lan.optInt("size")>=2&&lan.optInt("size")<=4&&lan.opt("launched") instanceof Boolean&&
-                "standard".equals(rules.optString("mode"))&&"forest".equals(rules.optString("biome"))&&rules.optInt("tier",-1)==0,
+                CoopRules.game(rules)&&(lan.optInt("version")!=1||
+                "standard".equals(rules.optString("mode"))&&"forest".equals(rules.optString("biome"))&&rules.optInt("tier",-1)==0),
                 "Unsupported local co-op ticket. Keep the original save.");
+            if(lan.optInt("version")==2)CoopRules.time(value.get("coopRulesAt"));
         }
     }
     static JSONObject validateState(JSONObject state) throws Exception {
@@ -148,6 +151,45 @@ final class NativeSaveStore {
             new File(directory, "before-import-" + System.currentTimeMillis() + "-" + UUID.randomUUID() + ".json").toPath());
         write(current, value.toString());
         readFailed = false;
+        epoch=UUID.randomUUID().toString();
+    }
+    synchronized JSONObject clientLoad()throws Exception{
+        JSONObject value=load();
+        return new JSONObject().put("nativeStorage",1).put("epoch",epoch).put("save",value==null?JSONObject.NULL:value);
+    }
+    synchronized void clientSave(String text)throws Exception{
+        JSONObject value=new JSONObject(text);
+        require(epoch.equals(value.optString("nativeEpoch")),"stale_native_save");
+        value.remove("nativeEpoch");save(value.toString());
+    }
+    synchronized JSONObject cloudSnapshot()throws Exception{
+        JSONObject value=load();require(value!=null,"no_local_save");
+        return new JSONObject().put("save",value).put("stamp",RepositoryUpdater.hex(
+            java.security.MessageDigest.getInstance("SHA-256").digest(current.readFully())));
+    }
+    synchronized void restoreCloud(JSONObject request)throws Exception{
+        JSONObject local=load();require(local!=null,"no_local_save");
+        String stamp=RepositoryUpdater.hex(java.security.MessageDigest.getInstance("SHA-256").digest(current.readFully()));
+        require(stamp.equals(request.optString("stamp")),"local_changed");
+        JSONObject state=local.getJSONObject("state");
+        require(state.isNull("activeRun")&&state.isNull("suspended"),"unfinished_run");
+        JSONObject exp=state.getJSONObject("profile").optJSONObject("exp");
+        require(exp==null||exp.isNull("raid"),"unfinished_run");
+        JSONObject book=state.optJSONObject("expeditionTeams"),parties=book==null?null:book.optJSONObject("parties");
+        if(parties!=null){
+            Iterator<String>keys=parties.keys();while(keys.hasNext()){
+                JSONObject group=parties.getJSONObject(keys.next());JSONArray pending=group.optJSONArray("pending");
+                require(group.optBoolean("settled")&&(pending==null||pending.length()==0),"pending_expedition_returns");
+            }
+        }
+        JSONObject remote=new JSONObject(request.getJSONObject("save").toString());
+        JSONObject incoming=remote.getJSONObject("state");
+        require(incoming.isNull("activeRun")&&incoming.isNull("suspended")&&!incoming.has("expeditionTeams"),"invalid_cloud_save");
+        incoming.put("playerId",state.getString("playerId")).put("updatedAt",System.currentTimeMillis());
+        incoming.getJSONObject("profile").put("settings",new JSONObject(state.getJSONObject("profile").getJSONObject("settings").toString()));
+        validate(remote);ensureDirectory();
+        Files.copy(current.getBaseFile().toPath(),new File(directory,"before-cloud-"+System.currentTimeMillis()+"-"+UUID.randomUUID()+".json").toPath());
+        write(previous,local.toString());write(current,remote.toString());epoch=UUID.randomUUID().toString();
     }
     private void ensureDirectory() throws IOException { require(directory.isDirectory() || directory.mkdirs(), "Cannot create Standard saves directory."); }
     private static void write(AtomicFile target, String text) throws IOException {

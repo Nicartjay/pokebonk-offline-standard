@@ -40,11 +40,14 @@ export async function prepare({write=true}={}) {
   const additionalImages=await addReviewedImages(files,accepted.build);
   const rentals=await readRentalSnapshot(accepted);
   files.set("offline/rentals/catalog.json",rentals.bytes);
-  for (const name of ["expedition-ledger.js", "expedition-team.js", "backend.js", "rentals.js", "expedition.js", "event-rewards.js", "guard.js", "ui.js", "graphics.js", "boss-hud.js", "boss-hud.css", "dropdown.js", "lan.js", "run-recovery.js", "lan-lobby.js", "lan-ui.js", "lan.css", "lan-rtc.js", "lan-session.js", "lan-broker.js", "lan-broker.html", "internet-broker.js", "internet-rtc.js", "stun-first.js", "startup.js", "modes.js", "records.js", "android-ui.js", "transport.js", "offline.css", "home.css", "entry.js"]) {
+  for (const name of ["expedition-ledger.js", "expedition-team.js", "backend.js", "rentals.js", "expedition.js", "event-rewards.js", "guard.js", "ui.js", "cloud-ui.js", "cloud.css", "cloud-broker.js", "cloud-broker.html", "graphics.js", "boss-hud.js", "boss-hud.css", "dropdown.js", "lan.js", "run-recovery.js", "lan-lobby.js", "lan-ui.js", "lan.css", "lan-rtc.js", "lan-session.js", "lan-broker.js", "lan-broker.html", "internet-broker.js", "internet-rtc.js", "stun-first.js", "startup.js", "modes.js", "records.js", "android-ui.js", "android-text.js", "transport.js", "offline.css", "home.css", "entry.js"]) {
     files.set("offline/" + name, await readFile("standard/runtime/" + name));
   }
   files.set("common/state.mjs", await readFile("standard/common/state.mjs"));
   files.set("common/update-feedback.mjs", await readFile("standard/common/update-feedback.mjs"));
+  files.set("common/cloud-feedback.mjs", await readFile("standard/common/cloud-feedback.mjs"));
+  files.set("common/cloud-save.mjs", await readFile("standard/common/cloud-save.mjs"));
+  files.set("common/cloud-sync.mjs", await readFile("standard/common/cloud-sync.mjs"));
   files.set("common/lan-policy.mjs", await readFile("standard/common/lan-policy.mjs"));
   files.set("common/coop-mode.mjs", await readFile("standard/common/coop-mode.mjs"));
   files.set("common/coop-rules.mjs", await readFile("standard/common/coop-rules.mjs"));
@@ -71,7 +74,7 @@ export async function prepare({write=true}={}) {
 <meta name="color-scheme" content="only light"><meta name="supported-color-schemes" content="light">
 <title>${config.productName}</title><link rel="icon" href="/favicon.ico">
 ${css.map(name => `<link rel="stylesheet" href="/${name}">`).join("\n")}
-<link rel="stylesheet" href="/offline/offline.css"><link rel="stylesheet" href="/offline/home.css"><link rel="stylesheet" href="/offline/lan.css"><link rel="stylesheet" href="/offline/boss-hud.css"><script src="/offline/guard.js"></script>
+<link rel="stylesheet" href="/offline/offline.css"><link rel="stylesheet" href="/offline/home.css"><link rel="stylesheet" href="/offline/lan.css"><link rel="stylesheet" href="/offline/boss-hud.css"><link rel="stylesheet" href="/offline/cloud.css"><script src="/offline/guard.js"></script>
 <script type="module" src="/offline/entry.js"></script></head><body>
 <noscript>JavaScript and WebGL are required.</noscript><canvas id="game"></canvas><div id="ui"></div></body></html>\n`));
   files.set("LICENSE.txt", await readFile("LICENSE"));

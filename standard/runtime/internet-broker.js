@@ -213,9 +213,6 @@ export class InternetBroker {
       value.buildId!==run.command.identity||!Array.isArray(value.members))throw Error("Wrong room.");
     const mine=value.members.find(member=>member.id===attempt.lease.member);if(!mine)throw Error("Reservation ended.");
     if(mine.departed)throw Error("This seat was left.");
-    if(attempt.state?.match&&JSON.stringify(attempt.state.match)!==JSON.stringify(value.match)&&
-      !(value.phase==="lobby"&&!value.match&&value.lastParty===attempt.state.match.party&&attempt.returnedParty===value.lastParty))
-      throw Error("A running co-op match cannot change.");
     if(run.protocol>=3){
       if(!value.peerRounds||Array.isArray(value.peerRounds)||Object.keys(value.peerRounds).length>6)throw Error("Invalid recovery generations.");
       for(const [key,round] of Object.entries(value.peerRounds??{})){
@@ -225,8 +222,6 @@ export class InternetBroker {
           !Number.isSafeInteger(round)||round<0||round>COOP_MAX_PEER_ROUND)throw Error("Invalid recovery generation.");
       }
     }
-    attempt.room=value;
-    attempt.signalingDown=false;
     const members=value.members.map(({id,name,species,slot,ready,maps,loadout,returned})=>({id,name,species,slot,ready,maps,
       ...(loadout!==undefined?{loadout}:{}),...(returned?{returned:true}:{})}));
     const phase=mine.pending?"connecting":value.phase==="lobby"?(mine.id===value.host&&members.length===1?"hosting":"lobby"):value.phase;
@@ -235,7 +230,15 @@ export class InternetBroker {
       ...(value.lastParty?{lastParty:value.lastParty}:{}),
       discovery:{status:run.command.type==="find"&&mine.pending?"joining":"idle",rooms:1},
       disconnected:value.phase==="playing"?value.members.filter(member=>!member.connected).map(member=>member.id):[]},run.mode);
+    // Compare two validated, canonical match objects. The Worker's property
+    // insertion order differs from lanState's; raw JSON text would otherwise
+    // eject an unchanged room on its second preparation/playing broadcast.
+    if(attempt.state?.match&&JSON.stringify(attempt.state.match)!==JSON.stringify(state.match)&&
+      !(["hosting","lobby"].includes(state.phase)&&!state.match&&state.lastParty===attempt.state.match.party&&attempt.returnedParty===state.lastParty))
+      throw Error("A running co-op match cannot change.");
     state.departed=value.members.filter(member=>member.departed&&member.id!==mine.id).map(member=>member.id);
+    attempt.room=value;
+    attempt.signalingDown=false;
     // A guest is not joined until every required peer link is confirmed.
     if(!mine.pending){attempt.joined=true;clearTimeout(attempt.timer);attempt.resolve();}
     attempt.state=state;this.publishRoom(run,attempt);

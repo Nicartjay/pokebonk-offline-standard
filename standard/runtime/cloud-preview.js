@@ -8,16 +8,17 @@ export function installCloudSavePreview(app, config) {
   const local = {name:"Preview Trainer",usable:18,stardust:12450,savedLabel:"Just now · this Mac"};
   const remote = {name:"Preview Trainer",usable:20,stardust:10900,savedLabel:"10 min ago · Android"};
   const value = () => ({state,connected:!["off","connecting"].includes(state),automatic,
+    sessionOnly:document.documentElement.dataset.standardPlatform==="darwin",
     accountLabel:"Sample account · Preview Trainer",lastSyncedLabel:"2 min ago",
     local,cloud:state==="conflict"?remote:{...local,savedLabel:"2 min ago · this Mac"}});
   const ui = createCloudSaveUI({modal,el,button,config,preview:true,action(command){
-    if(command==="confirm-keep-local")return ui.confirm("keep-local");
-    if(command==="confirm-use-cloud")return ui.confirm("use-cloud");
+    if(command==="review-local")return ui.confirm("keep-local");
+    if(command==="review-cloud")return ui.confirm("use-cloud");
     if(command==="confirm-disconnect")return ui.confirm("disconnect");
     if(command==="auto-on"||command==="auto-off"){automatic=command==="auto-on";return;}
     if(command==="connect")state="connecting";
     else if(command==="cancel"||command==="disconnect")state="off";
-    else if(command==="sync"||command==="keep-local"||command==="use-cloud")state="synced";
+    else if(command==="sync"||command==="confirm-local"||command==="confirm-cloud")state="synced";
     else if(command==="backups"){
       const {panel,close}=modal("Cloud backups");
       panel.classList.add("offline-player-card","offline-cloud-card");
@@ -59,5 +60,7 @@ export function installCloudSavePreview(app, config) {
   globalThis.PokeBonkOfflineUI.profile(app);
   const body=document.querySelector(".offline-player-body");
   body.querySelector("p").textContent="Your trainer, backups and optional cloud saves. No account is required to play.";
-  body.insertBefore(ui.entry(value()),body.querySelector(".offline-player-updates"));
+  const existing=body.querySelector(".offline-cloud-entry");
+  if(existing)existing.replaceWith(ui.entry(value()));
+  else body.insertBefore(ui.entry(value()),body.querySelector(".offline-player-updates"));
 }

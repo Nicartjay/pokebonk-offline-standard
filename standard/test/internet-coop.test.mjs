@@ -4,6 +4,7 @@ import {gatewayOrigin,gatewayRequest,internetInvitation,internetDescription,inte
 import {NativeCoop,NativeInternet} from "../desktop/coop.mjs";
 import {InternetBroker} from "../runtime/internet-broker.js";
 import {InternetMesh} from "../runtime/internet-rtc.js";
+import {coopConfig} from "../common/coop-rules.mjs";
 
 const gateway="https://pokebonk-offline-coop.example.workers.dev";
 const sdp=type=>({type,sdp:"v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\n"+
@@ -149,6 +150,49 @@ function brokerFixture(){
       {id:"lan-guest"+n,slot:1,name:"Guest",species:4,ready:false,pending,connected:true}]});
   return {broker,command,sockets,meshes,requests,events,room};
 }
+for(const mode of ["stun-only","turn-fallback"])test(`${mode} start survives Worker match-key ordering and still rejects a changed run or unacknowledged return`,async()=>{
+  const h=brokerFixture();
+  h.command.data.connectionMode=mode;
+  const originalRequest=h.broker.request;
+  h.broker.request=async(url,options)=>{
+    const response=await originalRequest(url,options);
+    return Response.json({...await response.json(),connectionMode:mode});
+  };
+  const running=h.broker.begin(h.command);
+  try{
+    await until(()=>h.sockets.length===1);
+    const room=h.room(1,false);room.connectionMode=mode;
+    room.members.forEach(member=>{member.ready=true;});
+    room.settings={biome:"forest",tier:0};room.rulesAt=123456;
+    h.sockets[0].receive(room);await running;
+    const run=h.broker.run,attempt=run.attempt;
+    const receive=value=>h.broker.received(run,attempt,JSON.stringify(value));
+    // Exact production Worker construction order, not the sanitized native
+    // state's insertion order. JSON key order is not a match-identity change.
+    room.phase="preparing";
+    room.match={party:"lan-internet-start-test",seed:123,...coopConfig(room.settings),
+      rulesAt:room.rulesAt,players:room.members.map(member=>member.id)};
+    await receive(room);
+    assert.notDeepEqual(Object.keys(attempt.state.match),Object.keys(room.match));
+    await assert.doesNotReject(receive(room),"The second preparation broadcast is the same run.");
+    room.phase="playing";await assert.doesNotReject(receive(room));
+    await assert.doesNotReject(receive(room),"An ordinary playing-state refresh must not eject the room.");
+    for(const change of [
+      {party:"lan-another-party"},{seed:124},{mode:"endless"},{biome:"desert"},{tier:1},
+      {rulesAt:room.rulesAt+1},{players:[...room.match.players].reverse()},
+    ])await assert.rejects(receive({...room,match:{...room.match,...change}}),/cannot change|Invalid shared LAN match/);
+    const returned={...room,phase:"lobby",lastParty:room.match.party};
+    delete returned.match;
+    await assert.rejects(receive(returned),/cannot change/);
+    h.broker.action("room-return",room.match.party);
+    await assert.doesNotReject(receive(returned));
+    assert.equal(attempt.state.phase,"lobby");
+    const next={...room,phase:"preparing",match:{...room.match,party:"lan-next-internet-run",seed:125}};
+    await assert.doesNotReject(receive(next));
+    assert.equal(attempt.state.match.party,next.match.party);
+    assert.equal(h.requests.some(request=>request.url.endsWith("/turn")),false);
+  }finally{await h.broker.close();await running;}
+});
 test("find waits for bidirectional peer acceptance, retries another room, and isolates stale callbacks",async()=>{
   const h=brokerFixture(),running=h.broker.begin(h.command);
   await until(()=>h.sockets.length===1);

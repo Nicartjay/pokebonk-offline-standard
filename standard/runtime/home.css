@@ -293,8 +293,16 @@
 .offline-update-progress > span { display: block; width: 40%; height: 100%; border-radius: inherit; background: linear-gradient(90deg,#9a73f5,#65b8ff); animation: offline-update-sweep 1.5s ease-in-out infinite; }
 .offline-update-progress.determinate { height: 15px; border: 2px solid var(--line); background: var(--paper-2); box-shadow: inset 0 2px 0 #0000000c; }
 .offline-update-progress.determinate > span { width: 0; animation: none; transition: width .18s linear; background: var(--stripes),linear-gradient(90deg,#8360e7,#399ee8); box-shadow: inset 0 2px 0 #ffffff66; }
+.offline-update-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:7px; list-style:none; margin:0 0 18px; padding:0; }
+.offline-update-steps li { display:flex; align-items:center; justify-content:center; gap:6px; min-width:0; padding:8px 4px; border:1px solid var(--line); border-radius:10px; color:var(--ink-2); font-size:10px; background:var(--paper-2); }
+.offline-update-steps li > span { display:grid; place-items:center; flex:none; width:18px; height:18px; border-radius:50%; border:1px solid var(--line); font-weight:900; }
+.offline-update-steps li.active { border-color:#9272df; background:#8a6bd71c; color:var(--ink); }
+.offline-update-steps li.active > span { background:#8056cd; border-color:#8056cd; color:white; }
+.offline-update-steps li.done > span { background:#2a9c6c; border-color:#2a9c6c; color:white; }
+.offline-update-steps li.next { opacity:.7; }
+.offline-update-install-locked { opacity:.5; cursor:not-allowed; box-shadow:none; }
 .offline-update-transfer { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; margin: 0 0 9px; }
-.offline-update-percent { font: 900 28px/1 var(--font-title); color: var(--ink); font-variant-numeric: tabular-nums; }
+.offline-update-percent { font: 900 38px/1 var(--font-title); color: var(--ink); font-variant-numeric: tabular-nums; }
 .offline-update-bytes { font-size: 12px; font-weight: 800; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .offline-update-verified { margin: 0 0 16px; padding: 11px 14px; color: var(--ink); background: #32b37618; border: 1px solid #32b37666; border-radius: 12px; font-size: 12px; font-weight: 800; line-height: 1.5; }
 [data-update-state="available"] .offline-update-symbol { color: #6b52d5; background: #8a6bd722; }
@@ -328,6 +336,8 @@
   .offline-update-notes-text { max-height: 74px; }
   .offline-update-percent { font-size: 24px; }
   .offline-update-progress { margin-bottom: 12px; }
+  .offline-update-steps { margin-bottom:10px; gap:5px; }
+  .offline-update-steps li { padding:5px 3px; font-size:9px; }
 }
 /* Landscape phones use the available width rather than pushing Install below
    the fold. Roomy tablets/desktops keep the original single-column modal. */
@@ -336,10 +346,11 @@
   .offline-card.offline-update-card > .offline-card-head { padding: 11px 18px; }
   .offline-update-body {
     display: grid; grid-template-columns: minmax(0,1.05fr) minmax(0,1fr);
-    grid-template-areas: "hero hero" "detail versions" "note versions" "actions actions";
+    grid-template-areas: "hero hero" "steps steps" "detail versions" "note versions" "actions actions";
     gap: 8px 18px;
   }
   .offline-update-hero { grid-area: hero; margin: 0 0 2px; }
+  .offline-update-steps { grid-area:steps; margin:0; }
   .offline-update-versions { grid-area: versions; align-self: start; margin: 0; padding-inline: 12px; }
   .offline-update-note { grid-area: note; align-self: start; margin: 0; }
   .offline-update-progress,.offline-update-verified,.offline-update-release-notes,.offline-update-details { grid-area: detail; margin: 0; }
@@ -348,7 +359,7 @@
   .offline-update-release-notes { border: 0; padding-top: 0; }
   .offline-update-notes-text { max-height: 64px; }
   .offline-update-card[data-update-state="downloading"] .offline-update-body {
-    grid-template-areas: "hero hero" "transfer versions" "progress versions" "note versions" "actions actions";
+    grid-template-areas: "hero hero" "steps steps" "transfer versions" "progress versions" "note versions" "actions actions";
   }
   .offline-update-transfer { grid-area: transfer; margin: 0; }
   .offline-update-card[data-update-state="downloading"] .offline-update-body > .offline-update-progress { grid-area: progress; margin: 0; }

@@ -5,6 +5,9 @@ import {artifactURL, artifactName, DISTRIBUTIONS} from "../common/manifest.mjs";
 export const productionConfig = JSON.parse(readFileSync(new URL("../config.json", import.meta.url), "utf8"));
 const keys = generateKeyPairSync("ec", {namedCurve: "prime256v1"});
 export const config = {...productionConfig, version: "0.1.0",
+  // Cloud tests explicitly inject their isolated service. Enabling the actual
+  // app must never silently opt fixtures into a production provider/account.
+  cloudSaves: {enabled: false, url: ""},
   updatePublicKey: keys.publicKey.export({format: "pem", type: "spki"}), androidCertificateSha256: "a".repeat(64)};
 export function state() {
   return {version: 1, playerId: "offline-test-player", updatedAt: 123,

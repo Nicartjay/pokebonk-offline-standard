@@ -1,4 +1,4 @@
-import {app, BrowserWindow, Menu, dialog, protocol, session, ipcMain, shell, screen, powerSaveBlocker, clipboard} from "electron";
+import {app, BrowserWindow, Menu, dialog, protocol, session, ipcMain, shell, screen, powerSaveBlocker, clipboard,safeStorage} from "electron";
 import {createReadStream, existsSync, readFileSync} from "node:fs";
 import {readFile, stat, realpath, writeFile} from "node:fs/promises";
 import {Readable} from "node:stream";
@@ -18,6 +18,10 @@ import {gatewayOrigin} from "../common/internet-coop.mjs";
 import {configureBrokerSession} from "./coop-session.mjs";
 import {lanIdentity} from "../common/lan-policy.mjs";
 import {coopMaps} from "../common/coop-rules.mjs";
+import {CloudSync} from "../common/cloud-sync.mjs";
+import {DesktopCloudHost} from "./cloud-host.mjs";
+import {cloudError} from "../common/cloud-save.mjs";
+import {CLOUD_RETURN_SCHEME,cloudReturnId} from "../common/cloud-return.mjs";
 const root = path.dirname(fileURLToPath(import.meta.url));
 // Graphics switches must be selected before Electron initializes Chromium.
 const config = JSON.parse(readFileSync(path.join(root, "../config.json"), "utf8"));
@@ -55,6 +59,18 @@ const updater = new StandardUpdater({config, directory: dataDirectory,
   }});
 let window, desktopControls, pendingMessage, pendingFeedback, presentedVersion, showing = false, reopenUpdate = false;
 let lan, brokerWindow, brokerReady, brokerResolve, brokerReject,brokerSession;
+let cloud,cloudHost,pendingCloud;
+function returnFromCloud(url){
+  if(cloudHost?.acceptsReturn(url))focusAfterCloud();
+}
+function focusAfterCloud(){
+  if(!window||window.isDestroyed())return;
+  if(window.isMinimized())window.restore();
+  window.show();window.focus();
+  // Only foreground the existing app. Native proof polling, never this URL,
+  // establishes the session; no navigation, save mutation or game reload.
+  void showPending().catch(console.error);
+}
 const BROKER_URL = `${ORIGIN}/offline/lan-broker.html`;
 async function brokerInput(value) {
   if(value.type==="reset"&&(!brokerWindow||brokerWindow.isDestroyed()))return;
@@ -102,6 +118,10 @@ async function showPending() {
       // Keep feedback queued until the game UI can show it. Never substitute
       // an operating-system update alert or interrupt an active run.
       if (handled && pendingFeedback === value) pendingFeedback = null;
+    } else if(pendingCloud){
+      const value=pendingCloud;
+      const handled=await window.webContents.executeJavaScript(`globalThis.PokeBonkOfflineUI?.cloudFeedback(${JSON.stringify(value)}) ?? false`).catch(()=>false);
+      if(handled&&pendingCloud===value)pendingCloud=null;
     } else if (pendingMessage) {
       const detail = pendingMessage; pendingMessage = null;
       await dialog.showMessageBox(window, {type: "info", message: config.productName, detail, buttons: ["OK"]});
@@ -292,8 +312,14 @@ async function createWindow() {
 
 if (!primaryInstance) app.quit();
 else {
-  app.on("second-instance", () => { window?.show(); window?.focus(); });
+  app.on("open-url",(event,url)=>{event.preventDefault();returnFromCloud(url);});
+  app.on("second-instance", (_event,argv) => {
+    const returned=argv.find(value=>cloudReturnId(value));
+    if(returned)returnFromCloud(returned);
+    else {window?.show();window?.focus();}
+  });
   app.whenReady().then(async () => {
+    if(app.isPackaged&&process.platform!=="darwin")app.setAsDefaultProtocolClient(CLOUD_RETURN_SCHEME);
     await stat(path.join(game, "index.html"));
     await preferences.save().catch(error => console.warn("Native presentation preferences:", error.message));
     desktopControls = createDesktopControls({app, screen, powerSaveBlocker, dialog, preferences, config,
@@ -302,6 +328,17 @@ else {
     brokerSession=session.fromPartition("pokebonk-standard-native-coop");
     const assetIdentity=JSON.parse(await readFile(path.join(game,"asset-manifest.json"),"utf8")).gameDigest;
     lan=new NativeCoop({config,identity:lanIdentity(config,assetIdentity),profile:lanProfile,emit:lanEvent,broker:brokerInput});
+    const cloudIdle=async()=>await idle()&&!["hosting","connecting","lobby","preparing","playing"].includes(lan?.value.phase);
+    cloudHost=new DesktopCloudHost({config,directory:dataDirectory,safeStorage:process.platform==="darwin"?undefined:safeStorage,idle:cloudIdle,
+      openBrowser:url=>shell.openExternal(url),reload:()=>window?.webContents.reload(),
+      onReturn:focusAfterCloud,
+      onLogin:loginCode=>cloud.publish("connecting",{loginCode,open:true})});
+    cloudHost.snapshot=async()=>{try{return await store.cloudSnapshot();}catch(error){throw cloudError(error.code==="ENOENT"?"no_local_save":"save_read_failed");}};
+    cloudHost.restore=async value=>{
+      if(!await cloudIdle())throw cloudError("room_active");
+      await store.restoreCloud(value);if(window&&!window.isDestroyed())window.webContents.reload();
+    };
+    cloud=new CloudSync({config,host:cloudHost,emit:value=>{pendingCloud=value;void showPending().catch(console.error);}});
     offline.webRequest.onBeforeRequest({urls: ["http://*/*", "https://*/*", "ws://*/*", "wss://*/*", "ftp://*/*"]},
       (_request, callback) => callback({cancel:true}));
     configureBrokerSession(brokerSession,{gateway:gatewayOrigin(config),phase:()=>lan.value.phase,
@@ -340,8 +377,8 @@ else {
     };
     offline.protocol.handle("pokebonk-standard",assetResponse);
     brokerSession.protocol.handle("pokebonk-standard",assetResponse);
-    ipcMain.handle("standard:load-state", async event => { sender(event); return store.loadState(); });
-    ipcMain.handle("standard:save-state", async (event, value) => { sender(event); return store.saveState(value); });
+    ipcMain.handle("standard:load-state", async event => { sender(event); return store.clientLoadState(); });
+    ipcMain.handle("standard:save-state", async (event, value) => { sender(event); return store.clientSaveState(value); });
     let lanCommands=Promise.resolve(),lanSearchRequest=0;
     ipcMain.on("standard:lan-action",(event,action,data,...extra)=>{
       try{
@@ -372,6 +409,19 @@ else {
       if(!brokerWindow||event.sender!==brokerWindow.webContents||event.senderFrame!==brokerWindow.webContents.mainFrame||
         event.senderFrame.url!==BROKER_URL||typeof text!=="string"||text.length>48000)return;
       try{const value=JSON.parse(text);if(value.type==="ready")brokerResolve?.();else lan.fromBroker(value);}catch{}
+    });
+    ipcMain.on("standard:cloud-status",(event,...args)=>{
+      try{
+        sender(event);if(args.length)return;
+        void idle().then(ok=>{if(ok)return cloud.command("open");}).catch(console.error);
+      }catch{/* Fixed native cloud operation; no renderer-supplied destination. */}
+    });
+    ipcMain.on("standard:cloud-action",(event,action,selection,...extra)=>{
+      try{
+        sender(event);if(extra.length||!["connect","cancel","sync","auto-on","auto-off","disconnect","backups","review-local","review-cloud","confirm-local","confirm-cloud","review-backup"].includes(action)||
+          (action==="review-backup"?!/^[a-f0-9]{32}$/.test(selection??""):selection!==undefined))return;
+        void idle().then(ok=>{if(ok)return cloud.command(action,selection);}).catch(console.error);
+      }catch{/* Fixed user-gesture actions only; no URLs or bearer credentials. */}
     });
     ipcMain.on("standard:check-updates", (event, ...args) => {
       try {
@@ -412,6 +462,8 @@ else {
       iconPath: path.join(game, "icons/icon-512.png"), copyright: "Original game: Charcher. Shell: VdustR. Offline integration: Nicartjay."});
     menus();
     await createWindow();
+    void cloud.init().catch(()=>{pendingCloud={state:"error",connected:false,automatic:false,reason:"secure_storage_unavailable"};});
+    setInterval(()=>void cloud.tick(),5000).unref();
     setInterval(() => void showPending().catch(console.error), 2000).unref();
   }).catch(error => { console.error(error); dialog.showErrorBox(`${config.productName} could not start`, error.message); app.exit(1); });
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) void createWindow(); });
@@ -422,7 +474,7 @@ else {
   app.on("will-quit", event => {
     if (quitFlushed) return;
     event.preventDefault();
-    quitFlush ??= Promise.all([store.queue, preferences.save()]).catch(console.error).finally(() => {
+    quitFlush ??= Promise.all([store.queue, preferences.save(),cloudHost?.close()]).catch(console.error).finally(() => {
       quitFlushed = true;
       app.quit();
     });

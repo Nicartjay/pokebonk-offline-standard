@@ -1,5 +1,23 @@
 [
   {
+    "version": "1.3.1",
+    "date": "2026-11-26",
+    "status": "Stable release",
+    "upstream": {
+      "version": "0.10.31",
+      "build": "mwv6wzyo"
+    },
+    "changes": [
+      "Added optional cross-platform cloud saves under Player & saves, using the same Google account for identity only, with no Google Drive permission. Signing in alone does not upload or restore progress; automatic syncing requires a separate opt-in.",
+      "Sync completed progression, review conflicting whole saves and restore backup history with local recovery copies. Graphics, audio and touch preferences stay on each device; unfinished runs, live co-op sessions and pending Expedition returns remain device-local.",
+      "Mac cloud login stays only in native memory, avoiding Keychain/Safe Storage access. A one-use localhost callback returns from the browser. Fully quitting requires connecting again; legacy encrypted login files and local game progress are left untouched.",
+      "Android Chrome uses an explicit Return to game tap targeting the installed app, with the pokebonk-offline custom scheme, a legacy alias and an alternate link. Temporary sign-in polling failures retry within the same attempt, with bounded backoff and safe error references.",
+      "Improved in-game updater status and download feedback. Downloads and installation remain explicit, verified native operations.",
+      "Preserved the co-op room when opening the original Pokémon selector and when returning from completed co-op results. Co-op peers must use matching app builds and connection modes.",
+      "Improved Android combat and collection text readability, restored missing task artwork, and retained normal earned progression, saves, application identity and signing identities."
+    ]
+  },
+  {
     "version": "1.3.0",
     "date": "2026-11-25",
     "status": "Stable release",

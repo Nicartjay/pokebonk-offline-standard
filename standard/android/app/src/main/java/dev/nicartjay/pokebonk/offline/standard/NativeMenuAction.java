@@ -9,11 +9,13 @@ final class NativeMenuAction {
     }
     static String resolve(String url, String method, boolean mainFrame, boolean gesture) {
         if (!mainFrame || !gesture || !"GET".equals(method) || !reserved(url)) return null;
-        for (String action : new String[]{"check-for-updates", "download-update", "install-update", "export-backup", "import-backup", "report-bug",
+        for (String action : new String[]{"check-for-updates", "download-update", "install-update", "export-backup", "import-backup", "report-bug", "cloud-saves",
             "lan/host", "lan/join", "lan/leave", "lan/copy", "lan/find", "lan/browse", "lan/cancel-find"}) {
             if ((PREFIX + action).equals(url)) return action;
         }
         String action=url.substring(PREFIX.length());
+        if(action.matches("cloud/(connect|cancel|sync|auto-on|auto-off|disconnect|backups|review-local|review-cloud|confirm-local|confirm-cloud)")||
+            action.matches("cloud/review-backup/[a-f0-9]{32}"))return action;
         if(joinCode(action)!=null)return action;
         return null;
     }

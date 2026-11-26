@@ -1,20 +1,19 @@
-# PokéBonk Offline 1.3.0
+# PokéBonk Offline 1.3.1
 
 Bundled game: **PokéBonk 0.10.31 / mwv6wzyo**.
 
-- **Updated game:** the original Pokédex+, collection/move history, Expedition improvements and upstream fixes.
-- **Expedition co-op:** team up with 2–4 trainers in Wild Valley or Safari Zone, with individual loadouts, Ready/Enter controls, loot ownership and acknowledged item returns.
-- **Expanded co-op rooms:** original map, difficulty and mode pickers, including Daily Mutation and Boss Rush. Find teammates controls public discovery; private rooms remain code-only.
-- **Reconnect during runs:** temporary interruptions pause the team for up to 90 seconds while apps remain open. Rejoin the same run, or choose Give up. Host migration and recovery after force-closing the app are not supported.
-- **Better updates:** checking, download percentage, verification and Install update use the game's modal design. Downloads and installation still require your choice.
-- **Offline rental builds:** all 1,104 public builds for 138 Pokémon are bundled, with creator credits and normal unlock requirements.
-- **Performance and readability:** graphics quality affects the actual render resolution; Battery Saver lowers resolution, disables bloom and locks FPS to 30. Improved Android HP/friendship text, compact multi-boss bars and the Left to use panel.
-- **Artwork fixes:** restored original status icons and Treasures banner glows. Original generated Pokémon looks remain intact; no cosmetic unlocks are granted.
+- **Optional cross-platform cloud saves:** connect the same Google account on your devices, sync completed progress, review conflicts and restore backup history. Google is used for identity only—no Google Drive permission.
+- **Local saves first:** signing in alone does not upload or replace progress. Automatic sync requires a separate opt-in. Device graphics, audio and touch settings stay local; unfinished runs and live co-op sessions do not sync.
+- **Mac sign-in without Keychain:** cloud credentials stay only in native memory. A temporary localhost callback returns you to the game; connect again after fully quitting.
+- **Android browser return:** tap **Return to game** in Chrome. The app handles `pokebonk-offline://` links, retains the previous link alias and provides an alternate return link.
+- **More resilient Android sign-in:** temporary sign-in checks retry within the same attempt, with bounded backoff and safe error references.
+- **Updater and co-op fixes:** clearer in-game update feedback and download progress; preserved co-op rooms when returning from results or opening Pokémon selection.
+- **Android readability and artwork:** improved outlined combat/collection text and restored missing task-reward artwork.
 
-**Before updating:** export a save backup and finish any unfinished run in v1.2.0 first. Completed progression remains compatible; older-engine suspended runs are preserved but cannot resume in v1.3.0.
+**Before updating:** export a JSON backup. Use the same new build on all co-op devices. Finish active runs and Expedition item returns before cloud syncing.
 
-All co-op players need the same app build and connection mode. LAN and solo play work without Internet; STUN/TURN co-op requires the separate signaling service. Keep apps and the room open until Expedition item returns are acknowledged.
+Optional cloud saves are capacity-limited and are not a replacement for your own backups. Cloud backups are not end-to-end encrypted. [Privacy](https://pokebonk-offline-cloud.nicartjay.workers.dev/privacy) · [Terms](https://pokebonk-offline-cloud.nicartjay.workers.dev/terms)
 
-Install the Android APK over the existing app—do not uninstall. Fully quit the old macOS app before opening the new one. The app ID, save schema and Android signing identity are unchanged.
+Install the Android APK over the existing app—**do not uninstall**. Fully quit the old Mac app before opening the new one. The app ID, save schema, release-verification key and Android signing identity are unchanged.
 
-**Downloads:** macOS Apple Silicon/Intel DMG and ZIP; Windows setup/portable EXE and ZIP; Linux AppImage/DEB; Android APK. Desktop builds are not Apple-notarized or Authenticode-signed.
+**Downloads:** macOS Apple Silicon/Intel DMG and ZIP; Windows setup/portable EXE and ZIP; Linux AppImage/DEB; Android APK. macOS builds are ad-hoc signed, not Apple-notarized; Windows builds are not Authenticode-signed.

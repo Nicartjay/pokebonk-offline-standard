@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
-import {updateFeedbackView} from "../common/update-feedback.mjs";
+import {updateFeedbackView,updateFeedbackSnapshot} from "../common/update-feedback.mjs";
 import {androidBridgeMethods} from "./bridge-fixtures.mjs";
 
 const config = {version: "1.1.0", upstream: {version: "0.10.26", build: "mwsewi0r"}};
@@ -94,4 +94,30 @@ test("app-controlled updater presentation never falls back to an Android system 
   assert.doesNotMatch(block, /AlertDialog|Toast|showDialog/);
   assert.match(block, /retryFeedback/);
   assert.match(source, /dismissUpdate/);
+});
+test("hidden progress can be reopened without retaining URLs, paths or signed manifest contents",()=>{
+  const snapshot=updateFeedbackSnapshot({...update,state:"downloading",url:"https://example.invalid",
+    file:"/private/file",signed:{credential:"never"},detail:"secret".repeat(1000)},config);
+  assert.equal(snapshot.receivedBytes,37);
+  assert.equal(updateFeedbackView(snapshot,config).percent,37);
+  assert.doesNotMatch(JSON.stringify(snapshot),/example\.invalid|private\/file|credential|signed/);
+  assert.equal(updateFeedbackSnapshot({state:"downloading",...update,receivedBytes:101},config),null);
+});
+test("update stepper advances only through native reported phases",()=>{
+  for(const [state,active]of [["available",0],["downloading",1],["verifying",2],["ready",3],["installing",3]]){
+    const view=updateFeedbackView({...update,state},config);
+    assert.deepEqual(view.steps.map(step=>step.label),["Release","Download","Verify","Install"]);
+    assert.equal(view.steps.filter(step=>step.state==="active").length,1);
+    assert.equal(view.steps[active].state,"active");
+    assert.equal(view.steps.filter(step=>step.state==="done").length,active);
+  }
+});
+test("Player & saves retains download status and Android manual checks explicitly reopen hidden progress",async()=>{
+  const ui=await readFile("standard/runtime/ui.js","utf8");
+  const java=await readFile("standard/android/app/src/main/java/dev/nicartjay/pokebonk/offline/standard/RepositoryUpdater.java","utf8");
+  assert.match(ui,/offlineUpdateStatus/);assert.match(ui,/offlineOpenUpdates/);
+  assert.match(ui,/latestUpdate=updateFeedbackSnapshot/);
+  assert.match(ui,/locked\.disabled=true/);
+  assert.match(java,/showLatestFeedback\(\)/);
+  assert.match(java,/\.put\("open", true\)/);
 });

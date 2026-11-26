@@ -1,9 +1,13 @@
 {
   "applicationId": "dev.nicartjay.pokebonk.offline.standard",
   "productName": "PokéBonk Offline",
-  "version": "1.3.0",
-  "androidVersionCode": 13,
+  "version": "1.3.1",
+  "androidVersionCode": 14,
   "edition": "standard",
+  "cloudSaves": {
+    "enabled": true,
+    "url": "https://pokebonk-offline-cloud.nicartjay.workers.dev"
+  },
   "internetCoop": {
     "enabled": true,
     "url": "https://pokebonk-offline-coop.nicartjay.workers.dev",

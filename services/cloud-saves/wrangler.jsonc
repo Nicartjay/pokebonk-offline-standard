@@ -1,0 +1,23 @@
+{
+  "$schema": "../coop-gateway/node_modules/wrangler/config-schema.json",
+  "name": "pokebonk-offline-cloud",
+  "main": "src/worker.mjs",
+  "compatibility_date": "2026-11-25",
+  "workers_dev": true,
+  "preview_urls": false,
+  "keep_vars": true,
+  "observability": {"enabled": false},
+  "vars": {
+    "SERVICE_ENABLED": "true",
+    "PUBLIC_ORIGIN": "https://pokebonk-offline-cloud.nicartjay.workers.dev",
+    "MAX_ACCOUNTS": "100",
+    "SESSION_DAYS": "30"
+  },
+  "r2_buckets": [{"binding": "SAVES", "bucket_name": "pokebonk-offline-private-saves"}],
+  "durable_objects": {"bindings": [
+    {"name": "DIRECTORY", "class_name": "CloudDirectory"},
+    {"name": "ACCOUNTS", "class_name": "CloudAccount"},
+    {"name": "BUDGET", "class_name": "CloudBudget"}
+  ]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["CloudDirectory", "CloudAccount", "CloudBudget"]}]
+}

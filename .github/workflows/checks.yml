@@ -20,6 +20,7 @@ jobs:
       # No Cloudflare, TURN, analytics, or signing secrets belong in this job.
       - run: node standard/scripts/audit-coop-secrets.mjs
       - run: node --test services/coop-gateway/test/*.test.mjs
+      - run: node --test services/cloud-saves/test/*.test.mjs
   shared:
     strategy:
       fail-fast: false

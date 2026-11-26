@@ -58,6 +58,15 @@ final class RepositoryUpdater {
     synchronized void retryFeedback(JSONObject value) {
         if (feedback == value && event == null) event = "feedback";
     }
+    private synchronized void showLatestFeedback() {
+        if (feedback == null) return;
+        try {
+            // Manual actions reopen hidden progress; later byte updates do
+            // not carry this flag, so Hide can still keep the download hidden.
+            feedback = new JSONObject(feedback.toString()).put("open", true);
+            event = "feedback"; activity.updateChanged();
+        } catch (org.json.JSONException impossible) { throw new IllegalStateException(impossible); }
+    }
     synchronized void resumed() {
         if (ready != null && !busy.get() && feedback != null && "installing".equals(feedback.optString("state")))
             emitState("ready", readyManifest, 0, null, null, null);
@@ -189,14 +198,14 @@ final class RepositoryUpdater {
     }
     synchronized void check(boolean manual) {
         if (ready != null && !busy.get()) {
-            if (manual) emitState("ready", readyManifest, 0, null, null, null);
+            if (manual) { emitState("ready", readyManifest, 0, null, null, null); showLatestFeedback(); }
             return;
         }
         long now = System.currentTimeMillis(), last = preferences.getLong("lastCheck", 0);
         if (!manual && last <= now && now - last < INTERVAL) return;
         if (!busy.compareAndSet(false, true)) {
             if (manual && checking) { reportCheck = true; emitFeedback("checking", null, null); }
-            else if (manual && feedback != null) { event = "feedback"; activity.updateChanged(); }
+            else if (manual && feedback != null) showLatestFeedback();
             return;
         }
         checking = true; reportCheck = manual;

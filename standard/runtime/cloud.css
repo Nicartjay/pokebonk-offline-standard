@@ -37,6 +37,10 @@
 .offline-cloud-auto strong { font-size:12px; }
 .offline-cloud-auto small { margin-top:3px; font-size:10px; color:var(--ink-2); }
 .offline-cloud-auto input { width:36px; height:20px; accent-color:var(--blue,#399ee8); flex:none; cursor:pointer; }
+.offline-cloud-auto-control { display:inline-flex; flex:none; align-items:center; justify-content:center; min-width:48px; text-decoration:none; }
+.offline-cloud-auto-control[aria-checked="true"] { background:#37ad75; color:white; }
+.offline-cloud-history { display:grid; gap:10px; margin:14px 0; }
+.offline-cloud-actions a { text-decoration:none; }
 .offline-cloud-compare { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:13px; }
 .offline-cloud-save { min-width:0; padding:13px 15px; background:var(--paper-2); border:1px solid var(--line); border-top:3px solid #6daaff; border-radius:12px; }
 .offline-cloud-save.remote { border-top-color:#59c68c; }
@@ -47,6 +51,7 @@
 .offline-cloud-save dt { color:var(--ink-2); }
 .offline-cloud-save dd { margin:0; font-weight:900; font-variant-numeric:tabular-nums; }
 .offline-cloud-warning { border-left:3px solid #e5af49; padding:9px 12px; background:#e5af4914; border-radius:0 8px 8px 0; }
+.offline-cloud-session-note { margin:0 0 17px; }
 .offline-cloud-conflict-actions > .btn:last-child { flex-basis:100%; max-width:none; background:transparent; box-shadow:none; min-height:27px; padding:5px; }
 .offline-cloud-confirm h3 { margin:0 0 12px; font:900 21px/1.2 var(--font-title); }
 .offline-cloud-confirm p { color:var(--ink-2); font-size:13px; }
@@ -75,7 +80,7 @@
   .offline-cloud-symbol { width:43px; height:43px; }
   .offline-cloud-icon { width:27px; height:27px; }
   .offline-cloud-status { margin:9px 0; }
-  .offline-cloud-benefits { gap:8px; margin-bottom:8px; }
+  .offline-cloud-benefits { grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:8px; }
   .offline-cloud-benefits > div { padding:8px 10px; }
   .offline-cloud-benefits strong { margin-bottom:2px; }
   .offline-cloud-consent { margin:9px 0; padding:8px 11px; }
